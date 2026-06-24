@@ -211,8 +211,8 @@
 .pill.ok{background:#e3efe1;color:#3f7d3f} .pill.low{background:#fbf0d6;color:#b8860b} .pill.out{background:#f7dcd9;color:#b4231f}
 .prline{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px dashed var(--line);padding-bottom:8px;margin-bottom:8px}
 
+.ico{width:1em;height:1em;display:inline-block;vertical-align:-0.125em;flex:none}
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.34.0/iconfont/tabler-icons.min.css">
 </head>
 <body>
 <div id="loginScreen">
@@ -284,7 +284,7 @@
     <button data-view="suppliers">Suppliers</button>
     <button data-view="users" style="display:none">Users</button>
   </nav>
-  <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><i class="ti ti-home" aria-hidden="true"></i>&nbsp;Home</button>
+  <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></svg>&nbsp;Home</button>
   <span id="syncPill" class="syncpill local" title="Data sync status">Local only</span>
   <button id="lockBtn" class="lockbtn" style="display:none">🔒</button>
   <span class="who" id="whoWrap" style="display:none">Hi&nbsp;<b id="whoName">—</b><button id="signoutBtn" class="lockbtn">Sign out</button></span>
@@ -1730,15 +1730,37 @@ async function startApp(){
 function renderForTab(v){ ({home:renderHomeMenu,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
+const ICONS={
+  home:'<path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/>',
+  book:'<path d="M3 19a9 9 0 0 1 9 0a9 9 0 0 1 9 0"/><path d="M3 6a9 9 0 0 1 9 0a9 9 0 0 1 9 0"/><path d="M3 6l0 13"/><path d="M12 6l0 13"/><path d="M21 6l0 13"/>',
+  box:'<path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5"/><path d="M12 12l8 -4.5"/><path d="M12 12l0 9"/><path d="M12 12l-8 -4.5"/>',
+  settings:'<path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/>',
+  factory:'<path d="M3 21h18"/><path d="M4 21v-9l5 3v-3l5 3v-6l5 3v9"/>',
+  list:'<path d="M9 6l11 0"/><path d="M9 12l11 0"/><path d="M9 18l11 0"/><path d="M5 6l0 .01"/><path d="M5 12l0 .01"/><path d="M5 18l0 .01"/>',
+  basket:'<path d="M4 10l16 0"/><path d="M6 10l1.5 9a1 1 0 0 0 1 1h7a1 1 0 0 0 1 -1l1.5 -9"/><path d="M9 10l1.5 -6"/><path d="M15 10l-1.5 -6"/>',
+  pencil:'<path d="M4 20h4l10.5 -10.5a1.5 1.5 0 0 0 -4 -4l-10.5 10.5l0 4"/><path d="M13.5 6.5l4 4"/>',
+  printer:'<path d="M17 17h2a2 2 0 0 0 2 -2v-4a2 2 0 0 0 -2 -2h-14a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h2"/><path d="M17 9v-4a1 1 0 0 0 -1 -1h-8a1 1 0 0 0 -1 1v4"/><path d="M7 13h10v6a1 1 0 0 1 -1 1h-8a1 1 0 0 1 -1 -1z"/>',
+  clipboardList:'<path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2"/><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2"/><path d="M9 12l.01 0"/><path d="M13 12l2 0"/><path d="M9 16l.01 0"/><path d="M13 16l2 0"/>',
+  calendar:'<path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M11 15h1"/><path d="M12 15v3"/>',
+  truck:'<path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M15 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M5 17h-2v-11a1 1 0 0 1 1 -1h9v12m-4 0h6m4 0h2v-6h-8m0 -5h5l3 5"/>',
+  users:'<path d="M12 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/>',
+  clipboardCheck:'<path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2"/><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2"/><path d="M9 14l2 2l4 -4"/>',
+  package:'<path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5"/><path d="M12 12l8 -4.5"/><path d="M12 12l0 9"/><path d="M12 12l-8 -4.5"/><path d="M8 5.5l8 4.5"/>',
+  history:'<path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/>',
+  user:'<path d="M12 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>',
+  arrowLeft:'<path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/>',
+  arrowRight:'<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>'
+};
+function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
-  {k:'recipes',t:'Recipes',icon:'ti-book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','ti-books','library'],['Ingredients','ti-meat','ingredients'],['Edit Recipes','ti-edit','editor'],['Mixing Sheets','ti-printer','mixing']]},
-  {k:'prod',t:'Production & deliveries',icon:'ti-building-factory-2',sub:'Record, plan, deliveries, suppliers',items:[['Record Production','ti-clipboard-list','production'],['Production Planner','ti-calendar','planner'],['Deliveries','ti-truck','deliveries'],['Suppliers','ti-users-group','suppliers']]},
-  {k:'stock',t:'Stock',icon:'ti-box',sub:'Stock, stocktake, packaging',items:[['Stock','ti-box','stock'],['Stocktake','ti-checklist','adjustments'],['Packaging','ti-package','packaging']]},
-  {k:'admin',t:'Admin',icon:'ti-settings',sub:'Change log, users',items:[['Change Log','ti-history','log'],['Users','ti-user-cog','users']]}
+  {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
+  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Record, plan, deliveries, suppliers',items:[['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
+  {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
+  {k:'admin',t:'Admin',icon:'settings',sub:'Change log, users',items:[['Change Log','history','log'],['Users','user','users']]}
 ];
 function renderHomeMenu(){
   const sub=document.getElementById('homeSub'); if(sub){ sub.textContent='Choose an area to work in.'; sub.style.display=''; }
-  const tiles=HOME_GROUPS.map(g=>`<button class="gtile" onclick="openGroup('${g.k}')"><span class="gdot"><i class="ti ${g.icon}" aria-hidden="true"></i></span><span class="gt">${g.t}</span><span class="gs">${escapeHtml(g.sub)}</span></button>`).join('');
+  const tiles=HOME_GROUPS.map(g=>`<button class="gtile" onclick="openGroup('${g.k}')"><span class="gdot">${svg(g.icon)}</span><span class="gt">${g.t}</span><span class="gs">${escapeHtml(g.sub)}</span></button>`).join('');
   const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML='<div class="hgrid">'+tiles+'</div>';
 }
 function openGroup(k){
@@ -1746,9 +1768,9 @@ function openGroup(k){
   const isAdmin=CURRENT_USER&&CURRENT_USER.role==='admin';
   const items=g.items.filter(it=>!(it[2]==='users'&&!isAdmin));
   const sub=document.getElementById('homeSub'); if(sub) sub.style.display='none';
-  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><i class="ti ${it[1]} oic" aria-hidden="true"></i><span>${it[0]}</span><i class="ti ti-arrow-right oar" aria-hidden="true"></i></button>`).join('');
-  document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()"><i class="ti ti-arrow-left" aria-hidden="true"></i><span>Home</span></button>'+
-    '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px"><i class="ti '+g.icon+'" aria-hidden="true"></i></span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span></div>'+
+  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><span class="oic">${svg(it[1])}</span><span>${it[0]}</span><span class="oar">${svg('arrowRight')}</span></button>`).join('');
+  document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()">'+svg('arrowLeft')+'<span>Home</span></button>'+
+    '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px">'+svg(g.icon)+'</span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span></div>'+
     '<div class="ogrid">'+opts+'</div>';
 }
 window.openGroup=openGroup; window.renderHomeMenu=renderHomeMenu;
