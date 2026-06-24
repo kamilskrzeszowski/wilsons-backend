@@ -225,6 +225,22 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true, count: lines.length });
       }
+      if (url.startsWith('/api/production/') && m === 'PUT') {
+        const id = decodeURIComponent(url.split('/').pop());
+        const b = await readBody(req);
+        const ex = db.prepare('SELECT id FROM production WHERE id=?').get(id);
+        if (!ex) return json(res, 404, { error: 'not found' });
+        db.exec('BEGIN');
+        try {
+          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=? WHERE id=?')
+            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', id);
+          db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
+          const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
+          (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
+          db.exec('COMMIT');
+        } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
+        return json(res, 200, { ok: true });
+      }
       if (url.startsWith('/api/production/') && m === 'DELETE') {
         const id = decodeURIComponent(url.split('/').pop());
         db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);

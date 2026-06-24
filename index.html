@@ -1717,11 +1717,81 @@ function renderProduction(){
   root.innerHTML=`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
     <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
     <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>
-    <h3>Recent production</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Date</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch</th><th>Basket</th><th>Mince</th><th>Cook</th><th>By</th><th></th></tr></thead><tbody id="prHist"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody></table></div>`;
+    <h3>Production history</h3>
+    <div class="toolbar">
+      <label class="fld">Date range<select id="prRange">
+        <option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option>
+        <option value="this_week">This week</option><option value="last_7">Last 7 days</option>
+        <option value="mtd" selected>Month to date</option><option value="last_month">Last month</option>
+        <option value="last_30">Last 30 days</option><option value="this_year">This year</option><option value="custom">Custom…</option>
+      </select></label>
+      <label class="fld" id="prFromWrap" style="display:none">From<input type="date" id="prFrom"></label>
+      <label class="fld" id="prToWrap" style="display:none">To<input type="date" id="prTo"></label>
+      <label class="fld">Product<input id="prSearch" placeholder="filter…" style="width:160px"></label>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" id="prCsv">⬇ Export CSV</button>
+    </div>
+    <div class="kpis" id="prTotals"></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+      <div><h4 style="margin:4px 0 6px">By product</h4><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Product</th><th class="num">Bags</th><th class="num">kg</th></tr></thead><tbody id="prByProd"></tbody></table></div></div>
+      <div><h4 style="margin:4px 0 6px">Records <span class="hint" id="prCount"></span></h4><div class="card" style="padding:0;overflow:auto;max-height:560px"><table><thead><tr><th>Date</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch</th><th>Basket</th><th>Mince</th><th>Cook</th><th>By</th><th></th></tr></thead><tbody id="prHist"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody></table></div></div>
+    </div>`;
   drawProdLines();
-  document.getElementById('prAdd').onclick=()=>{ prodLines.push({recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}); drawProdLines(); };
+  document.getElementById('prAdd').onclick=()=>{
+    const last=prodLines[prodLines.length-1]||{};
+    const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):'';
+    prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||''});
+    drawProdLines();
+  };
   document.getElementById('prSave').onclick=saveProduction;
-  loadProdHist();
+  document.getElementById('prRange').onchange=()=>{ const c=document.getElementById('prRange').value==='custom'; document.getElementById('prFromWrap').style.display=c?'':'none'; document.getElementById('prToWrap').style.display=c?'':'none'; drawProdHist(); };
+  document.getElementById('prFrom').onchange=drawProdHist; document.getElementById('prTo').onchange=drawProdHist;
+  document.getElementById('prSearch').oninput=drawProdHist;
+  document.getElementById('prCsv').onclick=exportProdCsv;
+  loadProd();
+}
+let allProd=[];
+function isoL(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
+function prRangeBounds(){
+  const preset=document.getElementById('prRange').value;
+  const t=new Date(); const d=new Date(t.getFullYear(),t.getMonth(),t.getDate());
+  let from='0000-01-01', to='9999-12-31';
+  if(preset==='today'){ from=to=isoL(d); }
+  else if(preset==='yesterday'){ const y=new Date(d); y.setDate(y.getDate()-1); from=to=isoL(y); }
+  else if(preset==='this_week'){ const w=new Date(d); w.setDate(w.getDate()-((w.getDay()+6)%7)); from=isoL(w); to=isoL(d); }
+  else if(preset==='last_7'){ const w=new Date(d); w.setDate(w.getDate()-6); from=isoL(w); to=isoL(d); }
+  else if(preset==='mtd'){ from=isoL(new Date(d.getFullYear(),d.getMonth(),1)); to=isoL(d); }
+  else if(preset==='last_month'){ from=isoL(new Date(d.getFullYear(),d.getMonth()-1,1)); to=isoL(new Date(d.getFullYear(),d.getMonth(),0)); }
+  else if(preset==='last_30'){ const w=new Date(d); w.setDate(w.getDate()-29); from=isoL(w); to=isoL(d); }
+  else if(preset==='this_year'){ from=isoL(new Date(d.getFullYear(),0,1)); to=isoL(d); }
+  else if(preset==='custom'){ from=document.getElementById('prFrom').value||'0000-01-01'; to=document.getElementById('prTo').value||'9999-12-31'; }
+  return {from,to};
+}
+function prFiltered(){
+  const {from,to}=prRangeBounds(); const q=(document.getElementById('prSearch').value||'').toLowerCase();
+  return allProd.filter(p=>(p.date>=from&&p.date<=to)&&(!q||(p.product||'').toLowerCase().includes(q)));
+}
+async function loadProd(){ try{ allProd=await api('/api/production'); }catch(e){ return; } drawProdHist(); }
+function drawProdHist(){
+  const rows=prFiltered();
+  const bags=rows.reduce((a,p)=>a+(+p.qty||0),0), kg=rows.reduce((a,p)=>a+(+p.kg||0),0);
+  document.getElementById('prTotals').innerHTML=
+    `<div class="kpi"><div class="n">${fmt(rows.length)}</div><div class="l">Records</div></div>`+
+    `<div class="kpi"><div class="n">${fmt(bags)}</div><div class="l">Total bags</div></div>`+
+    `<div class="kpi"><div class="n">${fmt(kg)}</div><div class="l">Total kg</div></div>`;
+  const byp={}; rows.forEach(p=>{ const k=p.product||'?'; (byp[k]=byp[k]||{b:0,k:0}); byp[k].b+=+p.qty||0; byp[k].k+=+p.kg||0; });
+  document.getElementById('prByProd').innerHTML=Object.keys(byp).sort((a,b)=>byp[b].k-byp[a].k)
+    .map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(byp[k].b)}</td><td class="num">${fmt(byp[k].k)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">No production in range.</td></tr>';
+  const cap=rows.slice(0,500);
+  document.getElementById('prCount').textContent=rows.length>cap.length?('(showing '+cap.length+' of '+rows.length+')'):('('+rows.length+')');
+  document.getElementById('prHist').innerHTML=cap.map(p=>`<tr><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No production in range.</td></tr>';
+}
+function exportProdCsv(){
+  const rows=prFiltered(); const head=['Date','Product','Size','Bags','kg','Batch','Basket','Mince date','Cook date','By'];
+  const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const lines=[head.join(',')].concat(rows.map(p=>[p.date,p.product,p.pack,p.qty,p.kg,p.batch,p.basket,p.mince_date,p.cook_date,p.by].map(esc).join(',')));
+  const {from,to}=prRangeBounds();
+  download('production-'+from+'_to_'+to+'.csv', lines.join('\n'), 'text/csv');
 }
 function drawProdLines(){
   document.getElementById('prLines').innerHTML=prodLines.map((l,i)=>{
@@ -1754,15 +1824,43 @@ async function saveProduction(){
   if(!lines.length){ document.getElementById('prMsg').textContent='Add at least one complete line.'; return; }
   document.getElementById('prMsg').textContent='Saving…';
   try{ await api('/api/production','POST',{date,lines}); await reloadStock(); prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
-    document.getElementById('prMsg').textContent='Saved ✓ stock updated.'; drawProdLines(); loadProdHist();
+    document.getElementById('prMsg').textContent='Saved ✓ stock updated.'; drawProdLines(); loadProd();
   }catch(e){ document.getElementById('prMsg').textContent='Failed: '+e.message; }
 }
-async function loadProdHist(){
-  let rows; try{ rows=await api('/api/production'); }catch(e){ return; }
-  document.getElementById('prHist').innerHTML=rows.slice(0,60).map(p=>`<tr><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num"><button class="btn danger" onclick="delProd('${p.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No production recorded yet.</td></tr>';
-}
-async function delProd(id){ if(!confirm('Delete this production line? The stock it used will be restored.'))return; await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadProdHist(); }
+async function delProd(id){ if(!confirm('Delete this production line? The stock it used will be restored.'))return; await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadProd(); }
 window.delProd=delProd;
+function editProd(id){
+  const p=allProd.find(x=>x.id===id); if(!p) return;
+  const recOpts='<option value="">— none (free text) —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===p.recipe_id?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join('');
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit production entry</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+     <label class="fld">Date<input type="date" id="epDate" value="${escapeHtml(p.date||'')}"></label>
+     <label class="fld" style="flex:2;min-width:180px">Product<input id="epProduct" value="${escapeHtml(p.product||'')}"></label>
+     <label class="fld">Size<input id="epPack" value="${escapeHtml(p.pack||'')}" style="width:90px"></label>
+     <label class="fld">Bags<input id="epBags" type="number" value="${p.qty}" style="width:90px"></label>
+     <label class="fld">kg<input id="epKg" type="number" value="${p.kg}" style="width:90px"></label>
+   </div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
+     <label class="fld">Batch<input id="epBatch" value="${escapeHtml(p.batch||'')}" style="width:90px"></label>
+     <label class="fld">Basket<input id="epBasket" value="${escapeHtml(p.basket||'')}" style="width:70px"></label>
+     <label class="fld">Mince date<input id="epMince" type="date" value="${escapeHtml(p.mince_date||'')}"></label>
+     <label class="fld">Cook date<input id="epCook" type="date" value="${escapeHtml(p.cook_date||'')}"></label>
+   </div>
+   <label class="fld" style="margin-top:8px">Recompute stock from recipe (optional)<select id="epRec">${recOpts}</select></label>
+   <p class="hint">If a recipe is set, <b>kg</b> and the stock deduction are recalculated from Bags × bag size. Leave as “none” to just edit the figures (no stock change).</p>
+   <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" id="epSave">Save changes</button><button class="btn ghost" onclick="closeModal()">Cancel</button><span class="hint" id="epMsg"></span></div>`);
+  document.getElementById('epSave').onclick=async()=>{
+    const recId=document.getElementById('epRec').value; const r=recId?byId(recId):null;
+    const pack=document.getElementById('epPack').value.trim(); const bags=+document.getElementById('epBags').value||0;
+    let product=document.getElementById('epProduct').value, kg=+document.getElementById('epKg').value||0, deductions=[];
+    if(r){ product=r.brand+' — '+r.name; kg=+(bags*packSizeKg(pack)).toFixed(3); deductions=deductionsFor(r,bags,pack); }
+    const body={date:document.getElementById('epDate').value,recipe_id:recId,product,pack,qty:bags,kg,batch:document.getElementById('epBatch').value,basket:document.getElementById('epBasket').value,mince:document.getElementById('epMince').value,cook:document.getElementById('epCook').value,deductions};
+    document.getElementById('epMsg').textContent='Saving…';
+    try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadProd(); }
+    catch(e){ document.getElementById('epMsg').textContent='Failed: '+e.message; }
+  };
+}
+window.editProd=editProd;
 
 /* ===== Stock ===== */
 function renderStock(){
@@ -1912,19 +2010,22 @@ function printMixSheet(node){
   w.document.open();
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Mixing Sheet</title><style>'+styles+
     '\n@page{size:A4 landscape;margin:8mm} html,body{margin:0;padding:0;background:#fff} '+
-    '#msouter{overflow:hidden} #mswrap{transform-origin:top left} .view{display:block!important} '+
+    '#msouter{overflow:hidden;position:relative} #mswrap{transform-origin:top left;position:absolute} .view{display:block!important} '+
     '@media print{.mixsheet,.picking-print{padding:0!important}}'+
     '</style></head><body><div id="msouter"><div id="mswrap" class="ms-land">'+node.outerHTML+'</div></div></body></html>');
   w.document.close();
-  /* two-box clip: scaling a transform alone does NOT shrink the layout box (page stays 2pp);
-     so we also clamp the OUTER box to the scaled height/width so only one page is used. */
+  /* Fill the whole A4 landscape page: design the sheet at DESIGN_W, then scale UP or DOWN
+     uniformly to the limiting dimension so it fills the page each time, and centre it. */
   var run=function(){ try{
       var inner=w.document.getElementById('mswrap'), outer=w.document.getElementById('msouter');
-      var PAGE_W=1040, PAGE_H=712;
-      inner.style.width=PAGE_W+'px';
-      var h=inner.scrollHeight; var s=Math.min(1, PAGE_H/Math.max(1,h));
+      var PAGE_W=1040, PAGE_H=712, DESIGN_W=980;
+      inner.style.width=DESIGN_W+'px';
+      var h=inner.scrollHeight;
+      var s=Math.min(PAGE_W/DESIGN_W, PAGE_H/Math.max(1,h));   // no 1.0 cap -> short sheets scale up to fill
       inner.style.transform='scale('+s+')';
-      outer.style.width=(PAGE_W*s)+'px'; outer.style.height=(h*s)+'px';
+      inner.style.left=Math.max(0,(PAGE_W-DESIGN_W*s)/2)+'px';
+      inner.style.top=Math.max(0,(PAGE_H-h*s)/2)+'px';
+      outer.style.width=PAGE_W+'px'; outer.style.height=PAGE_H+'px';
     }catch(e){}
     w.focus(); w.print(); setTimeout(function(){ try{w.close();}catch(e){} },400); };
   if(w.document.readyState==='complete') setTimeout(run,200); else w.onload=function(){ setTimeout(run,200); };
