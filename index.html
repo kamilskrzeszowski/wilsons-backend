@@ -212,6 +212,7 @@
 .prline{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px dashed var(--line);padding-bottom:8px;margin-bottom:8px}
 
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.34.0/iconfont/tabler-icons.min.css">
 </head>
 <body>
 <div id="loginScreen">
@@ -283,48 +284,34 @@
     <button data-view="suppliers">Suppliers</button>
     <button data-view="users" style="display:none">Users</button>
   </nav>
+  <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><i class="ti ti-home" aria-hidden="true"></i>&nbsp;Home</button>
   <span id="syncPill" class="syncpill local" title="Data sync status">Local only</span>
   <button id="lockBtn" class="lockbtn" style="display:none">🔒</button>
   <span class="who" id="whoWrap" style="display:none">Hi&nbsp;<b id="whoName">—</b><button id="signoutBtn" class="lockbtn">Sign out</button></span>
 </header>
 <style>
-  .homewrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;margin-top:6px}
-  .homegroup{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(20,54,68,.04)}
-  .homegroup h3{margin:0 0 12px;color:var(--navy);font-family:var(--font-display);border-bottom:2px solid var(--coral);padding-bottom:8px}
-  .tiles{display:grid;gap:10px}
-  .tile{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#f6f4ec;border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:15px;font-weight:700;color:var(--navy);cursor:pointer;font-family:var(--font-body)}
-  .tile:hover{background:var(--cream);border-color:var(--coral);transform:translateY(-1px)}
-  .tile .ic{font-size:22px;line-height:1;width:26px;text-align:center}
-  @media(max-width:680px){ .homewrap{grid-template-columns:1fr} }
+  nav.tabs{display:none!important}
+  .hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:10px}
+  .gtile{display:flex;flex-direction:column;gap:8px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;cursor:pointer;font-family:var(--font-body)}
+  .gtile:hover{border-color:var(--coral);box-shadow:0 3px 12px rgba(20,54,68,.08);transform:translateY(-1px)}
+  .gdot{width:48px;height:48px;border-radius:50%;background:#fae3df;color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:26px}
+  .gtile .gt{font-size:18px;font-weight:800;color:var(--navy);font-family:var(--font-display)}
+  .gtile .gs{font-size:13px;color:var(--muted)}
+  .ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:6px}
+  .otile{display:flex;align-items:center;gap:14px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;font-size:16px;font-weight:700;color:var(--navy);font-family:var(--font-body)}
+  .otile:hover{border-color:var(--coral);background:#faf3ee}
+  .otile .oic{font-size:24px;color:var(--navy);width:30px;text-align:center}
+  .otile .oar{margin-left:auto;color:var(--muted)}
+  .crumb{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--navy);margin-bottom:14px}
+  .crumb:hover{border-color:var(--coral)}
+  @media(max-width:680px){ .hgrid,.ogrid{grid-template-columns:1fr} }
 </style>
 <main>
   <!-- ============ HOME ============ -->
   <section class="view active" id="view-home">
     <h2 class="viewtitle">Wilsons Production Manager</h2>
-    <p class="sub">Choose an area to work in.</p>
-    <div class="homewrap">
-      <div class="homegroup"><h3>Recipes</h3><div class="tiles">
-        <button class="tile" onclick="navTo('library')"><span class="ic">📖</span><span>Recipe Library</span></button>
-        <button class="tile" onclick="navTo('ingredients')"><span class="ic">🥩</span><span>Ingredients</span></button>
-        <button class="tile" onclick="navTo('editor')"><span class="ic">✏️</span><span>Edit Recipes</span></button>
-        <button class="tile" onclick="navTo('mixing')"><span class="ic">🖨️</span><span>Mixing Sheets</span></button>
-      </div></div>
-      <div class="homegroup"><h3>Production &amp; Deliveries</h3><div class="tiles">
-        <button class="tile" onclick="navTo('production')"><span class="ic">🏭</span><span>Record Production</span></button>
-        <button class="tile" onclick="navTo('planner')"><span class="ic">📅</span><span>Production Planner</span></button>
-        <button class="tile" onclick="navTo('deliveries')"><span class="ic">🚚</span><span>Deliveries</span></button>
-        <button class="tile" onclick="navTo('suppliers')"><span class="ic">🤝</span><span>Suppliers</span></button>
-      </div></div>
-      <div class="homegroup"><h3>Stock</h3><div class="tiles">
-        <button class="tile" onclick="navTo('stock')"><span class="ic">📦</span><span>Stock</span></button>
-        <button class="tile" onclick="navTo('adjustments')"><span class="ic">🔢</span><span>Stocktake</span></button>
-        <button class="tile" onclick="navTo('packaging')"><span class="ic">🏷️</span><span>Packaging</span></button>
-      </div></div>
-      <div class="homegroup"><h3>Admin</h3><div class="tiles">
-        <button class="tile" onclick="navTo('log')"><span class="ic">📝</span><span>Change Log</span></button>
-        <button class="tile" id="tileUsers" onclick="navTo('users')"><span class="ic">👥</span><span>Users</span></button>
-      </div></div>
-    </div>
+    <p class="sub" id="homeSub">Choose an area to work in.</p>
+    <div id="homeScreen"></div>
   </section>
   <!-- ============ LIBRARY ============ -->
   <section class="view" id="view-library">
@@ -1734,16 +1721,37 @@ async function startApp(){
   snapServer();
   refreshAll();
   (function(){ const r=byId(document.getElementById('mixSelect').value); if(r) document.getElementById('mixBatch').value=fmt(baseKg(r)); drawMix(); })();
-  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('active', x.dataset.view==='home'));
-  document.querySelectorAll('main .view').forEach(v=>v.classList.toggle('active', v.id==='view-home'));
   document.getElementById('loginScreen').style.display='none';
+  navTo('home');
   setSync('● Shared');
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
+const HOME_GROUPS=[
+  {k:'recipes',t:'Recipes',icon:'ti-book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','ti-books','library'],['Ingredients','ti-meat','ingredients'],['Edit Recipes','ti-edit','editor'],['Mixing Sheets','ti-printer','mixing']]},
+  {k:'prod',t:'Production & deliveries',icon:'ti-building-factory-2',sub:'Record, plan, deliveries, suppliers',items:[['Record Production','ti-clipboard-list','production'],['Production Planner','ti-calendar','planner'],['Deliveries','ti-truck','deliveries'],['Suppliers','ti-users-group','suppliers']]},
+  {k:'stock',t:'Stock',icon:'ti-box',sub:'Stock, stocktake, packaging',items:[['Stock','ti-box','stock'],['Stocktake','ti-checklist','adjustments'],['Packaging','ti-package','packaging']]},
+  {k:'admin',t:'Admin',icon:'ti-settings',sub:'Change log, users',items:[['Change Log','ti-history','log'],['Users','ti-user-cog','users']]}
+];
+function renderHomeMenu(){
+  const sub=document.getElementById('homeSub'); if(sub){ sub.textContent='Choose an area to work in.'; sub.style.display=''; }
+  const tiles=HOME_GROUPS.map(g=>`<button class="gtile" onclick="openGroup('${g.k}')"><span class="gdot"><i class="ti ${g.icon}" aria-hidden="true"></i></span><span class="gt">${g.t}</span><span class="gs">${escapeHtml(g.sub)}</span></button>`).join('');
+  const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML='<div class="hgrid">'+tiles+'</div>';
+}
+function openGroup(k){
+  const g=HOME_GROUPS.find(x=>x.k===k); if(!g) return;
+  const isAdmin=CURRENT_USER&&CURRENT_USER.role==='admin';
+  const items=g.items.filter(it=>!(it[2]==='users'&&!isAdmin));
+  const sub=document.getElementById('homeSub'); if(sub) sub.style.display='none';
+  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><i class="ti ${it[1]} oic" aria-hidden="true"></i><span>${it[0]}</span><i class="ti ti-arrow-right oar" aria-hidden="true"></i></button>`).join('');
+  document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()"><i class="ti ti-arrow-left" aria-hidden="true"></i><span>Home</span></button>'+
+    '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px"><i class="ti '+g.icon+'" aria-hidden="true"></i></span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span></div>'+
+    '<div class="ogrid">'+opts+'</div>';
+}
+window.openGroup=openGroup; window.renderHomeMenu=renderHomeMenu;
 document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) renderForTab(b.dataset.view); });
 
 function reloadStock(){ return api('/api/stock').then(s=>{ state.stock=s; }); }
