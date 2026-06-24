@@ -1243,7 +1243,7 @@ function drawEditorBody(){
      <td class="num"><input class="kg" data-idx="${idx}" data-k="kg" type="number" step="0.0001" value="${i.kg}" ${ro}></td>
      <td>${allow?`<button class="btn danger" onclick="removeIng(${idx})">Remove</button>`:''}</td></tr>`).join('');
   document.getElementById('editorBody').innerHTML=`
-    ${allow?'':'<div class="totbar" style="background:#fdeee4;border-color:#e7c3ab;color:#b4541f;margin-bottom:10px">🔒 Editing is locked. Use the lock button (top-right) and enter the password to make changes.</div>'}
+    ${allow?'':'<div class="totbar" style="background:#fdeee4;border-color:#e7c3ab;color:#b4541f;margin-bottom:10px">🔒 Editing is restricted to admin accounts. Sign in with an admin account to change recipes.</div>'}
     <div class="row-flex"><b>${r.brand} — </b>
       <input id="edName" value="${escapeHtml(r.name)}" style="font-weight:600;min-width:220px" ${ro}>
       <span class="muted">Pack sizes:</span><input id="edPacks" value="${r.packs.join(', ')}" style="width:160px" title="comma separated" ${ro}>
@@ -1632,9 +1632,9 @@ async function api(path,method,body){
 function setSync(t){ const p=document.getElementById('syncPill'); if(p){ p.className='syncpill synced'; p.textContent=t||'● Shared'; } }
 function showLogin(){ document.getElementById('loginScreen').style.display='flex'; }
 
-/* editing always allowed once signed in (login replaces the password gate) */
-function ensureUnlocked(){ return true; }
-function editingAllowed(){ return true; }
+/* editing recipes & ingredients is restricted to admin accounts */
+function editingAllowed(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
+function ensureUnlocked(){ if(editingAllowed()) return true; alert('Changing recipes and ingredients is restricted to admin accounts. Please sign in with an admin account to make changes.'); return false; }
 function hasPassword(){ return false; }
 function updateLockUI(){}
 function applyLockState(){ if(typeof renderEditor==='function'){ renderEditor(); renderIngredients(true); } }
@@ -1815,7 +1815,7 @@ function renderDeliveries(){
   loadDvHist();
 }
 async function loadDvHist(){ let rows; try{ rows=await api('/api/deliveries'); }catch(e){ return; }
-  document.getElementById('dvHist').innerHTML=rows.slice(0,40).map(d=>`<tr><td>${escapeHtml(d.date)}</td><td>${escapeHtml(d.supplier)}</td><td>${escapeHtml(ingName(d.ing_id))}</td><td class="num">${fmt(d.qty)}</td><td>${escapeHtml(d.batch||'')}</td><td>${escapeHtml(d.by||'')}</td><td class="num"><button class="btn danger" onclick="delDeliv('${d.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="7" class="muted">None yet.</td></tr>';
+  document.getElementById('dvHist').innerHTML=rows.slice(0,60).map(d=>`<tr><td>${escapeHtml(d.date)}</td><td>${escapeHtml(d.supplier)}</td><td>${escapeHtml(d.ing_id?ingName(d.ing_id):(d.descr||''))}</td><td class="num">${fmt(d.qty)}</td><td>${escapeHtml(d.batch||'')}</td><td>${escapeHtml(d.by||'')}</td><td class="num"><button class="btn danger" onclick="delDeliv('${d.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="7" class="muted">None yet.</td></tr>';
 }
 async function delDeliv(id){ if(!confirm('Delete delivery? Stock will be reduced.'))return; await api('/api/deliveries/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadDvHist(); }
 window.delDeliv=delDeliv;
@@ -1897,6 +1897,21 @@ async function renderUsers(){
     document.getElementById('nuSave').onclick=async()=>{ try{ await api('/api/users','POST',{username:document.getElementById('nuUser').value,password:document.getElementById('nuPass').value,role:document.getElementById('nuRole').value}); closeModal(); renderUsers(); }catch(e){ document.getElementById('nuMsg').textContent=e.message; } }; };
   try{ const rows=await api('/api/users'); document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td></tr>`).join(''); }
   catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="3" class="muted">${escapeHtml(e.message)}</td></tr>`; }
+}
+
+/* override: print the mixing sheet scaled to fit ONE A4 landscape page (robust popup) */
+function printMixSheet(node){
+  var styles=''; document.querySelectorAll('style').forEach(function(s){ styles+=s.textContent+'\n'; });
+  var w=window.open('','_blank','width=1120,height=820'); if(!w){ alert('Allow pop-ups for this site to print the mixing sheet.'); return; }
+  w.document.open();
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Mixing Sheet</title><style>'+styles+
+    '\n@page{size:A4 landscape;margin:8mm} html,body{margin:0;padding:0;background:#fff} '+
+    '#mswrap{transform-origin:top left} .view{display:block!important} '+
+    '@media print{.mixsheet,.picking-print{padding:0!important}}'+
+    '</style></head><body><div id="mswrap" class="ms-land">'+node.outerHTML+'</div></body></html>');
+  w.document.close();
+  var run=function(){ try{ var el=w.document.getElementById('mswrap'); var PAGE_W=1040,PAGE_H=712; el.style.width=PAGE_W+'px'; var h=el.scrollHeight; var s=Math.min(1,PAGE_H/Math.max(1,h)); el.style.transform='scale('+s+')'; }catch(e){} w.focus(); w.print(); setTimeout(function(){ try{w.close();}catch(e){} },400); };
+  if(w.document.readyState==='complete') setTimeout(run,180); else w.onload=function(){ setTimeout(run,180); };
 }
 
 /* ---- start ---- */

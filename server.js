@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS suppliers(id TEXT PRIMARY KEY, name TEXT, approval TE
 CREATE TABLE IF NOT EXISTS packaging(id TEXT PRIMARY KEY, name TEXT, type TEXT, qty REAL DEFAULT 0, reorder REAL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS change_log(id INTEGER PRIMARY KEY, ts TEXT, brand TEXT, recipe TEXT, type TEXT, field TEXT, old TEXT, new TEXT, by TEXT);
 `);
+// historical-import flag column (older DBs won't have it) — add if missing
+try { db.exec('ALTER TABLE production ADD COLUMN hist INTEGER DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE deliveries ADD COLUMN hist INTEGER DEFAULT 0'); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -52,6 +55,27 @@ function seedIfEmpty() {
   (seed.suppliers || []).forEach((s, k) => db.prepare('INSERT OR IGNORE INTO suppliers(id,name,approval,product,activity,address,postcode) VALUES(?,?,?,?,?,?,?)').run(s.id || ('s' + k), s.name, s.approval || '', s.product || '', s.activity || '', s.address || '', s.postcode || ''));
   (seed.packagingSeed || []).forEach((p, k) => db.prepare('INSERT OR IGNORE INTO packaging(id,name,type,qty,reorder) VALUES(?,?,?,?,?)').run(p.id || ('pk' + k), p.name, p.type || '', p.qty || 0, p.reorder || 0));
   console.log('Seeded database from seed.json.');
+}
+// One-time import of historical Production Log + Deliveries Log, and set current stock levels.
+// Records are flagged hist=1 (kept for traceability, excluded from the live stock calculation).
+function importHistory() {
+  let seed = {};
+  try { seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'seed.json'), 'utf8')); } catch (e) { return; }
+  if (!seed.productionSeed && !seed.deliveriesSeed && !seed.stockCurrent) return;
+  const already = db.prepare("SELECT count(*) c FROM production WHERE hist=1").get().c;
+  if (already > 0) return; // import once
+  const insP = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,1)');
+  const insD = db.prepare('INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
+  const upS = db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier) VALUES(?,?,?,?) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder');
+  db.exec('BEGIN');
+  try {
+    (seed.productionSeed || []).forEach(p => insP.run(uid('ph'), p.date || '', p.recipe_id || '', p.product || '', p.pack || '', +p.qty || 0, +p.kg || 0, p.batch || '', 'history', now()));
+    (seed.deliveriesSeed || []).forEach(d => insD.run(uid('dh'), d.date || '', d.supplier || '', d.approval || '', d.ing_id || '', d.descr || '', +d.qty || 0, d.ref || '', d.approved || '', d.temp || '', d.veh || '', d.qual || '', d.type || '', d.batch || '', d.initials || '', 'history', now()));
+    const sc = seed.stockCurrent || {};
+    Object.keys(sc).forEach(iid => upS.run(iid, +sc[iid].remaining || 0, +sc[iid].reorder || 0, ''));
+    db.exec('COMMIT');
+    console.log('Imported history: ' + (seed.productionSeed || []).length + ' production rows, ' + (seed.deliveriesSeed || []).length + ' deliveries; set ' + Object.keys(sc).length + ' current stock levels.');
+  } catch (e) { db.exec('ROLLBACK'); console.log('history import failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -81,7 +105,7 @@ function stockSnapshot() {
   const ings = db.prepare('SELECT * FROM ingredients ORDER BY name').all();
   const st = {}; db.prepare('SELECT * FROM stock').all().forEach(s => st[s.ing_id] = s);
   const used = {}; db.prepare('SELECT ing_id, SUM(kg) k FROM production_items GROUP BY ing_id').all().forEach(r => used[r.ing_id] = r.k);
-  const del = {}; db.prepare('SELECT ing_id, SUM(qty) q FROM deliveries GROUP BY ing_id').all().forEach(r => del[r.ing_id] = r.q);
+  const del = {}; db.prepare('SELECT ing_id, SUM(qty) q FROM deliveries WHERE hist IS NULL OR hist=0 GROUP BY ing_id').all().forEach(r => del[r.ing_id] = r.q);
   const adj = {}; db.prepare('SELECT ing_id, SUM(delta) d FROM adjustments GROUP BY ing_id').all().forEach(r => adj[r.ing_id] = r.d);
   return ings.map(i => {
     const s = st[i.id] || { opening: 0, reorder: 0, supplier: '' };
@@ -249,7 +273,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin();
+seedIfEmpty(); ensureAdmin(); importHistory();
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);
