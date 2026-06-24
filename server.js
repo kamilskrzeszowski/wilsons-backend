@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS change_log(id INTEGER PRIMARY KEY, ts TEXT, brand TEX
 // historical-import flag column (older DBs won't have it) — add if missing
 try { db.exec('ALTER TABLE production ADD COLUMN hist INTEGER DEFAULT 0'); } catch (e) {}
 try { db.exec('ALTER TABLE deliveries ADD COLUMN hist INTEGER DEFAULT 0'); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN basket TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN mince_date TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN cook_date TEXT DEFAULT ''"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -62,19 +65,27 @@ function importHistory() {
   let seed = {};
   try { seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'seed.json'), 'utf8')); } catch (e) { return; }
   if (!seed.productionSeed && !seed.deliveriesSeed && !seed.stockCurrent) return;
-  const already = db.prepare("SELECT count(*) c FROM production WHERE hist=1").get().c;
-  if (already > 0) return; // import once
-  const insP = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,1)');
+  db.exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
+  const want = +(seed.historyVersion || 1);
+  const haveRow = db.prepare("SELECT value FROM meta WHERE key='historyVersion'").get();
+  const have = haveRow ? +haveRow.value : 0;
+  if (have >= want) return; // already imported at this version or newer
+  const insP = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
   const insD = db.prepare('INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
   const upS = db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier) VALUES(?,?,?,?) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder');
   db.exec('BEGIN');
   try {
-    (seed.productionSeed || []).forEach(p => insP.run(uid('ph'), p.date || '', p.recipe_id || '', p.product || '', p.pack || '', +p.qty || 0, +p.kg || 0, p.batch || '', 'history', now()));
+    // replace any previously-imported history (only hist=1 rows; your own entries are untouched)
+    db.prepare('DELETE FROM production_items WHERE prod_id IN (SELECT id FROM production WHERE hist=1)').run();
+    db.prepare('DELETE FROM production WHERE hist=1').run();
+    db.prepare('DELETE FROM deliveries WHERE hist=1').run();
+    (seed.productionSeed || []).forEach(p => insP.run(uid('ph'), p.date || '', p.recipe_id || '', p.product || '', p.pack || '', +p.qty || 0, +p.kg || 0, p.batch || '', p.basket || '', p.mince || '', p.cook || '', 'history', now()));
     (seed.deliveriesSeed || []).forEach(d => insD.run(uid('dh'), d.date || '', d.supplier || '', d.approval || '', d.ing_id || '', d.descr || '', +d.qty || 0, d.ref || '', d.approved || '', d.temp || '', d.veh || '', d.qual || '', d.type || '', d.batch || '', d.initials || '', 'history', now()));
     const sc = seed.stockCurrent || {};
     Object.keys(sc).forEach(iid => upS.run(iid, +sc[iid].remaining || 0, +sc[iid].reorder || 0, ''));
+    db.prepare("INSERT INTO meta(key,value) VALUES('historyVersion',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     db.exec('COMMIT');
-    console.log('Imported history: ' + (seed.productionSeed || []).length + ' production rows, ' + (seed.deliveriesSeed || []).length + ' deliveries; set ' + Object.keys(sc).length + ' current stock levels.');
+    console.log('Imported history v' + want + ': ' + (seed.productionSeed || []).length + ' production rows, ' + (seed.deliveriesSeed || []).length + ' deliveries; set ' + Object.keys(sc).length + ' current stock levels.');
   } catch (e) { db.exec('ROLLBACK'); console.log('history import failed:', e.message); }
 }
 function ensureAdmin() {
@@ -202,12 +213,12 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/production' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all());
       if (url === '/api/production' && m === 'POST') {
         const b = await readBody(req); const lines = b.lines || [];
-        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,by,created) VALUES(?,?,?,?,?,?,?,?,?,?)');
+        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
         const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           lines.forEach(l => { const id = uid('p');
-            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', user.username, now());
+            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', user.username, now());
             (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
           });
           db.exec('COMMIT');

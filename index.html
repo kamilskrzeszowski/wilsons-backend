@@ -1713,13 +1713,13 @@ function ingSelectOptions(){ return [...state.ingredients].sort((a,b)=>a.name.lo
 let prodLines=[];
 function renderProduction(){
   const root=document.getElementById('rootProduction'); if(!root) return;
-  if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:''}];
+  if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
   root.innerHTML=`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
     <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
     <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>
-    <h3>Recent production</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Date</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch</th><th>By</th><th></th></tr></thead><tbody id="prHist"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody></table></div>`;
+    <h3>Recent production</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Date</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch</th><th>Basket</th><th>Mince</th><th>Cook</th><th>By</th><th></th></tr></thead><tbody id="prHist"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody></table></div>`;
   drawProdLines();
-  document.getElementById('prAdd').onclick=()=>{ prodLines.push({recipeId:'',pack:'',bags:'',batch:''}); drawProdLines(); };
+  document.getElementById('prAdd').onclick=()=>{ prodLines.push({recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}); drawProdLines(); };
   document.getElementById('prSave').onclick=saveProduction;
   loadProdHist();
 }
@@ -1730,7 +1730,10 @@ function drawProdLines(){
       <label class="fld" style="flex:2;min-width:200px">Recipe<select data-i="${i}" class="plRec">${recSelectOptions(l.recipeId)}</select></label>
       <label class="fld">Size<select data-i="${i}" class="plPack"><option value="">—</option>${packs.map(p=>`<option${p===l.pack?' selected':''}>${escapeHtml(p)}</option>`).join('')}</select></label>
       <label class="fld">Bags<input data-i="${i}" class="plBags kg" type="number" min="0" value="${l.bags}"></label>
-      <label class="fld">Batch #<input data-i="${i}" class="plBatch" value="${escapeHtml(l.batch)}" style="width:110px"></label>
+      <label class="fld">Batch #<input data-i="${i}" class="plBatch" value="${escapeHtml(l.batch)}" style="width:90px"></label>
+      <label class="fld">Basket<input data-i="${i}" class="plBasket" value="${escapeHtml(l.basket)}" style="width:70px"></label>
+      <label class="fld">Mince date<input data-i="${i}" class="plMince" type="date" value="${escapeHtml(l.mince)}"></label>
+      <label class="fld">Cook date<input data-i="${i}" class="plCook" type="date" value="${escapeHtml(l.cook)}"></label>
       <span class="hint">${r&&l.pack&&l.bags?fmt((+l.bags||0)*packSizeKg(l.pack))+' kg mix':''}</span>
       <button class="btn danger" data-del="${i}">✕</button></div>`;
   }).join('');
@@ -1739,21 +1742,24 @@ function drawProdLines(){
   box.querySelectorAll('.plPack').forEach(s=>s.onchange=e=>{ prodLines[+e.target.dataset.i].pack=e.target.value; drawProdLines(); });
   box.querySelectorAll('.plBags').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].bags=e.target.value; drawProdLines(); });
   box.querySelectorAll('.plBatch').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].batch=e.target.value; });
-  box.querySelectorAll('[data-del]').forEach(b=>b.onclick=e=>{ prodLines.splice(+e.target.dataset.del,1); if(!prodLines.length)prodLines=[{recipeId:'',pack:'',bags:'',batch:''}]; drawProdLines(); });
+  box.querySelectorAll('.plBasket').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].basket=e.target.value; });
+  box.querySelectorAll('.plMince').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].mince=e.target.value; });
+  box.querySelectorAll('.plCook').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].cook=e.target.value; });
+  box.querySelectorAll('[data-del]').forEach(b=>b.onclick=e=>{ prodLines.splice(+e.target.dataset.del,1); if(!prodLines.length)prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}]; drawProdLines(); });
 }
 async function saveProduction(){
   const date=document.getElementById('prDate').value||todayISO();
   const lines=prodLines.filter(l=>l.recipeId&&l.pack&&(+l.bags>0)).map(l=>{ const r=byId(l.recipeId);
-    return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),batch:l.batch||'',deductions:deductionsFor(r,+l.bags,l.pack)}; });
+    return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),batch:l.batch||'',basket:l.basket||'',mince:l.mince||'',cook:l.cook||'',deductions:deductionsFor(r,+l.bags,l.pack)}; });
   if(!lines.length){ document.getElementById('prMsg').textContent='Add at least one complete line.'; return; }
   document.getElementById('prMsg').textContent='Saving…';
-  try{ await api('/api/production','POST',{date,lines}); await reloadStock(); prodLines=[{recipeId:'',pack:'',bags:'',batch:''}];
+  try{ await api('/api/production','POST',{date,lines}); await reloadStock(); prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
     document.getElementById('prMsg').textContent='Saved ✓ stock updated.'; drawProdLines(); loadProdHist();
   }catch(e){ document.getElementById('prMsg').textContent='Failed: '+e.message; }
 }
 async function loadProdHist(){
   let rows; try{ rows=await api('/api/production'); }catch(e){ return; }
-  document.getElementById('prHist').innerHTML=rows.slice(0,40).map(p=>`<tr><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num"><button class="btn danger" onclick="delProd('${p.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="8" class="muted">No production recorded yet.</td></tr>';
+  document.getElementById('prHist').innerHTML=rows.slice(0,60).map(p=>`<tr><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num"><button class="btn danger" onclick="delProd('${p.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No production recorded yet.</td></tr>';
 }
 async function delProd(id){ if(!confirm('Delete this production line? The stock it used will be restored.'))return; await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadProdHist(); }
 window.delProd=delProd;
@@ -1906,12 +1912,22 @@ function printMixSheet(node){
   w.document.open();
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Mixing Sheet</title><style>'+styles+
     '\n@page{size:A4 landscape;margin:8mm} html,body{margin:0;padding:0;background:#fff} '+
-    '#mswrap{transform-origin:top left} .view{display:block!important} '+
+    '#msouter{overflow:hidden} #mswrap{transform-origin:top left} .view{display:block!important} '+
     '@media print{.mixsheet,.picking-print{padding:0!important}}'+
-    '</style></head><body><div id="mswrap" class="ms-land">'+node.outerHTML+'</div></body></html>');
+    '</style></head><body><div id="msouter"><div id="mswrap" class="ms-land">'+node.outerHTML+'</div></div></body></html>');
   w.document.close();
-  var run=function(){ try{ var el=w.document.getElementById('mswrap'); var PAGE_W=1040,PAGE_H=712; el.style.width=PAGE_W+'px'; var h=el.scrollHeight; var s=Math.min(1,PAGE_H/Math.max(1,h)); el.style.transform='scale('+s+')'; }catch(e){} w.focus(); w.print(); setTimeout(function(){ try{w.close();}catch(e){} },400); };
-  if(w.document.readyState==='complete') setTimeout(run,180); else w.onload=function(){ setTimeout(run,180); };
+  /* two-box clip: scaling a transform alone does NOT shrink the layout box (page stays 2pp);
+     so we also clamp the OUTER box to the scaled height/width so only one page is used. */
+  var run=function(){ try{
+      var inner=w.document.getElementById('mswrap'), outer=w.document.getElementById('msouter');
+      var PAGE_W=1040, PAGE_H=712;
+      inner.style.width=PAGE_W+'px';
+      var h=inner.scrollHeight; var s=Math.min(1, PAGE_H/Math.max(1,h));
+      inner.style.transform='scale('+s+')';
+      outer.style.width=(PAGE_W*s)+'px'; outer.style.height=(h*s)+'px';
+    }catch(e){}
+    w.focus(); w.print(); setTimeout(function(){ try{w.close();}catch(e){} },400); };
+  if(w.document.readyState==='complete') setTimeout(run,200); else w.onload=function(){ setTimeout(run,200); };
 }
 
 /* ---- start ---- */
