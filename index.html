@@ -212,6 +212,9 @@
 .prline{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px dashed var(--line);padding-bottom:8px;margin-bottom:8px}
 
 .ico{width:1em;height:1em;display:inline-block;vertical-align:-0.125em;flex:none}
+.draghand{cursor:grab;color:var(--muted);font-size:15px;user-select:none}
+tr.prDrag{cursor:grab}
+tr.prDrag:hover{background:#faf3ee}
 </style>
 </head>
 <body>
@@ -870,15 +873,33 @@ function showRecipe(id){
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h3>${r.brand} — ${r.name}</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button>
     </div>
-    <div style="margin:6px 0 12px"><span class="chip proc ${PROCESS[r.brand]==='Pasteurised'?'past':''}">${PROCESS[r.brand]}</span>${r.packs.map(p=>`<span class="chip">${p}</span>`).join('')}<span class="chip">Base ${fmt(tot)} kg</span></div>
+    <div style="margin:6px 0 12px"><span class="chip proc ${PROCESS[r.brand]==='Pasteurised'?'past':''}">${PROCESS[r.brand]}</span>${r.packs.map(p=>`<span class="chip">${p}</span>`).join('')}<span class="chip">Base ${fmt(tot)} kg</span><span class="chip">Best before ${shelfMonthsOf(r)} months</span></div>
     <table><thead><tr><th>Ingredient</th><th class="num">Weight (kg)</th><th class="num">% of mix</th></tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><th>Total</th><th class="num">${fmt(tot)}</th><th class="num">100%</th></tr></tfoot></table>
-    <div style="margin-top:14px;display:flex;gap:8px">
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn sm" onclick="closeModal();gotoMix('${r.id}')">Open mixing sheet</button>
+      <button class="btn ghost sm" onclick="recipeDetails('${r.id}')">Set details</button>
       <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit recipe</button>
     </div>`;
   document.getElementById('modalBg').classList.add('open');
 }
+function recipeDetails(id){
+  const r=byId(id); if(!r) return; const allow=editingAllowed();
+  const cur=(r.shelf_months!=null&&r.shelf_months!=='')?r.shelf_months:'';
+  document.getElementById('modalInner').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Details — ${escapeHtml(r.brand+' — '+r.name)}</h3><button class="btn ghost sm" onclick="showRecipe('${id}')">Back</button></div>
+    <label class="fld" style="margin-top:12px;max-width:320px">Best-before shelf life (months)
+      <input id="rdShelf" type="number" min="0" step="1" value="${cur}" placeholder="${r.brand==='Green Pantry'?18:12} (default)" ${allow?'':'disabled'}></label>
+    <p class="hint">This sets how far ahead the <b>best before</b> date is auto-calculated on the Filling Sheet for this product. Leave blank to use the default (Green Pantry 18 months, everything else 12).</p>
+    ${allow?`<div style="margin-top:10px;display:flex;gap:8px"><button class="btn coral" id="rdSave">Save</button><span class="hint" id="rdMsg"></span></div>`:'<p class="muted">Editing recipes is restricted to admin/office accounts.</p>'}`;
+  document.getElementById('modalBg').classList.add('open');
+  const sv=document.getElementById('rdSave');
+  if(sv) sv.onclick=async()=>{ const v=document.getElementById('rdShelf').value;
+    try{ await api('/api/recipe-details','POST',{id,shelfMonths:v}); state.recipes=await api('/api/recipes'); r0refresh(); closeModal(); }
+    catch(e){ document.getElementById('rdMsg').textContent=e.message; } };
+}
+function r0refresh(){ if(typeof refreshAll==='function') try{ refreshAll(); }catch(e){} }
+window.recipeDetails=recipeDetails;
 function closeModal(){ document.getElementById('modalBg').classList.remove('open'); }
 document.getElementById('modalBg').addEventListener('click',e=>{ if(e.target.id==='modalBg') closeModal(); });
 
@@ -1843,42 +1864,56 @@ function kpDone(){ if(_kpTarget){ _kpTarget.value=_kpBuf; _kpTarget.dispatchEven
 function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${cls||''}" data-kplabel="${escapeHtml(label)}" readonly inputmode="none" onclick="openKeypad(this)" value="${val!=null&&val!==''?escapeHtml(''+val):''}" ${attrs||''}>`; }
 
 /* ===== Filling Sheet (tablet) ===== */
-let fillBasket=null;
+let fillBasket=null, _fillTimer=null;
 function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
-function newFillBasket(n){ return {basket:n||'',julian:julianToday(),bestBefore:'',mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function newFillBasket(n){ return {basket:n||'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempStartSign:'+',tempFinish:'',tempFinishSign:'+',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
-function fillElapsed(){ if(!fillBasket.fillStart||!fillBasket.fillFinish)return''; const m=Math.round((new Date(fillBasket.fillFinish)-new Date(fillBasket.fillStart))/60000); return m>=0?(' · '+m+' min'):''; }
+function hhmm(iso){ if(!iso)return''; try{ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return ''; } }
+function fmtDur(ms){ if(ms<0)ms=0; const s=Math.floor(ms/1000); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60; const pad=n=>String(n).padStart(2,'0'); return (h?h+':':'')+pad(m)+':'+pad(ss); }
+function addMonths(iso,m){ if(!iso)return''; const d=new Date(iso+'T00:00:00'); if(isNaN(d))return''; d.setMonth(d.getMonth()+m); return isoL(d); }
+function shelfMonthsOf(r){ if(r&&r.shelf_months!=null&&r.shelf_months!=='') return +r.shelf_months; return (r&&r.brand==='Green Pantry')?18:12; }
+function bbForRecipe(r,filled){ return addMonths(filled,shelfMonthsOf(r)); }
+function signedTemp(mag,sign){ mag=(mag==null?'':(''+mag)).trim().replace(/^[-+]/,''); if(!mag)return''; return (sign==='-'?'-':'')+mag; }
+function stopFillTimer(){ if(_fillTimer){ clearInterval(_fillTimer); _fillTimer=null; } }
+function tickFillTimer(){ const el=document.getElementById('flTimer'); if(!el){ stopFillTimer(); return; } const b=fillBasket; if(!b||!b.fillStart){ el.textContent='0:00'; return; } const end=b.fillFinish?new Date(b.fillFinish):new Date(); el.textContent=fmtDur(end-new Date(b.fillStart)); if(b.fillFinish) stopFillTimer(); }
 function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); drawFill(); }
 function fillRecChange(i,v){ fillBasket.lines[i].recipeId=v; fillBasket.lines[i].pack=''; drawFill(); }
 function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
 function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
-function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); drawFill(); }
-function fillFinishNow(){ fillBasket.fillFinish=new Date().toISOString(); drawFill(); }
-function fillClear(){ fillBasket=newFillBasket(); drawFill(); }
+function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; drawFill(); }
+function fillFinishNow(){ if(!fillBasket.fillStart)return; fillBasket.fillFinish=new Date().toISOString(); drawFill(); }
+function fillClear(){ stopFillTimer(); fillBasket=newFillBasket(); drawFill(); }
+function fillSignToggle(which){ const k=which==='Start'?'tempStartSign':'tempFinishSign'; fillBasket[k]=(fillBasket[k]==='-')?'+':'-'; drawFill(); }
+function tempCtl(which){ const valK=which==='Start'?'tempStart':'tempFinish'; const sgnK=which==='Start'?'tempStartSign':'tempFinishSign'; const dis=!canEdit('filling')?'disabled':''; const sign=fillBasket[sgnK]||'+';
+  return `<label class="fld">Temp ${which.toLowerCase()} °C<span style="display:flex;gap:6px;align-items:center"><button class="btn ghost" data-sign="${which}" ${dis} style="padding:8px 12px;font-size:20px;font-weight:800;${sign==='-'?'color:#b4231f':'color:#2f7d57'}">${sign==='-'?'−':'+'}</button>${kp('','Temp '+which,fillBasket[valK],'','data-fill="'+valK+'" style="width:80px;font-size:16px;font-weight:700" '+dis)}</span></label>`; }
 function drawFill(){
+  stopFillTimer();
   const root=document.getElementById('rootFilling'); if(!root) return;
   const ro=!canEdit('filling'); const dis=ro?'disabled':''; const b=fillBasket; const yy=String(new Date().getFullYear()).slice(-2);
-  const lineRows=b.lines.map((l,i)=>{ const r=byId(l.recipeId); const packs=r?(r.packs||[]):[];
+  const lineRows=b.lines.map((l,i)=>{ const r=byId(l.recipeId); const packs=r?(r.packs||[]):[]; const bb=r?bbForRecipe(r,b.filled):'';
     return `<div class="prline">
       <label class="fld" style="flex:2;min-width:200px">Product<select class="flRec" data-i="${i}" ${dis}>${prodSelectOptions(l.recipeId)}</select></label>
       <label class="fld">Pouch<select class="flPack" data-i="${i}" ${dis}><option value="">size</option>${packs.map(p=>`<option${p===l.pack?' selected':''}>${escapeHtml(p)}</option>`).join('')}</select></label>
       <label class="fld">Bags${kp('','Bags '+(i+1),l.bags,'flBags','data-i="'+i+'" style="width:90px" '+dis)}</label>
+      <span class="hint" style="min-width:120px">Best before:<br><b>${bb||'—'}</b></span>
       ${ro?'':`<button class="btn danger" data-del="${i}">✕</button>`}</div>`;
   }).join('');
+  const timerOn=b.fillStart&&!b.fillFinish;
   root.innerHTML=`<div class="card">
     <div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
       <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:90px;font-size:18px;font-weight:700" '+dis)}</label>
       <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:110px" '+dis)}</label>
-      <label class="fld">Best before<input type="date" data-fill="bestBefore" value="${escapeHtml(b.bestBefore)}" ${dis}></label>
       <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
       <label class="fld">Date filled<input type="date" data-fill="filled" value="${escapeHtml(b.filled)}" ${dis}></label>
-      <label class="fld">Temp start °C${kp('','Temp at start',b.tempStart,'','data-fill="tempStart" style="width:90px" '+dis)}</label>
-      <label class="fld">Temp finish °C${kp('','Temp at finish',b.tempFinish,'','data-fill="tempFinish" style="width:90px" '+dis)}</label>
+      ${tempCtl('Start')}
+      ${tempCtl('Finish')}
     </div>
-    <div class="row-flex" style="gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap">
-      <button class="btn ${b.fillStart?'ghost':''}" ${dis} id="flStart">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
-      <button class="btn ${b.fillFinish?'ghost':'coral'}" ${ro||!b.fillStart?'disabled':''} id="flFinish">■ Finish</button>
-      <span class="hint">Start: <b>${fmtTime(b.fillStart)}</b> &nbsp; Finish: <b>${fmtTime(b.fillFinish)}</b>${fillElapsed()}</span>
+    <div style="background:#faf3ee;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <button class="btn coral" ${dis} id="flStart" style="font-size:19px;padding:18px 28px;min-width:175px">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
+      <button class="btn coral" id="flFinish" ${ro||!b.fillStart?'disabled':''} style="font-size:19px;padding:18px 28px;min-width:150px">■ Finish</button>
+      <div style="text-align:center"><div id="flTimer" style="font-size:38px;font-weight:800;font-family:var(--font-display);color:${timerOn?'var(--coral-deep)':'var(--navy)'};line-height:1">0:00</div><div class="hint">Start ${fmtTime(b.fillStart)} · Finish ${fmtTime(b.fillFinish)}</div></div>
+      <span class="spacer"></span>
+      ${ro?'':`<button class="btn ghost sm" id="flManual">🔒 Edit times manually</button>`}
     </div>
     <h4 style="margin:14px 0 6px">Products in this basket</h4>
     <div id="flLines">${lineRows}</div>
@@ -1886,41 +1921,107 @@ function drawFill(){
     <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave">Save basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg"></span></div>`}
   </div>
   <h3>Baskets filled today</h3>
-  <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Fill start</th><th>Fill finish</th></tr></thead><tbody id="flToday"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>`;
-  // wire (event delegation, no inline quoting)
-  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',()=>fillBasket[k]=el.value); });
+  <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Best before</th><th>Fill start</th><th>Fill finish</th>${ro?'':'<th></th>'}</tr></thead><tbody id="flToday"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody></table></div>`;
+  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; if(k==='filled') drawFill(); }; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',h); });
   root.querySelectorAll('.flRec').forEach(el=>el.addEventListener('change',()=>fillRecChange(+el.dataset.i,el.value)));
   root.querySelectorAll('.flPack').forEach(el=>el.addEventListener('change',()=>fillBasket.lines[+el.dataset.i].pack=el.value));
   root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>fillBasket.lines[+el.dataset.i].bags=el.value));
   root.querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>fillDelLine(+el.dataset.del)));
+  root.querySelectorAll('[data-sign]').forEach(el=>el.addEventListener('click',()=>fillSignToggle(el.dataset.sign)));
   const g=id=>document.getElementById(id);
   if(g('flStart'))g('flStart').onclick=fillStartNow; if(g('flFinish'))g('flFinish').onclick=fillFinishNow;
+  if(g('flManual'))g('flManual').onclick=manualTimes;
   if(g('flAdd'))g('flAdd').onclick=fillAddLine; if(g('flSave'))g('flSave').onclick=fillSave; if(g('flClear'))g('flClear').onclick=fillClear;
+  if(b.fillStart){ tickFillTimer(); if(!b.fillFinish) _fillTimer=setInterval(tickFillTimer,1000); }
   loadFillToday();
 }
 async function loadFillToday(){
   let rows; try{ rows=await api('/api/production'); }catch(e){ return; }
-  const t=todayISO();
-  rows=rows.filter(p=>(p.filled_date===t)||(p.date===t && p.fill_start));
+  const t=todayISO(); const ce=canEdit('filling');
+  const today=rows.filter(p=>(p.filled_date===t)||(p.date===t && p.fill_start)); window._fillRows=today;
   const el=document.getElementById('flToday'); if(!el)return;
-  el.innerHTML=rows.slice(0,80).map(p=>`<tr><td><b>${escapeHtml(p.basket||'')}</b></td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td>${escapeHtml(p.julian_code||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nothing filled today yet.</td></tr>';
+  el.innerHTML=today.slice(0,100).map(p=>`<tr><td><b>${escapeHtml(p.basket||'')}</b></td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td>${escapeHtml(p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td>${ce?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFillRow('${p.id}')">Edit</button> <button class="btn danger" onclick="delFillRow('${p.id}')">✕</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${ce?9:8}" class="muted">Nothing filled today yet.</td></tr>`;
 }
 async function fillSave(){
   if(!canEdit('filling')) return;
   const b=fillBasket;
   if(!b.basket){ document.getElementById('flMsg').textContent='Enter a basket number.'; return; }
+  const ts=signedTemp(b.tempStart,b.tempStartSign), tf=signedTemp(b.tempFinish,b.tempFinishSign);
   const lines=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0).map(l=>{ const r=byId(l.recipeId);
     return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),
-      basket:b.basket,julian:b.julian,bestBefore:b.bestBefore,mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,
+      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:ts,tempFinish:tf,fillStart:b.fillStart,fillFinish:b.fillFinish,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
   if(!lines.length){ document.getElementById('flMsg').textContent='Add at least one product with bags.'; return; }
   document.getElementById('flMsg').textContent='Saving…';
   try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
-    fillBasket=newFillBasket(next); drawFill();
+    stopFillTimer(); fillBasket=newFillBasket(next); drawFill();
     const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
   }catch(e){ const m=document.getElementById('flMsg'); if(m) m.textContent='Failed: '+e.message; }
 }
+/* manual time entry — PIN protected (default 1234, changeable) */
+function manualTimes(){
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit fill times manually</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <p class="hint">Enter the supervisor PIN to unlock manual time editing.</p>
+   <label class="fld">PIN${kp('mtPin','PIN',' ','','style="width:130px;font-size:22px;font-weight:800;text-align:center"')}</label>
+   <div style="margin-top:12px;display:flex;gap:8px;align-items:center"><button class="btn" id="mtVerify">Unlock</button><button class="btn ghost sm" id="mtChange">Change PIN</button><span class="hint" id="mtMsg"></span></div>`);
+  document.getElementById('mtPin').value='';
+  document.getElementById('mtChange').onclick=changePinModal;
+  document.getElementById('mtVerify').onclick=async()=>{ try{ const r=await api('/api/fillpin/verify','POST',{pin:document.getElementById('mtPin').value}); if(!r.ok){ document.getElementById('mtMsg').textContent='Wrong PIN'; return; } manualTimeEditor(); }catch(e){ document.getElementById('mtMsg').textContent=e.message; } };
+}
+function manualTimeEditor(){
+  const b=fillBasket;
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Set fill times</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <p class="hint">Times are recorded against ${escapeHtml(b.filled||todayISO())}.</p>
+   <div class="row-flex" style="gap:14px"><label class="fld">Start time<input type="time" id="mtStart" value="${hhmm(b.fillStart)}" style="font-size:18px"></label><label class="fld">Finish time<input type="time" id="mtFinish" value="${hhmm(b.fillFinish)}" style="font-size:18px"></label></div>
+   <div style="margin-top:12px"><button class="btn coral" id="mtSave">Save times</button></div>`);
+  document.getElementById('mtSave').onclick=()=>{ const day=b.filled||todayISO(); const mk=v=>v?new Date(day+'T'+v+':00').toISOString():''; b.fillStart=mk(document.getElementById('mtStart').value); b.fillFinish=mk(document.getElementById('mtFinish').value); closeModal(); drawFill(); };
+}
+function changePinModal(){
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Change times PIN</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <label class="fld" style="margin-top:8px">Current PIN${kp('cpCur','Current PIN',' ','','style="width:130px;font-size:20px;text-align:center"')}</label>
+   <label class="fld" style="margin-top:10px">New PIN (4–8 digits)${kp('cpNew','New PIN',' ','','style="width:130px;font-size:20px;text-align:center"')}</label>
+   <div style="margin-top:12px"><button class="btn coral" id="cpSave">Change PIN</button> <span class="hint" id="cpMsg"></span></div>`);
+  document.getElementById('cpCur').value=''; document.getElementById('cpNew').value='';
+  document.getElementById('cpSave').onclick=async()=>{ try{ const r=await api('/api/fillpin/change','POST',{current:document.getElementById('cpCur').value,next:document.getElementById('cpNew').value}); if(r.ok){ closeModal(); alert('PIN changed.'); } else document.getElementById('cpMsg').textContent=r.error||'Failed'; }catch(e){ document.getElementById('cpMsg').textContent=e.message; } };
+}
+window.changePinModal=changePinModal;
+/* edit / delete a filling entry — updates the production record */
+function editFillRow(id){
+  if(!canEdit('filling')) return; const p=(window._fillRows||[]).find(x=>x.id===id); if(!p) return;
+  const r0=byId(p.recipe_id); const packs=r0?(r0.packs||[]):[];
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit basket entry</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+     <label class="fld">Basket${kp('feBasket','Basket',p.basket,'','style="width:80px"')}</label>
+     <label class="fld" style="flex:2;min-width:180px">Product<select id="feRec">${prodSelectOptions(p.recipe_id)}</select></label>
+     <label class="fld">Pouch<select id="fePack"><option value="">size</option>${packs.map(pp=>`<option${pp===p.pack?' selected':''}>${escapeHtml(pp)}</option>`).join('')}</select></label>
+     <label class="fld">Bags${kp('feBags','Bags',p.qty,'','style="width:90px"')}</label>
+   </div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
+     <label class="fld">Julian${kp('feJ','Julian',p.julian_code,'','style="width:100px"')}</label>
+     <label class="fld">Best before<input type="date" id="feBB" value="${escapeHtml(p.best_before||'')}"></label>
+     <label class="fld">Minced<input type="date" id="feMince" value="${escapeHtml(p.mince_date||'')}"></label>
+     <label class="fld">Filled<input type="date" id="feFilled" value="${escapeHtml(p.filled_date||'')}"></label>
+     <label class="fld">Temp start<input id="feTS" value="${escapeHtml(p.temp_start||'')}" style="width:80px"></label>
+     <label class="fld">Temp finish<input id="feTF" value="${escapeHtml(p.temp_finish||'')}" style="width:80px"></label>
+   </div>
+   <div class="row-flex" style="gap:12px;margin-top:8px"><label class="fld">Fill start time<input type="time" id="feFS" value="${hhmm(p.fill_start)}"></label><label class="fld">Fill finish time<input type="time" id="feFF" value="${hhmm(p.fill_finish)}"></label></div>
+   <div style="margin-top:12px"><button class="btn coral" id="feSave">Save</button> <span class="hint" id="feMsg"></span></div>`);
+  document.getElementById('feRec').onchange=function(){ const r=byId(this.value); const ps=r?(r.packs||[]):[]; document.getElementById('fePack').innerHTML='<option value="">size</option>'+ps.map(pp=>`<option>${escapeHtml(pp)}</option>`).join(''); };
+  document.getElementById('feSave').onclick=async()=>{
+    const recId=document.getElementById('feRec').value; const r=recId?byId(recId):null; const pack=document.getElementById('fePack').value; const bags=+document.getElementById('feBags').value||0; const filled=document.getElementById('feFilled').value;
+    let product=p.product,kg=p.kg,deductions=[];
+    if(r){ product=r.brand+' — '+r.name; kg=+(bags*packSizeKg(pack)).toFixed(3); deductions=deductionsFor(r,bags,pack); }
+    const mk=v=>v?new Date((filled||todayISO())+'T'+v+':00').toISOString():'';
+    const fs=document.getElementById('feFS').value, ff=document.getElementById('feFF').value;
+    const jul=document.getElementById('feJ').value;
+    const body={date:filled||p.date,recipe_id:recId,product,pack,qty:bags,kg,basket:document.getElementById('feBasket').value,julian:jul,bestBefore:document.getElementById('feBB').value,mince:document.getElementById('feMince').value,filled,tempStart:document.getElementById('feTS').value,tempFinish:document.getElementById('feTF').value,fillStart:fs?mk(fs):p.fill_start,fillFinish:ff?mk(ff):p.fill_finish,batch:jul,cook:p.cook_date||'',retort:p.retort||'',deductions};
+    document.getElementById('feMsg').textContent='Saving…';
+    try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadFillToday(); }catch(e){ document.getElementById('feMsg').textContent='Failed: '+e.message; }
+  };
+}
+async function delFillRow(id){ if(!canEdit('filling'))return; if(!confirm('Delete this basket entry? The stock it used will be restored.'))return; try{ await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadFillToday(); }catch(e){ alert(e.message); } }
+window.editFillRow=editFillRow; window.delFillRow=delFillRow;
 
 /* ===== Record Production ===== */
 let prodLines=[];
@@ -1946,6 +2047,7 @@ function renderProduction(){
       <label class="fld">Pouch size<select id="prPack"><option value="">All</option></select></label>
       <label class="fld">Find<input id="prSearch" placeholder="batch / basket…" style="width:120px"></label>
       <span class="spacer"></span>
+      ${canEd?'<button class="btn ghost sm" id="prManual">↕ Custom order</button>':''}
       ${canEd?'<button class="btn coral sm" id="prAssign">📅 Assign cook date…</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
       <button class="btn ghost sm" id="prCsv">⬇ Export CSV</button>
@@ -1985,6 +2087,7 @@ function renderProduction(){
     };
     document.getElementById('prSave').onclick=saveProduction;
     document.getElementById('prAssign').onclick=assignCookModal;
+    document.getElementById('prManual').onclick=()=>{ if(prSort.k==='seq'){ prSort.k='date'; prSort.dir=-1; } else { prSort.k='seq'; prSort.dir=1; } drawProdHist(); };
     document.getElementById('prAll').onclick=e=>{ document.querySelectorAll('#prHist .prSel').forEach(c=>{ c.checked=e.target.checked; prodSel[c.checked?'add':'delete'](c.dataset.id); }); };
   }
   document.getElementById('prRange').onchange=()=>{ const c=document.getElementById('prRange').value==='custom'; document.getElementById('prFromWrap').style.display=c?'':'none'; document.getElementById('prToWrap').style.display=c?'':'none'; drawProdHist(); };
@@ -2022,6 +2125,7 @@ function prFiltered(){
     &&(!q||((p.batch||'')+' '+(p.basket||'')+' '+(p.product||'')).toLowerCase().includes(q)));
   const k=prSort.k, dir=prSort.dir;
   rows.sort((a,b)=>{ let av=a[k], bv=b[k];
+    if(k==='seq'){ const d=(+a.seq||0)-(+b.seq||0); return d!==0?d:String(b.created||'').localeCompare(String(a.created||'')); }
     if(k==='qty'||k==='kg'){ av=+av||0; bv=+bv||0; return (av-bv)*dir; }
     return String(av||'').localeCompare(String(bv||''))*dir; });
   return rows;
@@ -2044,9 +2148,14 @@ function drawProdHist(){
     `<div class="kpi"><div class="n">${fmt(kg)}</div><div class="l">Total kg</div></div>`;
   // sort arrows
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
-  const canEd=canEdit('production');
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr>${canEd?`<td><input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?12:11}" class="muted">No records match the filter.</td></tr>`;
-  if(canEd) document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
+  const canEd=canEdit('production'); const manual=prSort.k==='seq';
+  const drag=(canEd&&manual)?'draggable="true"':'';
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?12:11}" class="muted">No records match the filter.</td></tr>`;
+  if(canEd){
+    document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
+    document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
+    if(manual) wireProdDrag();
+  }
   document.getElementById('ftLabel').textContent='TOTAL — '+fmt(rows.length)+' record(s)';
   document.getElementById('ftBags').textContent=fmt(bags);
   document.getElementById('ftKg').textContent=fmt(kg);
@@ -2109,6 +2218,21 @@ function assignCookModal(){
     try{ await api('/api/production/assign-cook','POST',body); prodSel.clear(); closeModal(); loadProd(); }catch(e){ document.getElementById('acMsg').textContent=e.message; } };
 }
 window.assignCookModal=assignCookModal;
+async function assignCookSingle(id,cook){ try{ await api('/api/production/assign-cook','POST',{ids:[id],cook}); const row=allProd.find(p=>p.id===id); if(row) row.cook_date=cook; }catch(e){ alert('Could not save cook date: '+e.message); } }
+window.assignCookSingle=assignCookSingle;
+let _dragId=null;
+function wireProdDrag(){
+  const body=document.getElementById('prHist');
+  body.querySelectorAll('tr.prDrag').forEach(tr=>{
+    tr.addEventListener('dragstart',e=>{ _dragId=tr.dataset.id; tr.style.opacity='.4'; });
+    tr.addEventListener('dragend',()=>{ tr.style.opacity=''; });
+    tr.addEventListener('dragover',e=>{ e.preventDefault(); });
+    tr.addEventListener('drop',e=>{ e.preventDefault(); if(!_dragId||_dragId===tr.dataset.id)return; const dragged=body.querySelector('tr[data-id="'+_dragId+'"]'); if(!dragged)return; const rect=tr.getBoundingClientRect(); const after=(e.clientY-rect.top)>rect.height/2; tr.parentNode.insertBefore(dragged, after?tr.nextSibling:tr); reorderProdFromDom(); });
+  });
+}
+function reorderProdFromDom(){ const ids=[...document.querySelectorAll('#prHist tr[data-id]')].map(tr=>tr.dataset.id); reorderProd(ids); }
+async function reorderProd(ids){ ids.forEach((id,i)=>{ const row=allProd.find(p=>p.id===id); if(row) row.seq=i+1; }); try{ await api('/api/production/reorder','POST',{ids}); }catch(e){ alert('Could not save order: '+e.message); } }
+window.reorderProd=reorderProd;
 function editProd(id){
   const p=allProd.find(x=>x.id===id); if(!p) return;
   const recOpts='<option value="">— none (free text) —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===p.recipe_id?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join('');
