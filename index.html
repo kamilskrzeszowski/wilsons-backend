@@ -296,11 +296,13 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="log">Change Log</button>
     <button data-view="filling">Filling Sheet</button>
     <button data-view="production">Record Production</button>
+    <button data-view="filldash">Filling Dashboard</button>
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Deliveries</button>
     <button data-view="adjustments">Stocktake</button>
     <button data-view="packaging">Packaging</button>
     <button data-view="suppliers">Suppliers</button>
+    <button data-view="optimings">Operations timings</button>
     <button data-view="users" style="display:none">Users</button>
   </nav>
   <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></svg>&nbsp;Home</button>
@@ -316,6 +318,9 @@ tr.prDrag:hover{background:#faf3ee}
   .gdot{width:48px;height:48px;border-radius:50%;background:#fae3df;color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:26px}
   .gtile .gt{font-size:18px;font-weight:800;color:var(--navy);font-family:var(--font-display)}
   .gtile .gs{font-size:13px;color:var(--muted)}
+  .dayops{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:11px;color:var(--muted);border-bottom:1px dashed var(--line);background:#faf7f4}
+  .dayops select{font-size:11px;padding:2px 4px;border-radius:6px}
+  .dayops .opsest{flex:1;text-align:right}
   .ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:6px}
   .otile{display:flex;align-items:center;gap:14px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;font-size:16px;font-weight:700;color:var(--navy);font-family:var(--font-body)}
   .otile:hover{border-color:var(--coral);background:#faf3ee}
@@ -500,6 +505,8 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-packaging"><h2 class="viewtitle">Packaging &amp; Finished Goods</h2><p class="sub">Bags, pouches, labels, treats and finished goods.</p><div id="rootPackaging"></div></section>
   <section class="view" id="view-suppliers"><h2 class="viewtitle">Suppliers</h2><p class="sub">Approved-supplier (SALSA) list.</p><div id="rootSuppliers"></div></section>
   <section class="view" id="view-users"><h2 class="viewtitle">Users</h2><p class="sub">Manage who can sign in.</p><div id="rootUsers"></div></section>
+  <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
+  <section class="view" id="view-optimings"><h2 class="viewtitle">Operations Timings</h2><p class="sub">Filling target rates (packs per minute) by pack size and number of operators.</p><div id="rootOptimings"></div></section>
 </main>
 
 <!-- recipe view modal -->
@@ -851,6 +858,7 @@ function sortRecipeIngredients(r){
 /* ---------------- Tabs ---------------- */
 document.getElementById('tabs').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
+  if(typeof stopDashTimers==='function') stopDashTimers();
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   document.querySelectorAll('main .view').forEach(v=>v.classList.remove('active'));
@@ -929,8 +937,15 @@ function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,
 function addDays(t,n){ const x=new Date(t.getFullYear(),t.getMonth(),t.getDate()); x.setDate(x.getDate()+n); return x; }
 function dispDate(t){ return t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
 function packSizeKg(label){ const m=/([\d.]+)\s*(kg|g)/i.exec(label||''); if(!m) return null; return m[2].toLowerCase()==='kg'? parseFloat(m[1]) : parseFloat(m[1])/1000; }
-function weekObj(){ const k=isoDate(planWeek); if(!state.weekPlans[k]) state.weekPlans[k]={days:{}}; const w=state.weekPlans[k]; if(!w.days) w.days={}; return w; }
+function weekObj(){ const k=isoDate(planWeek); if(!state.weekPlans[k]) state.weekPlans[k]={days:{}}; const w=state.weekPlans[k]; if(!w.days) w.days={}; if(!w.ops) w.ops={}; return w; }
 function dayJobs(idx){ const w=weekObj(); if(!w.days[idx]) w.days[idx]=[]; return w.days[idx]; }
+function dayOps(idx){ const w=weekObj(); return +(w.ops[idx])||2; }
+function setDayOps(idx,n){ const w=weekObj(); w.ops[idx]=+n; saveWeek(); const oe=document.getElementById('oe-'+idx); if(oe) oe.innerHTML=dayEstHtml(idx); }
+/* a day's planned pack rows: [{grams,bags,kg}] (one per recipe×pack with kg>0) */
+function dayPlanRows(idx){ const out=[]; dayJobs(idx).forEach(j=>{ const r=byId(j.recipeId); if(!r)return; (r.packs||[]).forEach(p=>{ const skg=packSizeKg(p); const kg=parseFloat((j.alloc||{})[p])||0; if(!skg||kg<=0)return; out.push({grams:Math.round(skg*1000),bags:Math.round(kg/skg),kg}); }); }); return out; }
+/* estimate of how long the day's plan takes at the chosen operator count */
+function dayFillEstimate(idx){ const ops=dayOps(idx); let bags=0,kg=0,mins=0; dayPlanRows(idx).forEach(r=>{ bags+=r.bags; kg+=r.kg; mins+=r.bags/ppmFor(r.grams,ops); }); return {ops,bags,kg,mins,finishMin:clockAfterRunMinutes(mins),fits:mins<=DAY_RUN_MIN}; }
+function dayEstHtml(idx){ const e=dayFillEstimate(idx); if(!e.bags) return '<span class="muted">no fill plan</span>'; return 'fill ≈ '+fmt(e.mins/60)+' h · finish ~<b>'+minToHHMM(e.finishMin)+'</b>'+(e.fits?'':' <b style="color:#b4231f">⚠ past 14:30</b>'); }
 function jobTotal(job){ return Object.values(job.alloc||{}).reduce((a,v)=>a+(parseFloat(v)||0),0); }
 function jobBags(job){ const r=byId(job.recipeId); if(!r) return 0; let n=0; (r.packs||[]).forEach(p=>{ const skg=packSizeKg(p); const kg=parseFloat((job.alloc||{})[p])||0; if(skg&&kg>0) n+=Math.round(kg/skg); }); return n; }
 function dayBags(idx){ return dayJobs(idx).reduce((a,j)=>a+jobBags(j),0); }
@@ -1001,6 +1016,7 @@ function renderBoard(){
     const cp=dayCookPlan(idx);
     const col=document.createElement('div'); col.className='daycol'; col.dataset.idx=idx;
     col.innerHTML=`<div class="dayhd"><div><div class="dn">${DAY_NAMES[idx]}</div><div class="dd">${dispDate(date)}</div></div><div class="daytot" id="dt-${idx}">${fmt(tot)} kg<br><span style="color:var(--accent2)">${dayBags(idx)} bags</span></div></div>
+      <div class="dayops"><label>👷&nbsp;<select data-ops="${idx}"><option value="2"${dayOps(idx)===2?' selected':''}>2 ops</option><option value="3"${dayOps(idx)===3?' selected':''}>3 ops</option></select></label><span class="opsest" id="oe-${idx}">${dayEstHtml(idx)}</span></div>
       <div class="daybody" id="db-${idx}">${jobs.length?'':'<div class="dayempty">Drag recipes here</div>'}</div>
       ${cp.totalCooks?`<div class="cookbar" id="ck-${idx}">🍳 ${cp.totalCooks} cook${cp.totalCooks>1?'s':''} · ${fmt(cp.totalHours)} h</div>`:`<div class="cookbar" id="ck-${idx}" style="display:none"></div>`}
       <div class="dayadd"><select data-add="${idx}">${recipeOpts}</select></div>
@@ -1018,6 +1034,7 @@ function renderBoard(){
       else if(data.t==='move' && data.from!=idx) moveJob(data.jobId,+data.from,idx);
     });
     col.querySelector('select[data-add]').addEventListener('change',e=>{ if(e.target.value){ addJob(idx,e.target.value); } });
+    const ops=col.querySelector('select[data-ops]'); if(ops) ops.addEventListener('change',e=>setDayOps(idx,e.target.value));
     const pb=col.querySelector('button[data-pick]'); if(pb) pb.addEventListener('click',()=>dayOutput(idx));
   }
 }
@@ -1059,6 +1076,7 @@ function onAllocInput(inp){
   const dEl=document.getElementById('dt-'+idx); if(dEl) dEl.innerHTML=fmt(dayJobs(idx).reduce((a,j)=>a+jobTotal(j),0))+' kg<br><span style="color:var(--accent2)">'+dayBags(idx)+' bags</span>';
   const ckEl=document.getElementById('ck-'+idx); if(ckEl){ const cp=dayCookPlan(idx); if(cp.totalCooks){ ckEl.style.display=''; ckEl.innerHTML='🍳 '+cp.totalCooks+' cook'+(cp.totalCooks>1?'s':'')+' · '+fmt(cp.totalHours)+' h'; } else { ckEl.style.display='none'; } }
   const mix=inp.closest('.jobcard').querySelector('button[data-mix]'); if(mix) mix.dataset.kg=jobTotal(job);
+  const oe=document.getElementById('oe-'+idx); if(oe) oe.innerHTML=dayEstHtml(idx);
   const skg=packSizeKg(size); if(skg){ const si=r.packs.indexOf(size); const pk=document.getElementById('pk-'+jobId+'-'+si); if(pk) pk.textContent='≈ '+Math.round((v||0)/skg)+' bags'; }
 }
 function addJob(idx,recipeId){ dayJobs(idx).push({id:uid(),recipeId,alloc:{}}); saveWeek(); renderBoard(); }
@@ -1764,6 +1782,8 @@ async function syncNow(){
       else if(_srvRec[r.id]!==cur) await api('/api/recipes/'+encodeURIComponent(r.id),'PUT',_stripRec(r)); }
     const recIds=new Set(state.recipes.map(r=>r.id));
     for(const id in _srvRec){ if(!recIds.has(id)) await api('/api/recipes/'+encodeURIComponent(id),'DELETE'); }
+    const planNow=JSON.stringify(state.weekPlans||{});
+    if(planNow!==_srvPlan){ await api('/api/plan','PUT',{weekPlans:state.weekPlans||{}}); _srvPlan=planNow; }
     snapServer(); setSync('● Saved');
   }catch(e){ setSync('Save failed — retry'); }
 }
@@ -1782,7 +1802,9 @@ async function startApp(){
   CURRENT_USER=d.user;
   state={ recipes:(d.recipes||[]).map(r=>Object.assign({},r,{packs:r.packs||[],ingredients:r.ingredients||[]})),
           ingredients:d.ingredients||[], suppliers:d.suppliers||[], packaging:d.packaging||[], stock:d.stock||[],
-          log:loadLocalLog(), weekPlans:loadLocalPlans(), security:{passHash:null}, dataVersion:8, rev:0 };
+          log:loadLocalLog(), weekPlans:(d.weekPlans&&Object.keys(d.weekPlans).length)?d.weekPlans:loadLocalPlans(), security:{passHash:null}, dataVersion:8, rev:0 };
+  FILL_TARGETS=normalizeFillTargets(d.fillTargets);
+  _srvPlan=JSON.stringify(state.weekPlans||{});
   document.getElementById('whoName').textContent=d.user.username+(d.user.role==='admin'?' (admin)':'');
   document.getElementById('whoWrap').style.display='';
   document.querySelectorAll('[data-view="users"]').forEach(b=>b.style.display=(d.user.role==='admin')?'':'none');
@@ -1798,7 +1820,7 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ if(v!=='home' && !canView(v)) return; if(KIOSK){ goFullscreen(); } else if(v!=='filling' && typeof exitFullscreen==='function'){ exitFullscreen(); } const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
@@ -1820,32 +1842,61 @@ const ICONS={
   history:'<path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/>',
   user:'<path d="M12 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>',
   arrowLeft:'<path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/>',
-  arrowRight:'<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>'
+  arrowRight:'<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>',
+  gauge:'<path d="M12 12l4 -2"/><path d="M3.34 17a10 10 0 1 1 17.32 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>',
+  sliders:'<path d="M4 6l6 0"/><path d="M14 6l6 0"/><path d="M12 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 12l10 0"/><path d="M18 12l2 0"/><path d="M16 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 18l2 0"/><path d="M10 18l10 0"/><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
-  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, record, deliveries, suppliers',items:[['Filling Sheet','clipboardCheck','filling'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
+  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, dashboard, record, deliveries',items:[['Filling Sheet','clipboardCheck','filling'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
-  {k:'admin',t:'Admin',icon:'settings',sub:'Change log, users',items:[['Change Log','history','log'],['Users','user','users']]}
+  {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
 ];
 /* ---- per-account permissions ---- */
 const AREAS=[
   {k:'library',label:'Recipe Library',edit:false},{k:'ingredients',label:'Ingredients',edit:true},
   {k:'editor',label:'Edit Recipes',edit:true},{k:'mixing',label:'Mixing Sheets',edit:false},
   {k:'filling',label:'Filling Sheet',edit:true},{k:'production',label:'Record Production',edit:true},
+  {k:'filldash',label:'Filling Dashboard',edit:false},
   {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
   {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
   {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
+  {k:'optimings',label:'Operations timings',edit:true},
   {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true}
 ];
 const PRESETS={
-  production:{view:{filling:1,production:1,mixing:1},edit:{filling:1,production:1}},
-  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,log:1},edit:{filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1}}
+  production:{view:{filling:1,production:1,mixing:1,filldash:1},edit:{filling:1,production:1}},
+  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
 function canEdit(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
+
+/* ===== Filling-line targets & shift timing ===== */
+const FILL_SIZES=[250,300,380,400,500,700];                 // pack sizes (grams) shown in Operations timings
+const DEFAULT_FILL_TARGETS=(function(){ const o={}; FILL_SIZES.forEach(g=>o[g]={2:10,3:16}); return o; })();
+let FILL_TARGETS=JSON.parse(JSON.stringify(DEFAULT_FILL_TARGETS));   // {grams:{2:ppm,3:ppm}}
+let _srvPlan='{}';                                          // last plan pushed to server (sync guard)
+function normalizeFillTargets(ft){ const o={}; FILL_SIZES.forEach(g=>{ const r=ft&&(ft[g]||ft[String(g)]); o[g]={2:(r&&+r[2])>0?+r[2]:10,3:(r&&+r[3])>0?+r[3]:16}; });
+  if(ft) Object.keys(ft).forEach(g=>{ if(!o[g]){ const r=ft[g]; o[g]={2:(+r[2])>0?+r[2]:10,3:(+r[3])>0?+r[3]:16}; } }); return o; }
+function ppmFor(grams,ops){ const r=FILL_TARGETS[grams]||FILL_TARGETS[String(grams)]; const v=r&&+r[ops]; return v>0?v:(+ops>=3?16:10); }
+function kgPerHr(grams,ops){ return ppmFor(grams,ops)*grams*60/1000; }   // packs/min * g/pack * 60 / 1000
+
+/* shift window: 07:00–14:30 with two breaks (45 min) → 405 running minutes */
+const FILL_START_HHMM='07:00', FILL_END_HHMM='14:30';
+const FILL_BREAKS=[['09:00','09:15'],['12:00','12:30']];
+function hmToMin(s){ const p=(s||'0:0').split(':').map(Number); return p[0]*60+(p[1]||0); }
+function minToHHMM(min){ min=Math.round(min); const h=Math.floor(min/60), m=((min%60)+60)%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+function _breakOverlap(a,b){ let t=0; FILL_BREAKS.forEach(br=>{ const bs=hmToMin(br[0]),be=hmToMin(br[1]); const lo=Math.max(a,bs),hi=Math.min(b,be); if(hi>lo)t+=hi-lo; }); return t; }
+function runMinutesBetween(a,b){ if(b<=a)return 0; return Math.max(0,(b-a)-_breakOverlap(a,b)); }
+const DAY_RUN_MIN=runMinutesBetween(hmToMin(FILL_START_HHMM),hmToMin(FILL_END_HHMM));   // 405
+function runMinutesElapsedNow(){ const d=new Date(); const nowMin=Math.min(d.getHours()*60+d.getMinutes(), hmToMin(FILL_END_HHMM)); return runMinutesBetween(hmToMin(FILL_START_HHMM), nowMin); }
+/* map N running minutes from 07:00 onto a clock time, stepping over breaks */
+function clockAfterRunMinutes(runMin){ let cur=hmToMin(FILL_START_HHMM), left=Math.max(0,runMin);
+  const brks=FILL_BREAKS.map(b=>[hmToMin(b[0]),hmToMin(b[1])]).sort((a,b)=>a[0]-b[0]);
+  for(const br of brks){ const avail=br[0]-cur; if(avail<0)continue; if(left<=avail)return cur+left; left-=avail; cur=br[1]; }
+  return cur+left; }
 function renderHomeMenu(){
   const sub=document.getElementById('homeSub'); if(sub){ sub.textContent='Choose an area to work in.'; sub.style.display=''; }
   const groups=HOME_GROUPS.map(g=>({g,items:g.items.filter(it=>canView(it[2]))})).filter(x=>x.items.length);
@@ -1886,7 +1937,7 @@ function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${c
 /* ===== Filling Sheet (tablet) ===== */
 let fillBasket=null, _fillTimer=null;
 function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
-function newFillBasket(n){ return {basket:n||'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
 function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function exitFullscreen(){ try{ if(document.fullscreenElement && document.exitFullscreen){ const p=document.exitFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
@@ -1949,6 +2000,7 @@ function drawFill(){
   root.innerHTML=`<div class="card">
     <div class="row-flex" style="flex-wrap:wrap;gap:14px;align-items:flex-end">
       <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:110px;font-weight:700" '+dis)}</label>
+      <label class="fld">People on line${ro?`<div class="flbig" style="padding:12px;border:1px solid var(--line);border-radius:10px;min-width:90px">${escapeHtml(''+(b.operators||2))} people</div>`:`<select data-fill="operators" style="font-size:17px;padding:12px;min-height:48px;font-weight:700" ${dis}><option value="2"${(+b.operators===3)?'':' selected'}>2 people</option><option value="3"${(+b.operators===3)?' selected':''}>3 people</option></select>`}</label>
       <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:130px" '+dis)}</label>
       <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
       <label class="fld">Date filled<input type="date" data-fill="filled" value="${escapeHtml(b.filled)}" ${dis}></label>
@@ -2007,12 +2059,12 @@ async function fillSave(){
   if(!b.fillFinish) b.fillFinish=new Date().toISOString();   // auto-stamp finish on submit
   const lines=complete.map(l=>{ const r=byId(l.recipeId);
     return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),
-      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,
+      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,operators:+b.operators||2,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
   msg.textContent='Saving…';
   try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
-    stopFillTimer(); fillBasket=newFillBasket(next); drawFill();
+    stopFillTimer(); fillBasket=newFillBasket(next,+b.operators||2); drawFill();
     const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
   }catch(e){ const m=document.getElementById('flMsg'); if(m) m.textContent='Failed: '+e.message; }
 }
@@ -2072,13 +2124,159 @@ function editFillRow(id){
     const mk=v=>v?new Date((filled||todayISO())+'T'+v+':00').toISOString():'';
     const fs=document.getElementById('feFS').value, ff=document.getElementById('feFF').value;
     const jul=document.getElementById('feJ').value;
-    const body={date:filled||p.date,recipe_id:recId,product,pack,qty:bags,kg,basket:document.getElementById('feBasket').value,julian:jul,bestBefore:document.getElementById('feBB').value,mince:document.getElementById('feMince').value,filled,tempStart:document.getElementById('feTS').value,tempFinish:document.getElementById('feTF').value,fillStart:fs?mk(fs):p.fill_start,fillFinish:ff?mk(ff):p.fill_finish,batch:jul,cook:p.cook_date||'',retort:p.retort||'',deductions};
+    const body={date:filled||p.date,recipe_id:recId,product,pack,qty:bags,kg,basket:document.getElementById('feBasket').value,julian:jul,bestBefore:document.getElementById('feBB').value,mince:document.getElementById('feMince').value,filled,tempStart:document.getElementById('feTS').value,tempFinish:document.getElementById('feTF').value,fillStart:fs?mk(fs):p.fill_start,fillFinish:ff?mk(ff):p.fill_finish,batch:jul,cook:p.cook_date||'',retort:p.retort||'',operators:p.operators||0,deductions};
     document.getElementById('feMsg').textContent='Saving…';
     try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadFillToday(); }catch(e){ document.getElementById('feMsg').textContent='Failed: '+e.message; }
   };
 }
 async function delFillRow(id){ if(!canEdit('filling'))return; if(!confirm('Delete this basket entry? The stock it used will be restored.'))return; try{ await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadFillToday(); }catch(e){ alert(e.message); } }
 window.editFillRow=editFillRow; window.delFillRow=delFillRow;
+
+/* ===== Operations timings (admin) — filling target rates ===== */
+function renderOptimings(){
+  const root=document.getElementById('rootOptimings'); if(!root) return;
+  const ed=canEdit('optimings');
+  const rows=FILL_SIZES.map(g=>{ const t=FILL_TARGETS[g]||{2:10,3:16};
+    return `<tr><td><b>${g} g</b></td>
+      <td class="num">${ed?`<input type="number" min="1" step="1" class="otp" data-g="${g}" data-ops="2" value="${t[2]}" style="width:80px">`:t[2]}</td>
+      <td class="num" id="kh-${g}-2">${fmt(kgPerHr(g,2))}</td>
+      <td class="num">${ed?`<input type="number" min="1" step="1" class="otp" data-g="${g}" data-ops="3" value="${t[3]}" style="width:80px">`:t[3]}</td>
+      <td class="num" id="kh-${g}-3">${fmt(kgPerHr(g,3))}</td></tr>`; }).join('');
+  root.innerHTML=`<div class="card">
+    <p class="sub" style="margin-top:0">Targets are <b>packs per minute</b> for the filling line. The kg/hr columns are worked out automatically (packs/min × pack weight × 60). The <b>Filling Dashboard</b> and the planner use these to set each day's target and tell you if you're on track. Defaults: 10/min with 2 people, 16/min with 3.</p>
+    <div style="overflow:auto"><table>
+      <thead><tr><th>Pack size</th><th class="num">2 people · packs/min</th><th class="num">2 people · kg/hr</th><th class="num">3 people · packs/min</th><th class="num">3 people · kg/hr</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    ${ed?`<div style="margin-top:14px;display:flex;gap:10px;align-items:center"><button class="btn coral" id="otSave">Save targets</button><button class="btn ghost sm" id="otReset">Reset to defaults</button><span class="hint" id="otMsg"></span></div>`:'<p class="muted">View only — ask an admin to change targets.</p>'}
+  </div>`;
+  if(!ed) return;
+  root.querySelectorAll('.otp').forEach(inp=>inp.addEventListener('input',()=>{ const g=+inp.dataset.g, ops=+inp.dataset.ops, v=+inp.value||0; if(!FILL_TARGETS[g])FILL_TARGETS[g]={2:10,3:16}; FILL_TARGETS[g][ops]=v>0?v:1; const c=document.getElementById('kh-'+g+'-'+ops); if(c)c.textContent=fmt(kgPerHr(g,ops)); }));
+  document.getElementById('otSave').onclick=async()=>{ const msg=document.getElementById('otMsg'); msg.textContent='Saving…'; try{ await api('/api/fill-targets','PUT',{fillTargets:FILL_TARGETS}); msg.textContent='Saved ✓'; }catch(e){ msg.textContent='Failed: '+e.message; } };
+  document.getElementById('otReset').onclick=()=>{ FILL_TARGETS=JSON.parse(JSON.stringify(DEFAULT_FILL_TARGETS)); renderOptimings(); };
+}
+window.renderOptimings=renderOptimings;
+
+/* ===== Filling Dashboard ===== */
+let _dashTimer=null,_dashTick=null,_dashDate=null;
+function stopDashTimers(){ if(_dashTimer){clearInterval(_dashTimer);_dashTimer=null;} if(_dashTick){clearInterval(_dashTick);_dashTick=null;} }
+window.stopDashTimers=stopDashTimers;
+function planForDate(dateISO){
+  const d=parseISO(dateISO); const k=isoDate(mondayOf(d)); const idx=(d.getDay()+6)%7;
+  const w=state.weekPlans[k]; const jobs=(w&&w.days&&w.days[idx])||[]; const ops=+(w&&w.ops&&w.ops[idx])||2;
+  const map={}; let totBags=0,totKg=0;
+  jobs.forEach(j=>{ const r=byId(j.recipeId); if(!r)return; (r.packs||[]).forEach(p=>{ const skg=packSizeKg(p); const kg=parseFloat((j.alloc||{})[p])||0; if(!skg||kg<=0)return; const bags=Math.round(kg/skg); const key=r.id+'||'+p; if(!map[key])map[key]={product:r.brand+' — '+r.name,pack:p,grams:Math.round(skg*1000),planBags:0,planKg:0,actBags:0,actKg:0}; map[key].planBags+=bags; map[key].planKg+=kg; totBags+=bags; totKg+=kg; }); });
+  return {rows:Object.values(map),totBags,totKg,ops,hasPlan:jobs.length>0};
+}
+function tickDash(){ document.querySelectorAll('#rootFilldash .dashlive').forEach(el=>{ const s=el.getAttribute('data-start'); if(!s)return; el.textContent=fmtDur(new Date()-new Date(s)); }); }
+function hourlyChartSvg(buckets,hours,target){
+  const vals=hours.map(h=>buckets[h]||0); const maxV=Math.max(target||0,...vals,1)*1.15;
+  const base=130,x0=46,bw=64,gap=8; const right=x0+hours.length*(bw+gap)-gap;
+  let bars=''; hours.forEach((h,i)=>{ const x=x0+i*(bw+gap); const v=vals[i]; const ht=v/maxV*(base-14); const col=(target&&v>=target)?'#1f7a47':(v>0?'#d8694f':'#e3e6e9');
+    bars+=`<rect x="${x}" y="${base-ht}" width="${bw}" height="${Math.max(ht,1)}" rx="3" fill="${col}"/>`;
+    bars+=`<text x="${x+bw/2}" y="148" font-size="11" fill="#8895a3" text-anchor="middle">${String(h).padStart(2,'0')}</text>`;
+    if(v>0)bars+=`<text x="${x+bw/2}" y="${base-ht-4}" font-size="10" fill="#555" text-anchor="middle">${v}</text>`; });
+  const ty=target>0?base-(target/maxV*(base-14)):base;
+  const tline=target>0?`<line x1="${x0}" y1="${ty}" x2="${right}" y2="${ty}" stroke="#e0a23a" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${x0+4}" y="${Math.max(ty-4,10)}" font-size="10" fill="#b07d1a">target ~${Math.round(target)}/hr</text>`:'';
+  return `<svg viewBox="0 0 640 170" width="100%" role="img" aria-label="Bags filled per hour versus target"><line x1="${x0}" y1="${base}" x2="${right}" y2="${base}" stroke="#ccd2d8"/>${tline}${bars}</svg>`;
+}
+function renderFilldash(){ stopDashTimers(); if(!_dashDate)_dashDate=todayISO(); drawFilldash(); }
+window.renderFilldash=renderFilldash;
+async function drawFilldash(){
+  const root=document.getElementById('rootFilldash'); if(!root)return;
+  const date=_dashDate, isToday=(date===todayISO());
+  let prod=[]; try{ prod=await api('/api/production'); }catch(e){}
+  const plan=planForDate(date);
+  const act=prod.filter(p=> (p.filled_date===date) || (!p.filled_date && p.date===date) );
+  let actBags=0,actKg=0; const extra={};
+  act.forEach(p=>{ const bags=+p.qty||0, kg=+p.kg||0; actBags+=bags; actKg+=kg;
+    const row=plan.rows.find(r=>r.product===p.product&&r.pack===p.pack);
+    if(row){ row.actBags+=bags; row.actKg+=kg; }
+    else { const ek=p.product+'||'+p.pack; if(!extra[ek])extra[ek]={product:p.product||'(unknown)',pack:p.pack||'',grams:Math.round((packSizeKg(p.pack)||0)*1000),planBags:0,planKg:0,actBags:0,actKg:0}; extra[ek].actBags+=bags; extra[ek].actKg+=kg; } });
+  const rows=plan.rows.concat(Object.values(extra)); const ops=plan.ops;
+  let totalTargetMin=0; plan.rows.forEach(r=>{ totalTargetMin+=r.planBags/ppmFor(r.grams,ops); });
+  const planBags=plan.totBags, planKg=plan.totKg;
+  const elapsedRun=isToday?runMinutesElapsedNow():DAY_RUN_MIN;
+  const expectedFrac=totalTargetMin>0?Math.min(1,elapsedRun/totalTargetMin):0;
+  const aheadBags=Math.round(actBags-expectedFrac*planBags);
+  const aheadKg=Math.round(actKg-expectedFrac*planKg);
+  const progPct=planBags>0?Math.min(100,Math.round(actBags/planBags*100)):0;
+  // baskets
+  const bMap={};
+  act.forEach(p=>{ const bk=(p.basket||'—'); if(!bMap[bk])bMap[bk]={basket:bk,ops:p.operators||0,bags:0,prods:new Set(),start:null,finish:null,open:false};
+    const o=bMap[bk]; o.bags+=(+p.qty||0); if(p.product)o.prods.add(p.product); if(p.operators)o.ops=p.operators;
+    if(p.fill_start && (!o.start||p.fill_start<o.start))o.start=p.fill_start;
+    if(p.fill_finish){ if(!o.finish||p.fill_finish>o.finish)o.finish=p.fill_finish; } });
+  Object.values(bMap).forEach(o=>{ o.open=!!(o.start&&!o.finish); });
+  const baskets=Object.values(bMap).sort((a,b)=>{ const na=+a.basket,nb=+b.basket; if(!isNaN(na)&&!isNaN(nb))return na-nb; return (''+a.basket).localeCompare(''+b.basket); });
+  const openB=baskets.filter(b=>b.open);
+  // pace
+  let firstStart=null; act.forEach(p=>{ if(p.fill_start&&(!firstStart||p.fill_start<firstStart))firstStart=p.fill_start; });
+  let runSince=0; if(firstStart){ const fs=new Date(firstStart); const sMin=fs.getHours()*60+fs.getMinutes(); const endMin=isToday?Math.min(new Date().getHours()*60+new Date().getMinutes(),hmToMin(FILL_END_HHMM)):hmToMin(FILL_END_HHMM); runSince=runMinutesBetween(sMin,Math.max(sMin,endMin)); }
+  const actualPace=runSince>0?actBags/runSince:0;
+  const targetPace=totalTargetMin>0?planBags/totalTargetMin:0;
+  const projFinishMin=clockAfterRunMinutes(actualPace>0?planBags/actualPace:(totalTargetMin||0));
+  const targetFinishMin=clockAfterRunMinutes(totalTargetMin);
+  const onTrack=aheadBags>=-Math.max(5,Math.round(planBags*0.02));
+  // hourly buckets
+  const hours=[7,8,9,10,11,12,13,14]; const buckets={}; hours.forEach(h=>buckets[h]=0);
+  act.forEach(p=>{ const t=p.fill_finish||p.fill_start; if(!t)return; let h=new Date(t).getHours(); if(h<7)h=7; if(h>14)h=14; buckets[h]+=(+p.qty||0); });
+  const targetPerHr=totalTargetMin>0?planBags/(totalTargetMin/60):0;
+  // status pill
+  let pillBg,pillFg,pillTxt;
+  if(!plan.hasPlan){ pillBg='#eef0f2';pillFg='#555';pillTxt='No production planned'; }
+  else if(actBags>=planBags && planBags>0){ pillBg='#e6f4ec';pillFg='#1f7a47';pillTxt='✓ Plan complete'; }
+  else if(onTrack){ pillBg='#e6f4ec';pillFg='#1f7a47';pillTxt=aheadBags>5?('● Ahead by '+aheadBags+' bags'):'● On track'; }
+  else { pillBg='#fae3df';pillFg='#b4231f';pillTxt='● Behind — '+Math.abs(aheadBags)+' bags / '+Math.abs(aheadKg)+' kg behind pace'; }
+  const projRed=projFinishMin>hmToMin(FILL_END_HHMM);
+  root.innerHTML=`<style>
+   .fdwrap .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:12px 0}
+   .fdwrap .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+   .fdwrap .kpi .l{font-size:12px;color:var(--muted)}
+   .fdwrap .kpi .n{font-size:26px;font-weight:800;color:var(--navy);font-family:var(--font-display);line-height:1.1;margin-top:3px}
+   .fdwrap .pbar{height:8px;border-radius:5px;background:#eee;overflow:hidden;margin-top:8px}
+   .fdwrap .pbar>i{display:block;height:100%;background:var(--accent2)}
+   .fdwrap table{width:100%;border-collapse:collapse;font-size:13px}
+   .fdwrap th,.fdwrap td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+   .fdwrap td.num,.fdwrap th.num{text-align:right;font-variant-numeric:tabular-nums}
+   .fdpill{display:inline-block;font-size:14px;font-weight:700;padding:6px 14px;border-radius:20px}
+  </style>
+  <div class="fdwrap">
+   <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+     <label class="fld" style="margin:0">Day<input type="date" id="fdDate" value="${date}"></label>
+     <span class="fdpill" style="background:${pillBg};color:${pillFg}">${pillTxt}</span>
+     <span class="hint">${plan.hasPlan?('Plan: '+planBags.toLocaleString()+' bags · '+fmt(planKg)+' kg · '+ops+' people · target finish ~'+minToHHMM(targetFinishMin)):''}</span>
+     <span style="flex:1"></span>
+     <span class="hint">${isToday?'live · ':''}<button class="btn ghost sm" id="fdReload">↻ Refresh</button></span>
+   </div>
+   ${!plan.hasPlan?`<div class="card"><p class="muted" style="margin:0">No production is planned for ${date}.${actBags?(' '+actBags.toLocaleString()+' bags were filled.'):''} Enter the day's products in the <b>Production Planner</b> (and set 2 or 3 people) to track live targets here.</p></div>`:''}
+   <div class="kpis">
+     <div class="kpi"><div class="l">Day progress (bags)</div><div class="n">${progPct}%</div><div class="pbar"><i style="width:${progPct}%"></i></div></div>
+     <div class="kpi"><div class="l">Bags filled / planned</div><div class="n">${actBags.toLocaleString()}<span style="font-size:15px;color:var(--muted)"> / ${planBags.toLocaleString()}</span></div></div>
+     <div class="kpi"><div class="l">kg filled / planned</div><div class="n">${fmt(actKg)}<span style="font-size:15px;color:var(--muted)"> / ${fmt(planKg)}</span></div></div>
+     <div class="kpi"><div class="l">Projected finish</div><div class="n" style="color:${projRed?'#b4231f':'#1f7a47'}">${actBags?minToHHMM(projFinishMin):'—'}</div><div class="l">line target 14:30</div></div>
+     <div class="kpi"><div class="l">Pace now / target</div><div class="n">${actualPace.toFixed(1)}<span style="font-size:15px;color:var(--muted)"> / ${targetPace.toFixed(1)} bags-min</span></div><div class="l">at ${ops} people</div></div>
+   </div>
+   ${openB.length?`<div class="card" style="background:#faf3ee;border-color:var(--coral)"><div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap"><div><div class="hint">Currently filling</div><div style="font-size:20px;font-weight:800;color:var(--navy)">Basket ${escapeHtml(''+openB[0].basket)}</div></div><div style="text-align:center"><div class="dashlive" data-start="${openB[0].start}" style="font-size:40px;font-weight:800;font-family:var(--font-display);color:var(--coral-deep);line-height:1">0:00</div><div class="hint">started ${fmtTime(openB[0].start)}</div></div>${openB.length>1?`<div class="hint">+${openB.length-1} more basket open</div>`:''}</div></div>`:''}
+   <div class="card"><h3 style="margin:0 0 8px">Bags per hour</h3>${hourlyChartSvg(buckets,hours,targetPerHr)}</div>
+   <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">By product</h3>
+     <table><thead><tr><th>Product</th><th>Size</th><th class="num">Planned</th><th class="num">Filled</th><th class="num">%</th><th>Status</th></tr></thead>
+     <tbody>${rows.length?rows.map(r=>{ const pct=r.planBags>0?Math.round(r.actBags/r.planBags*100):(r.actBags?100:0); const ok=r.planBags>0?(r.actBags>=expectedFrac*r.planBags-2):true; const col=ok?'#1f7a47':'#b4231f';
+       return `<tr><td>${escapeHtml(r.product)}</td><td>${escapeHtml(r.pack)}</td><td class="num">${r.planBags?r.planBags.toLocaleString():'—'}</td><td class="num">${r.actBags.toLocaleString()}</td><td class="num">${r.planBags?pct+'%':'—'}</td><td style="color:${col}">${r.planBags?(ok?'on track':'behind'):'extra'}</td></tr>`; }).join(''):'<tr><td colspan="6" class="muted">Nothing planned or filled.</td></tr>'}</tbody>
+     <tfoot><tr><th>Total</th><th></th><th class="num">${planBags.toLocaleString()}</th><th class="num">${actBags.toLocaleString()}</th><th class="num">${progPct}%</th><th></th></tr></tfoot></table>
+   </div>
+   <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Baskets — ${date}</h3>
+     <table><thead><tr><th>Basket</th><th class="num">People</th><th class="num">Products</th><th class="num">Bags</th><th>Start</th><th>Finish</th><th class="num">Time</th></tr></thead>
+     <tbody>${baskets.length?baskets.map(b=>{ const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
+       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td class="num">${b.prods.size}</td><td class="num">${b.bags.toLocaleString()}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td></tr>`; }).join(''):'<tr><td colspan="7" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
+   </div>
+  </div>`;
+  document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
+  document.getElementById('fdReload').addEventListener('click',drawFilldash);
+  if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
+  if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
+  if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },60000); }
+}
+window.drawFilldash=drawFilldash;
 
 /* ===== Record Production ===== */
 let prodLines=[];
@@ -2161,7 +2359,7 @@ function renderProduction(){
   loadProd();
 }
 let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set(), prodUndo=[];
-function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
+function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',operators:p.operators||0,deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
 function pushUndo(e){ prodUndo.push(e); if(prodUndo.length>40) prodUndo.shift(); updateUndoBtn(); }
 function updateUndoBtn(){ const b=document.getElementById('prUndo'); if(b){ b.disabled=!prodUndo.length; b.textContent=prodUndo.length?('↶ Undo '+(prodUndo[prodUndo.length-1].label||'')):'↶ Undo'; } }
 async function undoProd(){ const e=prodUndo.pop(); if(!e){ updateUndoBtn(); return; }

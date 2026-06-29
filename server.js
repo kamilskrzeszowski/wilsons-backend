@@ -55,6 +55,7 @@ try { db.exec("ALTER TABLE production ADD COLUMN retort TEXT DEFAULT ''"); } cat
 db.exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
 try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN seq REAL DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN operators INTEGER DEFAULT 0"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -211,9 +212,17 @@ const server = http.createServer(async (req, res) => {
           recipes: db.prepare('SELECT * FROM recipes').all().map(r => ({ ...r, packs: JSON.parse(r.packs || '[]'), ingredients: JSON.parse(r.ingredients || '[]') })),
           suppliers: db.prepare('SELECT * FROM suppliers ORDER BY name').all(),
           packaging: db.prepare('SELECT * FROM packaging').all(),
-          stock: stockSnapshot()
+          stock: stockSnapshot(),
+          weekPlans: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='weekPlans'").get(); try { return r ? JSON.parse(r.value) : {}; } catch (e) { return {}; } })(),
+          fillTargets: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='fillTargets'").get(); try { return r ? JSON.parse(r.value) : null; } catch (e) { return null; } })()
         });
       }
+      // shared weekly production plan (one JSON blob in meta) — drives the filling dashboard
+      if (url === '/api/plan' && m === 'GET') { const r = db.prepare("SELECT value FROM meta WHERE key='weekPlans'").get(); let v = {}; try { v = r ? JSON.parse(r.value) : {}; } catch (e) {} return json(res, 200, { weekPlans: v }); }
+      if (url === '/api/plan' && m === 'PUT') { const b = await readBody(req); db.prepare("INSERT INTO meta(key,value) VALUES('weekPlans',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(b.weekPlans || {})); return json(res, 200, { ok: true }); }
+      // filling-line target rates (packs-per-minute per pack size, by operator count)
+      if (url === '/api/fill-targets' && m === 'GET') { const r = db.prepare("SELECT value FROM meta WHERE key='fillTargets'").get(); let v = null; try { v = r ? JSON.parse(r.value) : null; } catch (e) {} return json(res, 200, { fillTargets: v }); }
+      if (url === '/api/fill-targets' && m === 'PUT') { const b = await readBody(req); db.prepare("INSERT INTO meta(key,value) VALUES('fillTargets',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(b.fillTargets || {})); return json(res, 200, { ok: true }); }
       if (url === '/api/stock' && m === 'GET') return json(res, 200, stockSnapshot());
 
       // stock settings (opening / reorder / supplier)
@@ -228,12 +237,12 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/production' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all());
       if (url === '/api/production' && m === 'POST') {
         const b = await readBody(req); const lines = b.lines || [];
-        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           lines.forEach(l => { const id = uid('p');
-            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', user.username, now());
+            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, user.username, now());
             (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
           });
           db.exec('COMMIT');
@@ -247,8 +256,8 @@ const server = http.createServer(async (req, res) => {
         if (!ex) return json(res, 404, { error: 'not found' });
         db.exec('BEGIN');
         try {
-          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=? WHERE id=?')
-            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', id);
+          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=?,operators=? WHERE id=?')
+            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', (b.operators == null ? 0 : +b.operators || 0), id);
           db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
           const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
           (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
