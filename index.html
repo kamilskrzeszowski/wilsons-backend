@@ -215,6 +215,16 @@
 .draghand{cursor:grab;color:var(--muted);font-size:15px;user-select:none}
 tr.prDrag{cursor:grab}
 tr.prDrag:hover{background:#faf3ee}
+#rootFilling input,#rootFilling select{font-size:17px;padding:12px 12px;min-height:48px}
+#rootFilling .fld{font-size:12.5px;font-weight:700;color:var(--muted)}
+.pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:10px}
+.pickbtn{padding:22px 14px;font-size:17px;font-weight:700;border:1px solid var(--line);border-radius:12px;background:#f6f4ec;color:var(--navy);cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center}
+.pickbtn:hover{border-color:var(--coral);background:var(--cream)} .pickbtn:active{transform:scale(.98)}
+.pickbtn.big{font-size:24px;padding:30px 14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.segbtn{padding:10px 18px;border:0;background:#fff;color:var(--navy);font-weight:700;cursor:pointer;font-size:14px;border-right:1px solid var(--line)}
+.segbtn:last-child{border-right:0}
+.segbtn.on{background:var(--navy);color:#fff}
 </style>
 </head>
 <body>
@@ -516,8 +526,9 @@ tr.prDrag:hover{background:#faf3ee}
       <button class="kpbtn" onclick="kpKey('4')">4</button><button class="kpbtn" onclick="kpKey('5')">5</button><button class="kpbtn" onclick="kpKey('6')">6</button>
       <button class="kpbtn" onclick="kpKey('1')">1</button><button class="kpbtn" onclick="kpKey('2')">2</button><button class="kpbtn" onclick="kpKey('3')">3</button>
       <button class="kpbtn" onclick="kpKey('.')">.</button><button class="kpbtn" onclick="kpKey('0')">0</button><button class="kpbtn" onclick="kpBack()">⌫</button>
+      <button class="kpbtn" id="kpSignBtn" onclick="kpSign()" style="font-weight:800">±</button>
       <button class="kpbtn clr" onclick="kpClear()">Clear</button>
-      <button class="kpbtn done" style="grid-column:span 2" onclick="kpDone()">Done</button>
+      <button class="kpbtn done" onclick="kpDone()">Done</button>
     </div>
   </div>
 </div>
@@ -1781,7 +1792,7 @@ async function startApp(){
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
 function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
-function navTo(v){ if(v!=='home' && !canView(v)) return; const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
+function navTo(v){ if(v!=='home' && !canView(v)) return; if(v!=='filling' && typeof exitFullscreen==='function') exitFullscreen(); const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
   home:'<path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/>',
@@ -1857,6 +1868,8 @@ let _kpTarget=null,_kpBuf='';
 function openKeypad(input){ _kpTarget=input; _kpBuf=(input.value||'')+''; document.getElementById('kpadLabel').textContent=input.getAttribute('data-kplabel')||'Enter number'; document.getElementById('kpadVal').textContent=_kpBuf||'0'; document.getElementById('kpadBg').classList.add('show'); }
 function kpRender(){ document.getElementById('kpadVal').textContent=_kpBuf||'0'; }
 function kpKey(ch){ if(ch==='.'&&_kpBuf.includes('.'))return; _kpBuf+=ch; kpRender(); }
+function kpSign(){ _kpBuf=_kpBuf.startsWith('-')?_kpBuf.slice(1):('-'+_kpBuf); kpRender(); }
+window.kpSign=kpSign;
 function kpBack(){ _kpBuf=_kpBuf.slice(0,-1); kpRender(); }
 function kpClear(){ _kpBuf=''; kpRender(); }
 function kpClose(){ document.getElementById('kpadBg').classList.remove('show'); _kpTarget=null; }
@@ -1866,7 +1879,9 @@ function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${c
 /* ===== Filling Sheet (tablet) ===== */
 let fillBasket=null, _fillTimer=null;
 function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
-function newFillBasket(n){ return {basket:n||'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempStartSign:'+',tempFinish:'',tempFinishSign:'+',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function newFillBasket(n){ return {basket:n||'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
+function exitFullscreen(){ try{ if(document.fullscreenElement && document.exitFullscreen){ const p=document.exitFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
 function hhmm(iso){ if(!iso)return''; try{ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return ''; } }
 function fmtDur(ms){ if(ms<0)ms=0; const s=Math.floor(ms/1000); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60; const pad=n=>String(n).padStart(2,'0'); return (h?h+':':'')+pad(m)+':'+pad(ss); }
@@ -1876,58 +1891,81 @@ function bbForRecipe(r,filled){ return addMonths(filled,shelfMonthsOf(r)); }
 function signedTemp(mag,sign){ mag=(mag==null?'':(''+mag)).trim().replace(/^[-+]/,''); if(!mag)return''; return (sign==='-'?'-':'')+mag; }
 function stopFillTimer(){ if(_fillTimer){ clearInterval(_fillTimer); _fillTimer=null; } }
 function tickFillTimer(){ const el=document.getElementById('flTimer'); if(!el){ stopFillTimer(); return; } const b=fillBasket; if(!b||!b.fillStart){ el.textContent='0:00'; return; } const end=b.fillFinish?new Date(b.fillFinish):new Date(); el.textContent=fmtDur(end-new Date(b.fillStart)); if(b.fillFinish) stopFillTimer(); }
-function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); drawFill(); }
-function fillRecChange(i,v){ fillBasket.lines[i].recipeId=v; fillBasket.lines[i].pack=''; drawFill(); }
+function tempAlert(){ pop(`<div style="text-align:center;padding:6px 4px">
+   <div style="font-size:46px;line-height:1">⚠️</div>
+   <h3 style="color:#b4231f;margin:8px 0 4px">Stop — temperature above 0&nbsp;°C</h3>
+   <p style="font-size:15px">The product must be frozen (<b>0&nbsp;°C or below</b>). Do <b>not</b> continue filling this basket.<br><br>Stop now, get your <b>manager</b>, and re-evaluate before recording it.</p>
+   <button class="btn coral" onclick="closeModal()" style="margin-top:6px;font-size:16px;padding:14px 26px">OK — I'll get my manager</button></div>`); }
+function tempIsBad(v){ const n=parseFloat(v); return !isNaN(n)&&n>0; }
+function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); goFullscreen(); drawFill(); }
 function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
 function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
 function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; drawFill(); }
 function fillFinishNow(){ if(!fillBasket.fillStart)return; fillBasket.fillFinish=new Date().toISOString(); drawFill(); }
 function fillClear(){ stopFillTimer(); fillBasket=newFillBasket(); drawFill(); }
-function fillSignToggle(which){ const k=which==='Start'?'tempStartSign':'tempFinishSign'; fillBasket[k]=(fillBasket[k]==='-')?'+':'-'; drawFill(); }
-function tempCtl(which){ const valK=which==='Start'?'tempStart':'tempFinish'; const sgnK=which==='Start'?'tempStartSign':'tempFinishSign'; const dis=!canEdit('filling')?'disabled':''; const sign=fillBasket[sgnK]||'+';
-  return `<label class="fld">Temp ${which.toLowerCase()} °C<span style="display:flex;gap:6px;align-items:center"><button class="btn ghost" data-sign="${which}" ${dis} style="padding:8px 12px;font-size:20px;font-weight:800;${sign==='-'?'color:#b4231f':'color:#2f7d57'}">${sign==='-'?'−':'+'}</button>${kp('','Temp '+which,fillBasket[valK],'','data-fill="'+valK+'" style="width:80px;font-size:16px;font-weight:700" '+dis)}</span></label>`; }
+/* large-button product picker: Product -> brand -> recipe -> bag weight */
+function pickProduct(i){ pickBrand(i); }
+function pickBrand(i){ const brands=[...new Set(state.recipes.map(r=>r.brand))];
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Choose product</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <div class="pickgrid">${brands.map(b=>`<button class="pickbtn" data-brand="${escapeHtml(b)}"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${(typeof BRAND_COLORS!=='undefined'&&BRAND_COLORS[b])||'#8895a3'};margin-right:10px"></span>${escapeHtml(b)}</button>`).join('')}</div>`);
+  document.querySelectorAll('[data-brand]').forEach(btn=>btn.onclick=()=>pickRecipe(i,btn.dataset.brand));
+}
+function pickRecipe(i,brand){ const recs=state.recipes.filter(r=>r.brand===brand).sort((a,b)=>a.name.localeCompare(b.name));
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${escapeHtml(brand)}</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <button class="btn ghost sm" id="pkBack" style="margin-top:6px">← All brands</button>
+   <div class="pickgrid" style="margin-top:10px">${recs.map(r=>`<button class="pickbtn" data-rid="${r.id}">${escapeHtml(r.name)}</button>`).join('')}</div>`);
+  document.getElementById('pkBack').onclick=()=>pickBrand(i);
+  document.querySelectorAll('[data-rid]').forEach(btn=>btn.onclick=()=>pickPack(i,btn.dataset.rid));
+}
+function pickPack(i,rid){ const r=byId(rid); const packs=(r&&r.packs&&r.packs.length)?r.packs:['(no size)'];
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${escapeHtml(r.brand+' — '+r.name)}</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <button class="btn ghost sm" id="pkBack" style="margin-top:6px">← ${escapeHtml(r.brand)}</button>
+   <p class="hint" style="margin-top:10px">Choose bag weight:</p>
+   <div class="pickgrid">${packs.map(p=>`<button class="pickbtn big" data-pack="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join('')}</div>`);
+  document.getElementById('pkBack').onclick=()=>pickRecipe(i,r.brand);
+  document.querySelectorAll('[data-pack]').forEach(btn=>btn.onclick=()=>{ fillBasket.lines[i].recipeId=rid; fillBasket.lines[i].pack=(btn.dataset.pack==='(no size)'?'':btn.dataset.pack); closeModal(); drawFill(); });
+}
+window.pickProduct=pickProduct;
 function drawFill(){
   stopFillTimer();
   const root=document.getElementById('rootFilling'); if(!root) return;
   const ro=!canEdit('filling'); const dis=ro?'disabled':''; const b=fillBasket; const yy=String(new Date().getFullYear()).slice(-2);
-  const lineRows=b.lines.map((l,i)=>{ const r=byId(l.recipeId); const packs=r?(r.packs||[]):[]; const bb=r?bbForRecipe(r,b.filled):'';
-    return `<div class="prline">
-      <label class="fld" style="flex:2;min-width:200px">Product<select class="flRec" data-i="${i}" ${dis}>${prodSelectOptions(l.recipeId)}</select></label>
-      <label class="fld">Pouch<select class="flPack" data-i="${i}" ${dis}><option value="">size</option>${packs.map(p=>`<option${p===l.pack?' selected':''}>${escapeHtml(p)}</option>`).join('')}</select></label>
-      <label class="fld">Bags${kp('','Bags '+(i+1),l.bags,'flBags','data-i="'+i+'" style="width:90px" '+dis)}</label>
-      <span class="hint" style="min-width:120px">Best before:<br><b>${bb||'—'}</b></span>
-      ${ro?'':`<button class="btn danger" data-del="${i}">✕</button>`}</div>`;
+  const lineRows=b.lines.map((l,i)=>{ const r=byId(l.recipeId); const bb=r?bbForRecipe(r,b.filled):'';
+    const label=r?escapeHtml(r.brand+' — '+r.name+(l.pack?(' · '+l.pack):' · (size?)')):'＋ Choose product';
+    return `<div class="prline" style="align-items:flex-end">
+      <label class="fld" style="flex:2;min-width:240px">Product${ro?`<div class="flbig" style="padding:14px;border:1px solid var(--line);border-radius:10px">${label}</div>`:`<button class="btn ${r?'':'coral'}" data-pick="${i}" style="font-size:16px;padding:15px 16px;justify-content:flex-start;text-align:left;width:100%">${label}</button>`}</label>
+      <label class="fld">Bags${kp('','Bags '+(i+1),l.bags,'flBags','data-i="'+i+'" style="width:110px" '+dis)}</label>
+      <span class="hint" style="min-width:130px">Best before:<br><b>${bb||'—'}</b></span>
+      ${ro?'':`<button class="btn danger" data-del="${i}" style="padding:12px 14px">✕</button>`}</div>`;
   }).join('');
   const timerOn=b.fillStart&&!b.fillFinish;
   root.innerHTML=`<div class="card">
-    <div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
-      <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:90px;font-size:18px;font-weight:700" '+dis)}</label>
-      <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:110px" '+dis)}</label>
+    <div class="row-flex" style="flex-wrap:wrap;gap:14px;align-items:flex-end">
+      <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:110px;font-weight:700" '+dis)}</label>
+      <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:130px" '+dis)}</label>
       <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
       <label class="fld">Date filled<input type="date" data-fill="filled" value="${escapeHtml(b.filled)}" ${dis}></label>
-      ${tempCtl('Start')}
-      ${tempCtl('Finish')}
+      <label class="fld">Temp start °C${kp('','Temp at start (use ± for minus)',b.tempStart,'','data-fill="tempStart" style="width:110px;font-weight:700" '+dis)}</label>
+      <label class="fld">Temp finish °C${kp('','Temp at finish (use ± for minus)',b.tempFinish,'','data-fill="tempFinish" style="width:110px;font-weight:700" '+dis)}</label>
     </div>
     <div style="background:#faf3ee;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-      <button class="btn coral" ${dis} id="flStart" style="font-size:19px;padding:18px 28px;min-width:175px">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
-      <button class="btn coral" id="flFinish" ${ro||!b.fillStart?'disabled':''} style="font-size:19px;padding:18px 28px;min-width:150px">■ Finish</button>
-      <div style="text-align:center"><div id="flTimer" style="font-size:38px;font-weight:800;font-family:var(--font-display);color:${timerOn?'var(--coral-deep)':'var(--navy)'};line-height:1">0:00</div><div class="hint">Start ${fmtTime(b.fillStart)} · Finish ${fmtTime(b.fillFinish)}</div></div>
+      <button class="btn coral" ${dis} id="flStart" style="font-size:20px;padding:20px 30px;min-width:185px">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
+      <button class="btn coral" id="flFinish" ${ro||!b.fillStart?'disabled':''} style="font-size:20px;padding:20px 30px;min-width:155px">■ Finish</button>
+      <div style="text-align:center"><div id="flTimer" style="font-size:42px;font-weight:800;font-family:var(--font-display);color:${timerOn?'var(--coral-deep)':'var(--navy)'};line-height:1">0:00</div><div class="hint">Start ${fmtTime(b.fillStart)} · Finish ${fmtTime(b.fillFinish)}</div></div>
       <span class="spacer"></span>
       ${ro?'':`<button class="btn ghost sm" id="flManual">🔒 Edit times manually</button>`}
     </div>
     <h4 style="margin:14px 0 6px">Products in this basket</h4>
     <div id="flLines">${lineRows}</div>
     ${ro?'<p class="muted">View only — your account cannot add filling records.</p>':`<button class="btn ghost sm" id="flAdd">+ Add product</button>
-    <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave">Save basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg"></span></div>`}
+    <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave" style="font-size:17px;padding:15px 26px">✔ Submit basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg"></span></div>`}
   </div>
   <h3>Baskets filled today</h3>
   <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Best before</th><th>Fill start</th><th>Fill finish</th>${ro?'':'<th></th>'}</tr></thead><tbody id="flToday"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody></table></div>`;
-  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; if(k==='filled') drawFill(); }; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',h); });
-  root.querySelectorAll('.flRec').forEach(el=>el.addEventListener('change',()=>fillRecChange(+el.dataset.i,el.value)));
-  root.querySelectorAll('.flPack').forEach(el=>el.addEventListener('change',()=>fillBasket.lines[+el.dataset.i].pack=el.value));
+  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; if(k==='filled') drawFill(); if((k==='tempStart'||k==='tempFinish') && tempIsBad(el.value)) tempAlert(); }; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',h); });
   root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>fillBasket.lines[+el.dataset.i].bags=el.value));
   root.querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>fillDelLine(+el.dataset.del)));
-  root.querySelectorAll('[data-sign]').forEach(el=>el.addEventListener('click',()=>fillSignToggle(el.dataset.sign)));
+  root.querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>pickProduct(+el.dataset.pick)));
   const g=id=>document.getElementById(id);
   if(g('flStart'))g('flStart').onclick=fillStartNow; if(g('flFinish'))g('flFinish').onclick=fillFinishNow;
   if(g('flManual'))g('flManual').onclick=manualTimes;
@@ -1944,15 +1982,27 @@ async function loadFillToday(){
 }
 async function fillSave(){
   if(!canEdit('filling')) return;
-  const b=fillBasket;
-  if(!b.basket){ document.getElementById('flMsg').textContent='Enter a basket number.'; return; }
-  const ts=signedTemp(b.tempStart,b.tempStartSign), tf=signedTemp(b.tempFinish,b.tempFinishSign);
-  const lines=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0).map(l=>{ const r=byId(l.recipeId);
+  const b=fillBasket; const msg=document.getElementById('flMsg');
+  // all details required before a basket can be submitted
+  const miss=[];
+  if(!b.basket) miss.push('basket number');
+  if(!b.julian) miss.push('Julian code');
+  if(!b.mince) miss.push('date minced');
+  if(!b.filled) miss.push('date filled');
+  if(b.tempStart===''||b.tempStart==null) miss.push('temp start');
+  if(b.tempFinish===''||b.tempFinish==null) miss.push('temp finish');
+  if(!b.fillStart) miss.push('start filling time (press Start)');
+  const complete=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0);
+  if(!complete.length) miss.push('a product, pouch size and bags');
+  if(miss.length){ msg.textContent='Please complete: '+miss.join(', ')+'.'; return; }
+  // FAIL-SAFE: product must be frozen — any temperature above 0 °C blocks submission
+  if(tempIsBad(b.tempStart)||tempIsBad(b.tempFinish)){ tempAlert(); msg.textContent='Blocked — a temperature is above 0 °C. Stop and get your manager.'; return; }
+  if(!b.fillFinish) b.fillFinish=new Date().toISOString();   // auto-stamp finish on submit
+  const lines=complete.map(l=>{ const r=byId(l.recipeId);
     return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),
-      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:ts,tempFinish:tf,fillStart:b.fillStart,fillFinish:b.fillFinish,
+      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
-  if(!lines.length){ document.getElementById('flMsg').textContent='Add at least one product with bags.'; return; }
-  document.getElementById('flMsg').textContent='Saving…';
+  msg.textContent='Saving…';
   try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
     stopFillTimer(); fillBasket=newFillBasket(next); drawFill();
@@ -2065,14 +2115,16 @@ function renderProduction(){
           <th class="sortable" data-k="batch">Batch <span class="sa"></span></th>
           <th class="sortable" data-k="basket">Basket <span class="sa"></span></th>
           <th class="sortable" data-k="mince_date">Mince <span class="sa"></span></th>
+          <th class="sortable" data-k="filled_date">Filled <span class="sa"></span></th>
+          <th>Fill start</th><th>Fill finish</th>
           <th class="sortable" data-k="cook_date">Cook <span class="sa"></span></th>
           <th>By</th><th></th></tr></thead>
-        <tbody id="prHist"><tr><td colspan="${canEd?12:11}" class="muted">Loading…</td></tr></tbody>
+        <tbody id="prHist"><tr><td colspan="${canEd?15:14}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
           <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
-          <th colspan="6" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
+          <th colspan="9" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
       </table>
     </div>
     <h4 style="margin:16px 0 6px">Totals by product <span class="hint">(current filter)</span></h4>
@@ -2150,7 +2202,7 @@ function drawProdHist(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
   const canEd=canEdit('production'); const manual=prSort.k==='seq';
   const drag=(canEd&&manual)?'draggable="true"':'';
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?12:11}" class="muted">No records match the filter.</td></tr>`;
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?15:14}" class="muted">No records match the filter.</td></tr>`;
   if(canEd){
     document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
     document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
@@ -2164,11 +2216,11 @@ function drawProdHist(){
     .map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(byp[k].b)}</td><td class="num">${fmt(byp[k].k)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">No production in range.</td></tr>';
 }
 function exportProdCsv(){
-  const rows=prFiltered(); const head=['Date','Product','Size','Bags','kg','Batch','Basket','Mince date','Cook date','By'];
+  const rows=prFiltered(); const head=['Date','Product','Size','Bags','kg','Batch (Julian)','Basket','Best before','Mince date','Filled date','Fill start','Fill finish','Temp start','Temp finish','Retort','Cook date','By'];
   const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const lines=[head.join(',')].concat(rows.map(p=>[p.date,p.product,p.pack,p.qty,p.kg,p.batch,p.basket,p.mince_date,p.cook_date,p.by].map(esc).join(',')));
+  const lines=[head.join(',')].concat(rows.map(p=>[p.date,p.product,p.pack,p.qty,p.kg,p.batch,p.basket,p.best_before,p.mince_date,p.filled_date,fmtTime(p.fill_start),fmtTime(p.fill_finish),p.temp_start,p.temp_finish,p.retort,p.cook_date,p.by].map(esc).join(',')));
   const bags=rows.reduce((a,p)=>a+(+p.qty||0),0), kg=rows.reduce((a,p)=>a+(+p.kg||0),0);
-  lines.push(['TOTAL','','',bags,kg,'','','','',''].map(esc).join(','));
+  lines.push(['TOTAL','','',bags,kg].map(esc).join(','));
   const {from,to}=prRangeBounds();
   download('production-'+from+'_to_'+to+'.csv', lines.join('\n'), 'text/csv');
 }
@@ -2278,8 +2330,36 @@ function editProd(id){
 window.editProd=editProd;
 
 /* ===== Stock ===== */
+let stockSeg='raw';
 function renderStock(){
   const root=document.getElementById('rootStock'); if(!root) return;
+  root.innerHTML=`<div class="seg" style="margin-bottom:14px">
+      <button class="segbtn ${stockSeg==='raw'?'on':''}" data-seg="raw">Raw materials</button>
+      <button class="segbtn ${stockSeg==='pkg'?'on':''}" data-seg="pkg">Packaging</button>
+      <button class="segbtn ${stockSeg==='fin'?'on':''}" data-seg="fin">Finished product</button>
+    </div><div id="stockBody"></div>`;
+  root.querySelectorAll('[data-seg]').forEach(b=>b.onclick=()=>{ stockSeg=b.dataset.seg; renderStock(); });
+  if(stockSeg==='pkg'){ renderPackaging('stockBody'); return; }
+  if(stockSeg==='fin'){ renderFinishedStock(); return; }
+  renderRawStock();
+}
+function renderFinishedStock(){
+  const root=document.getElementById('stockBody'); if(!root) return;
+  root.innerHTML=`<p class="sub">Finished bags produced — counted once a basket has a <b>cook date</b> assigned, grouped by product and size.</p>
+    <div class="kpis" id="fgKpis"></div>
+    <div class="toolbar"><label class="fld">Search<input id="fgSearch" placeholder="filter…" style="width:180px"></label><div class="spacer"></div><button class="btn ghost sm" id="fgRefresh">↻ Refresh</button></div>
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Last cooked</th></tr></thead><tbody id="fgBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>`;
+  let rows=[];
+  const draw=()=>{ const q=(document.getElementById('fgSearch').value||'').toLowerCase();
+    const list=rows.filter(r=>!q||((r.product||'')+' '+(r.pack||'')).toLowerCase().includes(q));
+    const bags=list.reduce((a,r)=>a+(+r.bags||0),0), kg=list.reduce((a,r)=>a+(+r.kg||0),0);
+    document.getElementById('fgKpis').innerHTML=`<div class="kpi"><div class="n">${fmt(list.length)}</div><div class="l">Products</div></div><div class="kpi"><div class="n">${fmt(bags)}</div><div class="l">Total bags</div></div><div class="kpi"><div class="n">${fmt(kg)}</div><div class="l">Total kg</div></div>`;
+    document.getElementById('fgBody').innerHTML=list.map(r=>`<tr><td><b>${escapeHtml(r.product||'')}</b></td><td>${escapeHtml(r.pack||'')}</td><td class="num">${fmt(r.bags)}</td><td class="num">${fmt(r.kg)}</td><td>${escapeHtml(r.last_cook||'')}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">No finished product yet — assign a cook date to cooked baskets to see them here.</td></tr>'; };
+  const load=async()=>{ try{ rows=await api('/api/finished-goods'); }catch(e){ rows=[]; } draw(); };
+  document.getElementById('fgSearch').oninput=draw; document.getElementById('fgRefresh').onclick=load; load();
+}
+function renderRawStock(){
+  const root=document.getElementById('stockBody'); if(!root) return;
   const low=state.stock.filter(s=>s.status==='low').length, out=state.stock.filter(s=>s.status==='out').length;
   root.innerHTML=`<div class="kpis"><div class="kpi"><div class="n">${state.stock.length}</div><div class="l">Ingredients</div></div>
     <div class="kpi warnk"><div class="n">${low}</div><div class="l">Low</div></div><div class="kpi alarm"><div class="n">${out}</div><div class="l">Out / negative</div></div></div>
@@ -2362,8 +2442,10 @@ window.delAdj=delAdj;
 
 /* ===== Packaging ===== */
 const PKG_TYPES=['Packaging (bag)','Packaging (pouch)','Packaging (label)','Packaging (box)','Treats','Finished goods','Other'];
-function renderPackaging(){
-  const root=document.getElementById('rootPackaging'); if(!root) return;
+let _pkgTarget='rootPackaging';
+function renderPackaging(target){
+  _pkgTarget=target||'rootPackaging';
+  const root=document.getElementById(_pkgTarget); if(!root) return;
   root.innerHTML=`<div class="toolbar"><label class="fld">Search<input id="pkSearch" placeholder="filter…" style="width:180px"></label><div class="spacer"></div><button class="btn alt sm" id="pkAdd">＋ Add item</button></div>
     <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Item</th><th>Type</th><th class="num">Qty</th><th class="num">Re-order</th><th>Status</th><th></th></tr></thead><tbody id="pkBody"></tbody></table></div>`;
   const draw=()=>{ const q=(document.getElementById('pkSearch').value||'').toLowerCase();
@@ -2378,8 +2460,8 @@ function editPkg(id){ const p=id?state.packaging.find(x=>x.id===id):{id:null,nam
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld">Quantity<input id="pkQty" type="number" value="${p.qty}"></label><label class="fld">Re-order point<input id="pkRe" type="number" value="${p.reorder}"></label></div>
    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" id="pkSave">Save</button>${id?'<button class="btn danger" id="pkDel">Delete</button>':''}</div>`);
   document.getElementById('pkSave').onclick=async()=>{ const body={name:document.getElementById('pkName').value.trim(),type:document.getElementById('pkType').value,qty:+document.getElementById('pkQty').value||0,reorder:+document.getElementById('pkRe').value||0}; if(!body.name){alert('Name required');return;}
-    if(id) await api('/api/packaging/'+encodeURIComponent(id),'PUT',body); else await api('/api/packaging','POST',body); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(); };
-  const del=document.getElementById('pkDel'); if(del) del.onclick=async()=>{ if(!confirm('Delete item?'))return; await api('/api/packaging/'+encodeURIComponent(id),'DELETE'); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(); };
+    if(id) await api('/api/packaging/'+encodeURIComponent(id),'PUT',body); else await api('/api/packaging','POST',body); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(_pkgTarget); };
+  const del=document.getElementById('pkDel'); if(del) del.onclick=async()=>{ if(!confirm('Delete item?'))return; await api('/api/packaging/'+encodeURIComponent(id),'DELETE'); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(_pkgTarget); };
 }
 window.editPkg=editPkg;
 

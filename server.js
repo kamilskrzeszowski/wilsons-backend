@@ -52,6 +52,9 @@ try { db.exec("ALTER TABLE production ADD COLUMN temp_finish TEXT DEFAULT ''"); 
 try { db.exec("ALTER TABLE production ADD COLUMN fill_start TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN fill_finish TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN retort TEXT DEFAULT ''"); } catch (e) {}
+db.exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
+try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN seq REAL DEFAULT 0"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -252,6 +255,28 @@ const server = http.createServer(async (req, res) => {
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true });
+      }
+      // filling-sheet manual-time PIN (operational deterrent, default 1234)
+      if (url === '/api/fillpin/verify' && m === 'POST') { const b = await readBody(req); const row = db.prepare("SELECT value FROM meta WHERE key='fillPin'").get(); const pin = row ? row.value : '1234'; return json(res, 200, { ok: (b.pin || '') === pin }); }
+      if (url === '/api/fillpin/change' && m === 'POST') { const b = await readBody(req); const row = db.prepare("SELECT value FROM meta WHERE key='fillPin'").get(); const pin = row ? row.value : '1234'; if ((b.current || '') !== pin && user.role !== 'admin') return json(res, 200, { ok: false, error: 'Current PIN is wrong' }); if (!b.next || !/^\d{4,8}$/.test(b.next)) return json(res, 200, { ok: false, error: 'New PIN must be 4–8 digits' }); db.prepare("INSERT INTO meta(key,value) VALUES('fillPin',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(b.next); return json(res, 200, { ok: true }); }
+      // set per-recipe shelf life (months) — used for best-before on the filling sheet
+      if (url === '/api/recipe-details' && m === 'POST') {
+        const b = await readBody(req); if (!b.id) return json(res, 400, { error: 'id required' });
+        const v = (b.shelfMonths === '' || b.shelfMonths == null) ? null : (+b.shelfMonths || 0);
+        db.prepare('UPDATE recipes SET shelf_months=? WHERE id=?').run(v, b.id);
+        return json(res, 200, { ok: true });
+      }
+      // drag-reorder: set a manual sequence on production rows (order of ids = new order)
+      if (url === '/api/production/reorder' && m === 'POST') {
+        const b = await readBody(req); const ids = b.ids || [];
+        const up = db.prepare('UPDATE production SET seq=? WHERE id=?');
+        db.exec('BEGIN'); try { ids.forEach((id, i) => up.run(i + 1, id)); db.exec('COMMIT'); }
+        catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
+        return json(res, 200, { ok: true, count: ids.length });
+      }
+      // finished goods = production that has been cooked (cook date set), grouped by product + size
+      if (url === '/api/finished-goods' && m === 'GET') {
+        return json(res, 200, db.prepare("SELECT product, pack, SUM(qty) bags, SUM(kg) kg, COUNT(*) lines, MAX(cook_date) last_cook FROM production WHERE cook_date IS NOT NULL AND cook_date <> '' GROUP BY product, pack ORDER BY product, pack").all());
       }
       // office: assign a cook date (and retort) to a set of production rows in one go
       if (url === '/api/production/assign-cook' && m === 'POST') {
