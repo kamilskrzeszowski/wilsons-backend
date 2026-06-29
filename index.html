@@ -225,11 +225,16 @@ tr.prDrag:hover{background:#faf3ee}
 .segbtn{padding:10px 18px;border:0;background:#fff;color:var(--navy);font-weight:700;cursor:pointer;font-size:14px;border-right:1px solid var(--line)}
 .segbtn:last-child{border-right:0}
 .segbtn.on{background:var(--navy);color:#fff}
+.loginbrand{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px}
+.loginbox .dogbadge{width:56px;height:56px;flex:none}
+#loginLogo{color:var(--navy);display:inline-flex}
+#loginLogo svg{height:40px;width:auto;display:block}
 </style>
 </head>
 <body>
 <div id="loginScreen">
   <div class="loginbox">
+    <div class="loginbrand"><span class="dogbadge" title="Wilsons"></span><span id="loginLogo" class="brandlogo"></span></div>
     <h2>Production Manager</h2>
     <p>Sign in to continue</p>
     <div class="loginerr" id="loginErr"></div>
@@ -1709,7 +1714,7 @@ function refreshAll(){
    ============================================================ */
 const API='';
 let TOKEN=localStorage.getItem('wpm_token')||'';
-let CURRENT_USER=null;
+let CURRENT_USER=null, KIOSK=false;
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function pop(html){ document.getElementById('modalInner').innerHTML=html; document.getElementById('modalBg').classList.add('open'); }
 async function api(path,method,body){
@@ -1786,13 +1791,15 @@ async function startApp(){
   refreshAll();
   (function(){ const r=byId(document.getElementById('mixSelect').value); if(r) document.getElementById('mixBatch').value=fmt(baseKg(r)); drawMix(); })();
   document.getElementById('loginScreen').style.display='none';
+  KIOSK = !isAdmin();           // production / non-admin accounts run the whole app full screen
+  if(KIOSK) goFullscreen();
   navTo('home');
   setSync('● Shared');
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
 function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
-function navTo(v){ if(v!=='home' && !canView(v)) return; if(v!=='filling' && typeof exitFullscreen==='function') exitFullscreen(); const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
+function navTo(v){ if(v!=='home' && !canView(v)) return; if(KIOSK){ goFullscreen(); } else if(v!=='filling' && typeof exitFullscreen==='function'){ exitFullscreen(); } const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
   home:'<path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/>',
@@ -2097,6 +2104,7 @@ function renderProduction(){
       <label class="fld">Pouch size<select id="prPack"><option value="">All</option></select></label>
       <label class="fld">Find<input id="prSearch" placeholder="batch / basket…" style="width:120px"></label>
       <span class="spacer"></span>
+      ${canEd?'<button class="btn ghost sm" id="prUndo" disabled>↶ Undo</button>':''}
       ${canEd?'<button class="btn ghost sm" id="prManual">↕ Custom order</button>':''}
       ${canEd?'<button class="btn coral sm" id="prAssign">📅 Assign cook date…</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
@@ -2139,6 +2147,7 @@ function renderProduction(){
     };
     document.getElementById('prSave').onclick=saveProduction;
     document.getElementById('prAssign').onclick=assignCookModal;
+    document.getElementById('prUndo').onclick=undoProd; updateUndoBtn();
     document.getElementById('prManual').onclick=()=>{ if(prSort.k==='seq'){ prSort.k='date'; prSort.dir=-1; } else { prSort.k='seq'; prSort.dir=1; } drawProdHist(); };
     document.getElementById('prAll').onclick=e=>{ document.querySelectorAll('#prHist .prSel').forEach(c=>{ c.checked=e.target.checked; prodSel[c.checked?'add':'delete'](c.dataset.id); }); };
   }
@@ -2151,7 +2160,18 @@ function renderProduction(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
-let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set();
+let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set(), prodUndo=[];
+function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
+function pushUndo(e){ prodUndo.push(e); if(prodUndo.length>40) prodUndo.shift(); updateUndoBtn(); }
+function updateUndoBtn(){ const b=document.getElementById('prUndo'); if(b){ b.disabled=!prodUndo.length; b.textContent=prodUndo.length?('↶ Undo '+(prodUndo[prodUndo.length-1].label||'')):'↶ Undo'; } }
+async function undoProd(){ const e=prodUndo.pop(); if(!e){ updateUndoBtn(); return; }
+  try{
+    if(e.type==='delete'){ await api('/api/production','POST',{date:e.row.date,lines:[prodLineFromRow(e.row)]}); }
+    else if(e.type==='edit'){ const id=e.id; const ex=allProd.find(p=>p.id===id); if(ex){ await api('/api/production/'+encodeURIComponent(id),'PUT',prodLineFromRow(e.before)); } else { await api('/api/production','POST',{date:e.before.date,lines:[prodLineFromRow(e.before)]}); } }
+    await reloadStock(); updateUndoBtn(); loadProd();
+  }catch(err){ alert('Could not undo: '+err.message); prodUndo.push(e); updateUndoBtn(); }
+}
+window.undoProd=undoProd;
 function isoL(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
 function packGrams(p){ const m=/([\d.]+)\s*kg/i.exec(p||''); if(m) return parseFloat(m[1])*1000; const g=/([\d.]+)\s*g/i.exec(p||''); return g?parseFloat(g[1]):0; }
 function prRangeBounds(){
@@ -2258,7 +2278,7 @@ async function saveProduction(){
     document.getElementById('prMsg').textContent='Saved ✓ stock updated.'; drawProdLines(); loadProd();
   }catch(e){ document.getElementById('prMsg').textContent='Failed: '+e.message; }
 }
-async function delProd(id){ if(!confirm('Delete this production line? The stock it used will be restored.'))return; await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadProd(); }
+async function delProd(id){ if(!confirm('Delete this production line? You can press Undo to bring it back.'))return; const row=allProd.find(p=>p.id===id); await api('/api/production/'+encodeURIComponent(id),'DELETE'); if(row) pushUndo({type:'delete',row:Object.assign({},row),label:'delete'}); await reloadStock(); loadProd(); }
 window.delProd=delProd;
 function assignCookModal(){
   const ids=[...prodSel]; if(!ids.length){ alert('Tick the rows (baskets) you want to assign a cook date to first.'); return; }
@@ -2323,6 +2343,7 @@ function editProd(id){
     const g=id=>document.getElementById(id).value;
     const body={date:g('epDate'),recipe_id:recId,product,pack,qty:bags,kg,batch:g('epBatch'),basket:g('epBasket'),retort:g('epRetort'),mince:g('epMince'),filled:g('epFilled'),cook:g('epCook'),julian:g('epJulian'),bestBefore:g('epBB'),tempStart:g('epTS'),tempFinish:g('epTF'),fillStart:g('epFS'),fillFinish:g('epFF'),deductions};
     document.getElementById('epMsg').textContent='Saving…';
+    pushUndo({type:'edit',id,before:Object.assign({},p),label:'edit'});
     try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadProd(); }
     catch(e){ document.getElementById('epMsg').textContent='Failed: '+e.message; }
   };
@@ -2567,6 +2588,9 @@ function printMixSheet(node){
     w.focus(); w.print(); setTimeout(function(){ try{w.close();}catch(e){} },400); };
   if(w.document.readyState==='complete') setTimeout(run,200); else w.onload=function(){ setTimeout(run,200); };
 }
+
+/* put the Wilsons logo on the login screen (clone the header one) */
+(function(){ try{ const src=document.querySelector('header.appbar .brandlogo svg'); const dst=document.getElementById('loginLogo'); if(src&&dst&&!dst.firstChild) dst.appendChild(src.cloneNode(true)); }catch(e){} })();
 
 /* ---- start ---- */
 (async function init(){ if(!TOKEN){ showLogin(); return; } try{ await startApp(); }catch(e){ showLogin(); } })();
