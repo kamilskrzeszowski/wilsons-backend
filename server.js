@@ -43,6 +43,15 @@ try { db.exec('ALTER TABLE deliveries ADD COLUMN hist INTEGER DEFAULT 0'); } cat
 try { db.exec("ALTER TABLE production ADD COLUMN basket TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN mince_date TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN cook_date TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN perms TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN julian_code TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN best_before TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN filled_date TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN temp_start TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN temp_finish TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN fill_start TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN fill_finish TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN retort TEXT DEFAULT ''"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -108,7 +117,9 @@ function authUser(req) {
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
   const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
   if (!s || s.expires < Date.now()) return null;
-  return db.prepare('SELECT id,username,role FROM users WHERE id=?').get(s.user_id);
+  const u = db.prepare('SELECT id,username,role,perms FROM users WHERE id=?').get(s.user_id);
+  if (u) { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } }
+  return u;
 }
 
 /* ---------------- computed stock ---------------- */
@@ -170,7 +181,8 @@ const server = http.createServer(async (req, res) => {
       if (!u || !verifyPw(b.password || '', u.salt, u.hash)) return json(res, 401, { error: 'Invalid username or password' });
       const token = crypto.randomBytes(32).toString('hex'); const expires = Date.now() + 30 * 24 * 3600 * 1000;
       db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, expires);
-      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role } });
+      let perms = null; try { perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) {}
+      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms } });
     }
     // Excel backup — auth via Bearer token OR ?key=BACKUP_KEY (for an automated PC download)
     if (url === '/api/backup.xlsx' && m === 'GET') {
@@ -213,12 +225,12 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/production' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all());
       if (url === '/api/production' && m === 'POST') {
         const b = await readBody(req); const lines = b.lines || [];
-        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           lines.forEach(l => { const id = uid('p');
-            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', user.username, now());
+            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', user.username, now());
             (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
           });
           db.exec('COMMIT');
@@ -232,14 +244,23 @@ const server = http.createServer(async (req, res) => {
         if (!ex) return json(res, 404, { error: 'not found' });
         db.exec('BEGIN');
         try {
-          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=? WHERE id=?')
-            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', id);
+          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=? WHERE id=?')
+            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', id);
           db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
           const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
           (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true });
+      }
+      // office: assign a cook date (and retort) to a set of production rows in one go
+      if (url === '/api/production/assign-cook' && m === 'POST') {
+        const b = await readBody(req); const ids = b.ids || [];
+        const up = db.prepare('UPDATE production SET cook_date=?' + (b.retort != null ? ',retort=?' : '') + ' WHERE id=?');
+        db.exec('BEGIN');
+        try { ids.forEach(id => { if (b.retort != null) up.run(b.cook || '', b.retort || '', id); else up.run(b.cook || '', id); }); db.exec('COMMIT'); }
+        catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
+        return json(res, 200, { ok: true, count: ids.length });
       }
       if (url.startsWith('/api/production/') && m === 'DELETE') {
         const id = decodeURIComponent(url.split('/').pop());
@@ -288,8 +309,10 @@ const server = http.createServer(async (req, res) => {
       if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
-      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created FROM users').all()); }
-      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); try { db.prepare('INSERT INTO users(username,salt,hash,role,created) VALUES(?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now()); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
+      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
+      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms) VALUES(?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/users/') && m === 'DELETE') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); if (+id === user.id) return json(res, 400, { error: 'cannot delete yourself' }); db.prepare('DELETE FROM users WHERE id=?').run(id); return json(res, 200, { ok: true }); }
 
       return json(res, 404, { error: 'not found' });
     }

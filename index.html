@@ -276,6 +276,7 @@
     <button data-view="editor">Edit Recipes</button>
     <button data-view="mixing">Mixing Sheets</button>
     <button data-view="log">Change Log</button>
+    <button data-view="filling">Filling Sheet</button>
     <button data-view="production">Record Production</button>
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Deliveries</button>
@@ -473,6 +474,7 @@
       <button class="btn danger" id="resetAll">Reset to factory recipes</button>
     </div>
   </section>
+  <section class="view" id="view-filling"><h2 class="viewtitle">Filling Sheet</h2><p class="sub">Record each retort basket as you fill it. Tap a number field for the keypad.</p><div id="rootFilling"></div></section>
   <section class="view" id="view-production"><h2 class="viewtitle">Record Production</h2><p class="sub">Enter what was made — stock is deducted automatically by recipe percentage.</p><div id="rootProduction"></div></section>
   <section class="view" id="view-stock"><h2 class="viewtitle">Stock</h2><p class="sub">Live levels. Remaining = opening + deliveries + stocktake − used.</p><div id="rootStock"></div></section>
   <section class="view" id="view-deliveries"><h2 class="viewtitle">Deliveries (Goods In)</h2><p class="sub">Log a delivery — it adds to stock.</p><div id="rootDeliveries"></div></section>
@@ -485,6 +487,36 @@
 <!-- recipe view modal -->
 <div class="modal-bg" id="modalBg">
   <div class="modal" id="modalInner"></div>
+</div>
+
+<!-- big numeric keypad (tablet) -->
+<style>
+  #kpadBg{display:none;position:fixed;inset:0;background:rgba(20,54,68,.5);z-index:400;align-items:flex-end;justify-content:center}
+  #kpadBg.show{display:flex}
+  #kpad{background:#fff;width:100%;max-width:440px;border-radius:16px 16px 0 0;padding:16px;box-shadow:0 -8px 30px rgba(0,0,0,.3)}
+  #kpadLabel{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+  #kpadVal{font-size:34px;font-weight:800;color:var(--navy);font-family:var(--font-display);min-height:44px;border-bottom:2px solid var(--line);margin:4px 0 12px;text-align:right;padding:0 6px}
+  .kpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .kpbtn{font-size:26px;font-weight:700;padding:18px 0;border-radius:12px;border:1px solid var(--line);background:#f6f4ec;color:var(--navy);cursor:pointer}
+  .kpbtn:active{background:var(--cream)}
+  .kpbtn.wide{grid-column:span 3}
+  .kpbtn.done{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .kpbtn.clr{background:#fff;color:var(--warn)}
+  @media(min-width:680px){ #kpadBg{align-items:center} #kpad{border-radius:16px} }
+</style>
+<div id="kpadBg" onclick="if(event.target===this)kpClose()">
+  <div id="kpad">
+    <div id="kpadLabel"></div>
+    <div id="kpadVal"></div>
+    <div class="kpgrid">
+      <button class="kpbtn" onclick="kpKey('7')">7</button><button class="kpbtn" onclick="kpKey('8')">8</button><button class="kpbtn" onclick="kpKey('9')">9</button>
+      <button class="kpbtn" onclick="kpKey('4')">4</button><button class="kpbtn" onclick="kpKey('5')">5</button><button class="kpbtn" onclick="kpKey('6')">6</button>
+      <button class="kpbtn" onclick="kpKey('1')">1</button><button class="kpbtn" onclick="kpKey('2')">2</button><button class="kpbtn" onclick="kpKey('3')">3</button>
+      <button class="kpbtn" onclick="kpKey('.')">.</button><button class="kpbtn" onclick="kpKey('0')">0</button><button class="kpbtn" onclick="kpBack()">⌫</button>
+      <button class="kpbtn clr" onclick="kpClear()">Clear</button>
+      <button class="kpbtn done" style="grid-column:span 2" onclick="kpDone()">Done</button>
+    </div>
+  </div>
 </div>
 
 <!-- hidden print containers -->
@@ -1659,7 +1691,7 @@ function setSync(t){ const p=document.getElementById('syncPill'); if(p){ p.class
 function showLogin(){ document.getElementById('loginScreen').style.display='flex'; }
 
 /* editing recipes & ingredients is restricted to admin accounts */
-function editingAllowed(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
+function editingAllowed(){ return canEdit('editor')||canEdit('ingredients'); }
 function ensureUnlocked(){ if(editingAllowed()) return true; alert('Changing recipes and ingredients is restricted to admin accounts. Please sign in with an admin account to make changes.'); return false; }
 function hasPassword(){ return false; }
 function updateLockUI(){}
@@ -1727,8 +1759,8 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
-function navTo(v){ const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function navTo(v){ if(v!=='home' && !canView(v)) return; const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
   home:'<path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/>',
@@ -1754,19 +1786,36 @@ const ICONS={
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
-  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Record, plan, deliveries, suppliers',items:[['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
+  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, record, deliveries, suppliers',items:[['Filling Sheet','clipboardCheck','filling'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
   {k:'admin',t:'Admin',icon:'settings',sub:'Change log, users',items:[['Change Log','history','log'],['Users','user','users']]}
 ];
+/* ---- per-account permissions ---- */
+const AREAS=[
+  {k:'library',label:'Recipe Library',edit:false},{k:'ingredients',label:'Ingredients',edit:true},
+  {k:'editor',label:'Edit Recipes',edit:true},{k:'mixing',label:'Mixing Sheets',edit:false},
+  {k:'filling',label:'Filling Sheet',edit:true},{k:'production',label:'Record Production',edit:true},
+  {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
+  {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
+  {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
+  {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true}
+];
+const PRESETS={
+  production:{view:{filling:1,production:1,mixing:1},edit:{filling:1,production:1}},
+  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,log:1},edit:{filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1}}
+};
+function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
+function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
+function canEdit(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 function renderHomeMenu(){
   const sub=document.getElementById('homeSub'); if(sub){ sub.textContent='Choose an area to work in.'; sub.style.display=''; }
-  const tiles=HOME_GROUPS.map(g=>`<button class="gtile" onclick="openGroup('${g.k}')"><span class="gdot">${svg(g.icon)}</span><span class="gt">${g.t}</span><span class="gs">${escapeHtml(g.sub)}</span></button>`).join('');
-  const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML='<div class="hgrid">'+tiles+'</div>';
+  const groups=HOME_GROUPS.map(g=>({g,items:g.items.filter(it=>canView(it[2]))})).filter(x=>x.items.length);
+  const tiles=groups.map(x=>`<button class="gtile" onclick="openGroup('${x.g.k}')"><span class="gdot">${svg(x.g.icon)}</span><span class="gt">${x.g.t}</span><span class="gs">${escapeHtml(x.g.sub)}</span></button>`).join('');
+  const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML='<div class="hgrid">'+(tiles||'<p class="muted">No areas enabled for your account yet — ask an admin.</p>')+'</div>';
 }
 function openGroup(k){
   const g=HOME_GROUPS.find(x=>x.k===k); if(!g) return;
-  const isAdmin=CURRENT_USER&&CURRENT_USER.role==='admin';
-  const items=g.items.filter(it=>!(it[2]==='users'&&!isAdmin));
+  const items=g.items.filter(it=>canView(it[2]));
   const sub=document.getElementById('homeSub'); if(sub) sub.style.display='none';
   const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><span class="oic">${svg(it[1])}</span><span>${it[0]}</span><span class="oar">${svg('arrowRight')}</span></button>`).join('');
   document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()">'+svg('arrowLeft')+'<span>Home</span></button>'+
@@ -1780,15 +1829,109 @@ function reloadStock(){ return api('/api/stock').then(s=>{ state.stock=s; }); }
 function deductionsFor(r,bags,pack){ const mix=bags*packSizeKg(pack); const base=baseKg(r)||100; return (r.ingredients||[]).map(li=>({ing_id:li.ingId,kg:+( mix*(+li.kg||0)/base ).toFixed(4)})); }
 function recSelectOptions(sel){ return '<option value="">— choose —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join(''); }
 function ingSelectOptions(){ return [...state.ingredients].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}">${escapeHtml(i.name)}</option>`).join(''); }
+function prodSelectOptions(sel){ return '<option value="">— choose product —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join(''); }
+
+/* ===== numeric keypad ===== */
+let _kpTarget=null,_kpBuf='';
+function openKeypad(input){ _kpTarget=input; _kpBuf=(input.value||'')+''; document.getElementById('kpadLabel').textContent=input.getAttribute('data-kplabel')||'Enter number'; document.getElementById('kpadVal').textContent=_kpBuf||'0'; document.getElementById('kpadBg').classList.add('show'); }
+function kpRender(){ document.getElementById('kpadVal').textContent=_kpBuf||'0'; }
+function kpKey(ch){ if(ch==='.'&&_kpBuf.includes('.'))return; _kpBuf+=ch; kpRender(); }
+function kpBack(){ _kpBuf=_kpBuf.slice(0,-1); kpRender(); }
+function kpClear(){ _kpBuf=''; kpRender(); }
+function kpClose(){ document.getElementById('kpadBg').classList.remove('show'); _kpTarget=null; }
+function kpDone(){ if(_kpTarget){ _kpTarget.value=_kpBuf; _kpTarget.dispatchEvent(new Event('input',{bubbles:true})); _kpTarget.dispatchEvent(new Event('change',{bubbles:true})); } kpClose(); }
+function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${cls||''}" data-kplabel="${escapeHtml(label)}" readonly inputmode="none" onclick="openKeypad(this)" value="${val!=null&&val!==''?escapeHtml(''+val):''}" ${attrs||''}>`; }
+
+/* ===== Filling Sheet (tablet) ===== */
+let fillBasket=null;
+function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
+function newFillBasket(n){ return {basket:n||'',julian:julianToday(),bestBefore:'',mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
+function fillElapsed(){ if(!fillBasket.fillStart||!fillBasket.fillFinish)return''; const m=Math.round((new Date(fillBasket.fillFinish)-new Date(fillBasket.fillStart))/60000); return m>=0?(' · '+m+' min'):''; }
+function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); drawFill(); }
+function fillRecChange(i,v){ fillBasket.lines[i].recipeId=v; fillBasket.lines[i].pack=''; drawFill(); }
+function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
+function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
+function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); drawFill(); }
+function fillFinishNow(){ fillBasket.fillFinish=new Date().toISOString(); drawFill(); }
+function fillClear(){ fillBasket=newFillBasket(); drawFill(); }
+function drawFill(){
+  const root=document.getElementById('rootFilling'); if(!root) return;
+  const ro=!canEdit('filling'); const dis=ro?'disabled':''; const b=fillBasket; const yy=String(new Date().getFullYear()).slice(-2);
+  const lineRows=b.lines.map((l,i)=>{ const r=byId(l.recipeId); const packs=r?(r.packs||[]):[];
+    return `<div class="prline">
+      <label class="fld" style="flex:2;min-width:200px">Product<select class="flRec" data-i="${i}" ${dis}>${prodSelectOptions(l.recipeId)}</select></label>
+      <label class="fld">Pouch<select class="flPack" data-i="${i}" ${dis}><option value="">size</option>${packs.map(p=>`<option${p===l.pack?' selected':''}>${escapeHtml(p)}</option>`).join('')}</select></label>
+      <label class="fld">Bags${kp('','Bags '+(i+1),l.bags,'flBags','data-i="'+i+'" style="width:90px" '+dis)}</label>
+      ${ro?'':`<button class="btn danger" data-del="${i}">✕</button>`}</div>`;
+  }).join('');
+  root.innerHTML=`<div class="card">
+    <div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:90px;font-size:18px;font-weight:700" '+dis)}</label>
+      <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:110px" '+dis)}</label>
+      <label class="fld">Best before<input type="date" data-fill="bestBefore" value="${escapeHtml(b.bestBefore)}" ${dis}></label>
+      <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
+      <label class="fld">Date filled<input type="date" data-fill="filled" value="${escapeHtml(b.filled)}" ${dis}></label>
+      <label class="fld">Temp start °C${kp('','Temp at start',b.tempStart,'','data-fill="tempStart" style="width:90px" '+dis)}</label>
+      <label class="fld">Temp finish °C${kp('','Temp at finish',b.tempFinish,'','data-fill="tempFinish" style="width:90px" '+dis)}</label>
+    </div>
+    <div class="row-flex" style="gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn ${b.fillStart?'ghost':''}" ${dis} id="flStart">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
+      <button class="btn ${b.fillFinish?'ghost':'coral'}" ${ro||!b.fillStart?'disabled':''} id="flFinish">■ Finish</button>
+      <span class="hint">Start: <b>${fmtTime(b.fillStart)}</b> &nbsp; Finish: <b>${fmtTime(b.fillFinish)}</b>${fillElapsed()}</span>
+    </div>
+    <h4 style="margin:14px 0 6px">Products in this basket</h4>
+    <div id="flLines">${lineRows}</div>
+    ${ro?'<p class="muted">View only — your account cannot add filling records.</p>':`<button class="btn ghost sm" id="flAdd">+ Add product</button>
+    <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave">Save basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg"></span></div>`}
+  </div>
+  <h3>Baskets filled today</h3>
+  <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Fill start</th><th>Fill finish</th></tr></thead><tbody id="flToday"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>`;
+  // wire (event delegation, no inline quoting)
+  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',()=>fillBasket[k]=el.value); });
+  root.querySelectorAll('.flRec').forEach(el=>el.addEventListener('change',()=>fillRecChange(+el.dataset.i,el.value)));
+  root.querySelectorAll('.flPack').forEach(el=>el.addEventListener('change',()=>fillBasket.lines[+el.dataset.i].pack=el.value));
+  root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>fillBasket.lines[+el.dataset.i].bags=el.value));
+  root.querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>fillDelLine(+el.dataset.del)));
+  const g=id=>document.getElementById(id);
+  if(g('flStart'))g('flStart').onclick=fillStartNow; if(g('flFinish'))g('flFinish').onclick=fillFinishNow;
+  if(g('flAdd'))g('flAdd').onclick=fillAddLine; if(g('flSave'))g('flSave').onclick=fillSave; if(g('flClear'))g('flClear').onclick=fillClear;
+  loadFillToday();
+}
+async function loadFillToday(){
+  let rows; try{ rows=await api('/api/production'); }catch(e){ return; }
+  const t=todayISO();
+  rows=rows.filter(p=>(p.filled_date===t)||(p.date===t && p.fill_start));
+  const el=document.getElementById('flToday'); if(!el)return;
+  el.innerHTML=rows.slice(0,80).map(p=>`<tr><td><b>${escapeHtml(p.basket||'')}</b></td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td>${escapeHtml(p.julian_code||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nothing filled today yet.</td></tr>';
+}
+async function fillSave(){
+  if(!canEdit('filling')) return;
+  const b=fillBasket;
+  if(!b.basket){ document.getElementById('flMsg').textContent='Enter a basket number.'; return; }
+  const lines=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0).map(l=>{ const r=byId(l.recipeId);
+    return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),
+      basket:b.basket,julian:b.julian,bestBefore:b.bestBefore,mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,
+      deductions:deductionsFor(r,+l.bags,l.pack)}; });
+  if(!lines.length){ document.getElementById('flMsg').textContent='Add at least one product with bags.'; return; }
+  document.getElementById('flMsg').textContent='Saving…';
+  try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock();
+    const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
+    fillBasket=newFillBasket(next); drawFill();
+    const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
+  }catch(e){ const m=document.getElementById('flMsg'); if(m) m.textContent='Failed: '+e.message; }
+}
 
 /* ===== Record Production ===== */
 let prodLines=[];
 function renderProduction(){
   const root=document.getElementById('rootProduction'); if(!root) return;
   if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
-  root.innerHTML=`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
+  const canEd=canEdit('production');
+  const entryCard=canEd?`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
     <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
-    <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>
+    <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>`:'';
+  root.innerHTML=entryCard+`
     <h3>Production history</h3>
     <div class="toolbar">
       <label class="fld">Date range<select id="prRange">
@@ -1803,6 +1946,7 @@ function renderProduction(){
       <label class="fld">Pouch size<select id="prPack"><option value="">All</option></select></label>
       <label class="fld">Find<input id="prSearch" placeholder="batch / basket…" style="width:120px"></label>
       <span class="spacer"></span>
+      ${canEd?'<button class="btn coral sm" id="prAssign">📅 Assign cook date…</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
       <button class="btn ghost sm" id="prCsv">⬇ Export CSV</button>
     </div>
@@ -1810,6 +1954,7 @@ function renderProduction(){
     <div class="card" style="padding:0;overflow:auto;max-height:62vh">
       <table id="prTable">
         <thead><tr>
+          ${canEd?'<th style="width:28px"><input type="checkbox" id="prAll" title="Select all shown"></th>':''}
           <th class="sortable" data-k="date">Date <span class="sa"></span></th>
           <th class="sortable" data-k="product">Product <span class="sa"></span></th>
           <th class="sortable" data-k="pack">Size <span class="sa"></span></th>
@@ -1820,9 +1965,9 @@ function renderProduction(){
           <th class="sortable" data-k="mince_date">Mince <span class="sa"></span></th>
           <th class="sortable" data-k="cook_date">Cook <span class="sa"></span></th>
           <th>By</th><th></th></tr></thead>
-        <tbody id="prHist"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody>
+        <tbody id="prHist"><tr><td colspan="${canEd?12:11}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
-          <th colspan="3" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
+          <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
           <th colspan="6" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
@@ -1830,14 +1975,18 @@ function renderProduction(){
     </div>
     <h4 style="margin:16px 0 6px">Totals by product <span class="hint">(current filter)</span></h4>
     <div class="card" style="padding:0;overflow:auto;max-height:40vh"><table><thead><tr><th>Product</th><th class="num">Bags</th><th class="num">kg</th></tr></thead><tbody id="prByProd"></tbody></table></div>`;
-  drawProdLines();
-  document.getElementById('prAdd').onclick=()=>{
-    const last=prodLines[prodLines.length-1]||{};
-    const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):'';
-    prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||''});
+  if(canEd){
     drawProdLines();
-  };
-  document.getElementById('prSave').onclick=saveProduction;
+    document.getElementById('prAdd').onclick=()=>{
+      const last=prodLines[prodLines.length-1]||{};
+      const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):'';
+      prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||''});
+      drawProdLines();
+    };
+    document.getElementById('prSave').onclick=saveProduction;
+    document.getElementById('prAssign').onclick=assignCookModal;
+    document.getElementById('prAll').onclick=e=>{ document.querySelectorAll('#prHist .prSel').forEach(c=>{ c.checked=e.target.checked; prodSel[c.checked?'add':'delete'](c.dataset.id); }); };
+  }
   document.getElementById('prRange').onchange=()=>{ const c=document.getElementById('prRange').value==='custom'; document.getElementById('prFromWrap').style.display=c?'':'none'; document.getElementById('prToWrap').style.display=c?'':'none'; drawProdHist(); };
   document.getElementById('prFrom').onchange=drawProdHist; document.getElementById('prTo').onchange=drawProdHist;
   document.getElementById('prProd').onchange=drawProdHist; document.getElementById('prPack').onchange=drawProdHist;
@@ -1847,7 +1996,7 @@ function renderProduction(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
-let allProd=[], prSort={k:'date',dir:-1};
+let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set();
 function isoL(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
 function packGrams(p){ const m=/([\d.]+)\s*kg/i.exec(p||''); if(m) return parseFloat(m[1])*1000; const g=/([\d.]+)\s*g/i.exec(p||''); return g?parseFloat(g[1]):0; }
 function prRangeBounds(){
@@ -1895,7 +2044,9 @@ function drawProdHist(){
     `<div class="kpi"><div class="n">${fmt(kg)}</div><div class="l">Total kg</div></div>`;
   // sort arrows
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No records match the filter.</td></tr>';
+  const canEd=canEdit('production');
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr>${canEd?`<td><input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?12:11}" class="muted">No records match the filter.</td></tr>`;
+  if(canEd) document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
   document.getElementById('ftLabel').textContent='TOTAL — '+fmt(rows.length)+' record(s)';
   document.getElementById('ftBags').textContent=fmt(bags);
   document.getElementById('ftKg').textContent=fmt(kg);
@@ -1948,6 +2099,16 @@ async function saveProduction(){
 }
 async function delProd(id){ if(!confirm('Delete this production line? The stock it used will be restored.'))return; await api('/api/production/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadProd(); }
 window.delProd=delProd;
+function assignCookModal(){
+  const ids=[...prodSel]; if(!ids.length){ alert('Tick the rows (baskets) you want to assign a cook date to first.'); return; }
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Assign cook date</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <p class="hint">${ids.length} selected record(s) will be marked as cooked on this date.</p>
+   <div class="row-flex" style="gap:10px"><label class="fld">Cook date<input type="date" id="acDate" value="${todayISO()}"></label><label class="fld">Retort no. (optional)<input id="acRetort" style="width:90px"></label></div>
+   <div style="margin-top:12px"><button class="btn coral" id="acSave">Apply to ${ids.length}</button> <span class="hint" id="acMsg"></span></div>`);
+  document.getElementById('acSave').onclick=async()=>{ const body={ids,cook:document.getElementById('acDate').value}; const ret=document.getElementById('acRetort').value.trim(); if(ret)body.retort=ret;
+    try{ await api('/api/production/assign-cook','POST',body); prodSel.clear(); closeModal(); loadProd(); }catch(e){ document.getElementById('acMsg').textContent=e.message; } };
+}
+window.assignCookModal=assignCookModal;
 function editProd(id){
   const p=allProd.find(x=>x.id===id); if(!p) return;
   const recOpts='<option value="">— none (free text) —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===p.recipe_id?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join('');
@@ -1962,8 +2123,18 @@ function editProd(id){
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
      <label class="fld">Batch<input id="epBatch" value="${escapeHtml(p.batch||'')}" style="width:90px"></label>
      <label class="fld">Basket<input id="epBasket" value="${escapeHtml(p.basket||'')}" style="width:70px"></label>
+     <label class="fld">Retort<input id="epRetort" value="${escapeHtml(p.retort||'')}" style="width:70px"></label>
      <label class="fld">Mince date<input id="epMince" type="date" value="${escapeHtml(p.mince_date||'')}"></label>
+     <label class="fld">Filled date<input id="epFilled" type="date" value="${escapeHtml(p.filled_date||'')}"></label>
      <label class="fld">Cook date<input id="epCook" type="date" value="${escapeHtml(p.cook_date||'')}"></label>
+   </div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
+     <label class="fld">Julian code<input id="epJulian" value="${escapeHtml(p.julian_code||'')}" style="width:100px"></label>
+     <label class="fld">Best before<input id="epBB" type="date" value="${escapeHtml(p.best_before||'')}"></label>
+     <label class="fld">Temp start °C<input id="epTS" value="${escapeHtml(p.temp_start||'')}" style="width:80px"></label>
+     <label class="fld">Temp finish °C<input id="epTF" value="${escapeHtml(p.temp_finish||'')}" style="width:80px"></label>
+     <label class="fld">Fill start<input id="epFS" value="${escapeHtml(p.fill_start||'')}" style="width:130px"></label>
+     <label class="fld">Fill finish<input id="epFF" value="${escapeHtml(p.fill_finish||'')}" style="width:130px"></label>
    </div>
    <label class="fld" style="margin-top:8px">Recompute stock from recipe (optional)<select id="epRec">${recOpts}</select></label>
    <p class="hint">If a recipe is set, <b>kg</b> and the stock deduction are recalculated from Bags × bag size. Leave as “none” to just edit the figures (no stock change).</p>
@@ -1973,7 +2144,8 @@ function editProd(id){
     const pack=document.getElementById('epPack').value.trim(); const bags=+document.getElementById('epBags').value||0;
     let product=document.getElementById('epProduct').value, kg=+document.getElementById('epKg').value||0, deductions=[];
     if(r){ product=r.brand+' — '+r.name; kg=+(bags*packSizeKg(pack)).toFixed(3); deductions=deductionsFor(r,bags,pack); }
-    const body={date:document.getElementById('epDate').value,recipe_id:recId,product,pack,qty:bags,kg,batch:document.getElementById('epBatch').value,basket:document.getElementById('epBasket').value,mince:document.getElementById('epMince').value,cook:document.getElementById('epCook').value,deductions};
+    const g=id=>document.getElementById(id).value;
+    const body={date:g('epDate'),recipe_id:recId,product,pack,qty:bags,kg,batch:g('epBatch'),basket:g('epBasket'),retort:g('epRetort'),mince:g('epMince'),filled:g('epFilled'),cook:g('epCook'),julian:g('epJulian'),bestBefore:g('epBB'),tempStart:g('epTS'),tempFinish:g('epTF'),fillStart:g('epFS'),fillFinish:g('epFF'),deductions};
     document.getElementById('epMsg').textContent='Saving…';
     try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadProd(); }
     catch(e){ document.getElementById('epMsg').textContent='Failed: '+e.message; }
@@ -2110,17 +2282,57 @@ function editSup(id){ const s=id?state.suppliers.find(x=>x.id===id):{id:null,nam
 window.editSup=editSup;
 
 /* ===== Users (admin) ===== */
+function permSummary(u){ if(u.role==='admin')return 'Full access (admin)'; const p=u.perms; if(!p||!p.view)return 'No areas'; const v=Object.keys(p.view).filter(k=>p.view[k]); if(!v.length)return 'No areas'; return v.map(k=>{const a=AREAS.find(x=>x.k===k);return a?a.label:k;}).slice(0,6).join(', ')+(v.length>6?'…':''); }
 async function renderUsers(){
   const root=document.getElementById('rootUsers'); if(!root) return;
-  root.innerHTML=`<div class="toolbar"><div class="spacer"></div><button class="btn alt sm" id="usAdd">＋ Add user</button></div>
-    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Created</th></tr></thead><tbody id="usBody"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody></table></div>`;
-  document.getElementById('usAdd').onclick=()=>{ pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Add user</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
-     <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px"><label class="fld">Username<input id="nuUser" autocapitalize="none"></label><label class="fld">Password<input id="nuPass" type="text"></label><label class="fld">Role<select id="nuRole"><option value="staff">staff</option><option value="admin">admin</option></select></label></div>
-     <div style="margin-top:12px"><button class="btn" id="nuSave">Create</button> <span class="hint" id="nuMsg"></span></div>`);
-    document.getElementById('nuSave').onclick=async()=>{ try{ await api('/api/users','POST',{username:document.getElementById('nuUser').value,password:document.getElementById('nuPass').value,role:document.getElementById('nuRole').value}); closeModal(); renderUsers(); }catch(e){ document.getElementById('nuMsg').textContent=e.message; } }; };
-  try{ const rows=await api('/api/users'); document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td></tr>`).join(''); }
-  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="3" class="muted">${escapeHtml(e.message)}</td></tr>`; }
+  root.innerHTML=`<div class="toolbar"><div class="spacer"></div><button class="btn coral sm" id="usAdd">＋ Add user</button></div>
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>`;
+  document.getElementById('usAdd').onclick=()=>userModal(null);
+  try{ const rows=await api('/api/users'); window._users=rows;
+    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
+  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="5" class="muted">${escapeHtml(e.message)}</td></tr>`; }
 }
+function permMatrix(perms){
+  return `<table style="margin-top:8px"><thead><tr><th>Area</th><th class="num">See</th><th class="num">Edit</th></tr></thead><tbody>`+
+    AREAS.map(a=>`<tr><td>${a.label}</td>
+      <td class="num"><input type="checkbox" class="pv" data-k="${a.k}" ${perms&&perms.view&&perms.view[a.k]?'checked':''}></td>
+      <td class="num">${a.edit?`<input type="checkbox" class="pe" data-k="${a.k}" ${perms&&perms.edit&&perms.edit[a.k]?'checked':''}>`:'—'}</td></tr>`).join('')+`</tbody></table>`;
+}
+function collectPerms(){ const view={},edit={}; document.querySelectorAll('#permBox .pv').forEach(c=>{if(c.checked)view[c.dataset.k]=1;}); document.querySelectorAll('#permBox .pe').forEach(c=>{if(c.checked)edit[c.dataset.k]=1;}); return {view,edit}; }
+function applyPreset(name){ const p=PRESETS[name]||{view:{},edit:{}}; document.querySelectorAll('#permBox .pv').forEach(c=>c.checked=!!(p.view&&p.view[c.dataset.k])); document.querySelectorAll('#permBox .pe').forEach(c=>c.checked=!!(p.edit&&p.edit[c.dataset.k])); }
+window.applyPreset=applyPreset;
+function userModal(id){
+  const u=id?(window._users||[]).find(x=>x.id===id):null;
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${u?'Edit user — '+escapeHtml(u.username):'Add user'}</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+     ${u?'':'<label class="fld">Username<input id="uUser" autocapitalize="none"></label>'}
+     <label class="fld">${u?'Reset password (optional)':'Password'}<input id="uPass" type="text" placeholder="${u?'leave blank to keep':''}"></label>
+     <label class="fld">Role<select id="uRole"><option value="staff">staff</option><option value="admin"${u&&u.role==='admin'?' selected':''}>admin (full access)</option></select></label>
+   </div>
+   <div id="permWrap" style="margin-top:12px">
+     <div class="row-flex" style="gap:8px;align-items:center"><b>Access</b><span class="spacer"></span><span class="hint">presets:</span>
+       <button class="btn ghost sm" onclick="applyPreset('production')">Production</button>
+       <button class="btn ghost sm" onclick="applyPreset('office')">Office</button>
+       <button class="btn ghost sm" onclick="applyPreset('clear')">Clear</button></div>
+     <div id="permBox" class="card" style="padding:8px;max-height:300px;overflow:auto;margin-top:8px">${permMatrix(u?u.perms:null)}</div>
+     <p class="hint">Admins always have full access — the table below applies to non‑admin accounts.</p>
+   </div>
+   <div style="margin-top:12px"><button class="btn coral" id="uSave">${u?'Save changes':'Create user'}</button> <span class="hint" id="uMsg"></span></div>`);
+  const roleSel=document.getElementById('uRole');
+  const togglePerm=()=>{ document.getElementById('permWrap').style.opacity=roleSel.value==='admin'?'.4':'1'; };
+  roleSel.onchange=togglePerm; togglePerm();
+  document.getElementById('uSave').onclick=async()=>{
+    const role=roleSel.value; const perms=role==='admin'?null:collectPerms(); const pass=document.getElementById('uPass').value;
+    try{
+      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,password:pass||undefined}); }
+      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms}); }
+      closeModal(); renderUsers();
+    }catch(e){ document.getElementById('uMsg').textContent=e.message; }
+  };
+}
+window.userModal=userModal;
+async function delUser(id){ if(!confirm('Delete this user?'))return; try{ await api('/api/users/'+id,'DELETE'); renderUsers(); }catch(e){ alert(e.message); } }
+window.delUser=delUser;
 
 /* override: print the mixing sheet scaled to fit ONE A4 landscape page (robust popup) */
 function printMixSheet(node){
