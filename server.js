@@ -53,9 +53,13 @@ try { db.exec("ALTER TABLE production ADD COLUMN fill_start TEXT DEFAULT ''"); }
 try { db.exec("ALTER TABLE production ADD COLUMN fill_finish TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN retort TEXT DEFAULT ''"); } catch (e) {}
 db.exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS live_fills(who TEXT PRIMARY KEY, basket TEXT, products TEXT, fill_start TEXT, operators INTEGER, updated TEXT)");
 try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN seq REAL DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN operators INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN stack_id TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN stack_complete INTEGER DEFAULT 1"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN trays INTEGER DEFAULT 0"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -237,14 +241,19 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/production' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all());
       if (url === '/api/production' && m === 'POST') {
         const b = await readBody(req); const lines = b.lines || [];
-        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           lines.forEach(l => { const id = uid('p');
-            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, user.username, now());
+            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, l.stackId || '', (l.stackComplete == null ? 1 : (l.stackComplete ? 1 : 0)), +l.trays || 0, user.username, now());
             (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
           });
+          // completeness + trays are properties of the whole stack — apply the latest fill's value to every row of that stack
+          const stackState = {};
+          lines.forEach(l => { if (l.stackId) stackState[l.stackId] = { c: (l.stackComplete == null ? 1 : (l.stackComplete ? 1 : 0)), t: +l.trays || 0 }; });
+          const updSC = db.prepare('UPDATE production SET stack_complete=?, trays=? WHERE stack_id=?');
+          Object.keys(stackState).forEach(sid => updSC.run(stackState[sid].c, stackState[sid].t, sid));
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true, count: lines.length });
@@ -256,8 +265,8 @@ const server = http.createServer(async (req, res) => {
         if (!ex) return json(res, 404, { error: 'not found' });
         db.exec('BEGIN');
         try {
-          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=?,operators=? WHERE id=?')
-            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', (b.operators == null ? 0 : +b.operators || 0), id);
+          db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=?,operators=?,stack_id=?,stack_complete=?,trays=? WHERE id=?')
+            .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', (b.operators == null ? 0 : +b.operators || 0), b.stackId || '', (b.stackComplete == null ? 1 : (b.stackComplete ? 1 : 0)), +b.trays || 0, id);
           db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
           const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
           (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
@@ -286,6 +295,39 @@ const server = http.createServer(async (req, res) => {
       // finished goods = production that has been cooked (cook date set), grouped by product + size
       if (url === '/api/finished-goods' && m === 'GET') {
         return json(res, 200, db.prepare("SELECT product, pack, SUM(qty) bags, SUM(kg) kg, COUNT(*) lines, MAX(cook_date) last_cook FROM production WHERE cook_date IS NOT NULL AND cook_date <> '' GROUP BY product, pack ORDER BY product, pack").all());
+      }
+      // stacks = filling units (a trolley-load of ~13 trays), grouped by stack_id for carry-over/top-up tracking
+      if (url === '/api/stacks' && m === 'GET') {
+        return json(res, 200, db.prepare("SELECT stack_id, MAX(basket) basket, GROUP_CONCAT(DISTINCT product) products, SUM(qty) bags, MAX(trays) trays, MIN(stack_complete) complete, MAX(CASE WHEN cook_date IS NOT NULL AND cook_date<>'' THEN 1 ELSE 0 END) cooked, MIN(CASE WHEN filled_date IS NULL OR filled_date='' THEN date ELSE filled_date END) filled, COUNT(*) lines, GROUP_CONCAT(id) ids FROM production WHERE stack_id IS NOT NULL AND stack_id<>'' GROUP BY stack_id ORDER BY filled DESC, basket").all());
+      }
+      // cooking person assembles a cook: stamp cook_date + retort on selected fills; split a fill if only some bags are used
+      if (url === '/api/cook' && m === 'POST') {
+        const b = await readBody(req); const items = b.items || []; const cd = b.cook_date || ''; const rt = b.retort || '';
+        const get = db.prepare('SELECT * FROM production WHERE id=?');
+        const upWhole = db.prepare('UPDATE production SET cook_date=?, retort=? WHERE id=?');
+        const upRemain = db.prepare('UPDATE production SET qty=?, kg=? WHERE id=?');
+        const insSplit = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        db.exec('BEGIN');
+        try {
+          items.forEach(it => { const row = get.get(it.id); if (!row) return; const take = Math.min(+it.bags || 0, row.qty); if (take <= 0) return;
+            if (take >= row.qty) { upWhole.run(cd, rt, row.id); }
+            else { const kgPer = row.qty ? row.kg / row.qty : 0; const nid = uid('p');
+              insSplit.run(nid, row.date, row.recipe_id, row.product, row.pack, take, +(kgPer * take).toFixed(3), row.batch, row.basket, row.mince_date, cd, row.julian_code, row.best_before, row.filled_date, row.temp_start, row.temp_finish, row.fill_start, row.fill_finish, rt, row.operators, row.stack_id, row.stack_complete, row.trays, user.username, now());
+              upRemain.run(row.qty - take, +(row.kg - kgPer * take).toFixed(3), row.id); }
+          });
+          db.exec('COMMIT');
+        } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'cook write failed' }); }
+        return json(res, 200, { ok: true, count: items.length });
+      }
+      // live "currently filling" feed — the floor reports an in-progress basket so other accounts see the countdown
+      if (url === '/api/live-fill' && m === 'POST') { const b = await readBody(req); db.prepare("INSERT INTO live_fills(who,basket,products,fill_start,operators,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(who) DO UPDATE SET basket=excluded.basket,products=excluded.products,fill_start=excluded.fill_start,operators=excluded.operators,updated=excluded.updated").run(user.username, b.basket || '', b.products || '', b.fillStart || '', +b.operators || 0, now()); return json(res, 200, { ok: true }); }
+      if (url === '/api/live-fill' && m === 'DELETE') { db.prepare('DELETE FROM live_fills WHERE who=?').run(user.username); return json(res, 200, { ok: true }); }
+      if (url === '/api/live-fills' && m === 'GET') { const cutoff = new Date(Date.now() - 4 * 3600 * 1000).toISOString(); return json(res, 200, db.prepare('SELECT who, basket, products, fill_start, operators, updated FROM live_fills WHERE updated >= ? ORDER BY fill_start').all(cutoff)); }
+      // mark a stack complete / still-open (used when a part-full stack is topped up later)
+      if (url === '/api/stack/complete' && m === 'POST') {
+        const b = await readBody(req); if (!b.stack_id) return json(res, 400, { error: 'stack_id required' });
+        db.prepare('UPDATE production SET stack_complete=? WHERE stack_id=?').run(b.complete ? 1 : 0, b.stack_id);
+        return json(res, 200, { ok: true });
       }
       // office: assign a cook date (and retort) to a set of production rows in one go
       if (url === '/api/production/assign-cook' && m === 'POST') {

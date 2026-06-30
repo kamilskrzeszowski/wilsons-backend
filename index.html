@@ -297,6 +297,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="filling">Filling Sheet</button>
     <button data-view="production">Record Production</button>
     <button data-view="filldash">Filling Dashboard</button>
+    <button data-view="cooking">Cooking</button>
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Deliveries</button>
     <button data-view="adjustments">Stocktake</button>
@@ -308,7 +309,7 @@ tr.prDrag:hover{background:#faf3ee}
   <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></svg>&nbsp;Home</button>
   <span id="syncPill" class="syncpill local" title="Data sync status">Local only</span>
   <button id="lockBtn" class="lockbtn" style="display:none">🔒</button>
-  <span class="who" id="whoWrap" style="display:none">Hi&nbsp;<b id="whoName">—</b><button id="signoutBtn" class="lockbtn">Sign out</button></span>
+  <span class="who" id="whoWrap" style="display:none">Hi&nbsp;<b id="whoName">—</b><button id="backupBtn" class="lockbtn" style="display:none" title="Download a full Excel backup of everything">⤓ Backup</button><button id="signoutBtn" class="lockbtn">Sign out</button></span>
 </header>
 <style>
   nav.tabs{display:none!important}
@@ -321,6 +322,9 @@ tr.prDrag:hover{background:#faf3ee}
   .dayops{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:11px;color:var(--muted);border-bottom:1px dashed var(--line);background:#faf7f4}
   .dayops select{font-size:11px;padding:2px 4px;border-radius:6px}
   .dayops .opsest{flex:1;text-align:right}
+  @keyframes flpulse{0%,100%{box-shadow:0 0 0 0 rgba(216,105,79,.55)}50%{box-shadow:0 0 0 12px rgba(216,105,79,0)}}
+  .flpulse{animation:flpulse 1.3s infinite}
+  .flmiss{outline:2px solid #d8694f!important;outline-offset:2px;border-radius:8px}
   .ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:6px}
   .otile{display:flex;align-items:center;gap:14px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;font-size:16px;font-weight:700;color:var(--navy);font-family:var(--font-body)}
   .otile:hover{border-color:var(--coral);background:#faf3ee}
@@ -506,6 +510,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-suppliers"><h2 class="viewtitle">Suppliers</h2><p class="sub">Approved-supplier (SALSA) list.</p><div id="rootSuppliers"></div></section>
   <section class="view" id="view-users"><h2 class="viewtitle">Users</h2><p class="sub">Manage who can sign in.</p><div id="rootUsers"></div></section>
   <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
+  <section class="view" id="view-cooking"><h2 class="viewtitle">Cooking</h2><p class="sub">The chill — choose which filled stacks to cook, combine or top up, and stamp the cook date &amp; retort.</p><div id="rootCooking"></div></section>
   <section class="view" id="view-optimings"><h2 class="viewtitle">Operations Timings</h2><p class="sub">Filling target rates (packs per minute) by pack size and number of operators.</p><div id="rootOptimings"></div></section>
 </main>
 
@@ -1796,6 +1801,12 @@ document.getElementById('loginForm').addEventListener('submit',async e=>{
   }catch(ex){ err.textContent=ex.message||'Sign-in failed'; }
 });
 document.getElementById('signoutBtn').addEventListener('click',async()=>{ try{await api('/api/logout','POST');}catch(e){} TOKEN=''; localStorage.removeItem('wpm_token'); document.getElementById('lpass').value=''; showLogin(); });
+document.getElementById('backupBtn').addEventListener('click',downloadBackup);
+async function downloadBackup(){ const btn=document.getElementById('backupBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='…'; }
+  try{ const res=await fetch('/api/backup.xlsx',{headers:{Authorization:'Bearer '+TOKEN}}); if(!res.ok){ alert('Backup failed ('+res.status+'). Make sure you are signed in as admin.'); return; }
+    const blob=await res.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='wilsons-backup-'+new Date().toISOString().slice(0,10)+'.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }
+  catch(e){ alert('Backup failed: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old; } } }
 
 async function startApp(){
   const d=await api('/api/bootstrap');
@@ -1809,6 +1820,7 @@ async function startApp(){
   document.getElementById('whoWrap').style.display='';
   document.querySelectorAll('[data-view="users"]').forEach(b=>b.style.display=(d.user.role==='admin')?'':'none');
   { const tu=document.getElementById('tileUsers'); if(tu) tu.style.display=(d.user.role==='admin')?'':'none'; }
+  { const bb=document.getElementById('backupBtn'); if(bb) bb.style.display=(d.user.role==='admin')?'':'none'; }
   snapServer();
   refreshAll();
   (function(){ const r=byId(document.getElementById('mixSelect').value); if(r) document.getElementById('mixBatch').value=fmt(baseKg(r)); drawMix(); })();
@@ -1820,7 +1832,7 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ if(v!=='home' && !canView(v)) return; if(KIOSK){ goFullscreen(); } else if(v!=='filling' && typeof exitFullscreen==='function'){ exitFullscreen(); } const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
@@ -1844,12 +1856,13 @@ const ICONS={
   arrowLeft:'<path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/>',
   arrowRight:'<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>',
   gauge:'<path d="M12 12l4 -2"/><path d="M3.34 17a10 10 0 1 1 17.32 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>',
+  flame:'<path d="M12 12c2 -2.96 0 -7 -1 -8c0 3.038 -1.773 4.741 -3 6c-1.226 1.26 -2 3.24 -2 5a6 6 0 1 0 12 0c0 -1.532 -1.056 -3.94 -2 -5c-1.382 1.605 -2.78 2 -4 2"/>',
   sliders:'<path d="M4 6l6 0"/><path d="M14 6l6 0"/><path d="M12 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 12l10 0"/><path d="M18 12l2 0"/><path d="M16 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 18l2 0"/><path d="M10 18l10 0"/><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
-  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, dashboard, record, deliveries',items:[['Filling Sheet','clipboardCheck','filling'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
+  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, cooking, dashboard, deliveries',items:[['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
   {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
 ];
@@ -1858,6 +1871,7 @@ const AREAS=[
   {k:'library',label:'Recipe Library',edit:false},{k:'ingredients',label:'Ingredients',edit:true},
   {k:'editor',label:'Edit Recipes',edit:true},{k:'mixing',label:'Mixing Sheets',edit:false},
   {k:'filling',label:'Filling Sheet',edit:true},{k:'production',label:'Record Production',edit:true},
+  {k:'cooking',label:'Cooking',edit:true},
   {k:'filldash',label:'Filling Dashboard',edit:false},
   {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
   {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
@@ -1866,8 +1880,9 @@ const AREAS=[
   {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true}
 ];
 const PRESETS={
-  production:{view:{filling:1,production:1,mixing:1,filldash:1},edit:{filling:1,production:1}},
-  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
+  filling:{view:{filling:1,filldash:1,mixing:1},edit:{filling:1}},
+  cooking:{view:{cooking:1,filldash:1,production:1,mixing:1},edit:{cooking:1}},
+  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,cooking:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,cooking:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
@@ -1937,7 +1952,7 @@ function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${c
 /* ===== Filling Sheet (tablet) ===== */
 let fillBasket=null, _fillTimer=null;
 function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
-function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
 function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function exitFullscreen(){ try{ if(document.fullscreenElement && document.exitFullscreen){ const p=document.exitFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
@@ -1958,9 +1973,12 @@ function tempIsBad(v){ const n=parseFloat(v); return !isNaN(n)&&n>0; }
 function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); goFullscreen(); drawFill(); }
 function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
 function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
-function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; drawFill(); }
-function fillFinishNow(){ if(!fillBasket.fillStart)return; fillBasket.fillFinish=new Date().toISOString(); drawFill(); }
-function fillClear(){ stopFillTimer(); fillBasket=newFillBasket(); drawFill(); }
+function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; reportLiveFill(); drawFill(); }
+function fillFinishNow(){ if(!fillBasket.fillStart)return; fillBasket.fillFinish=new Date().toISOString(); clearLiveFill(); drawFill(); }
+function fillClear(){ stopFillTimer(); clearLiveFill(); fillBasket=newFillBasket(); drawFill(); }
+/* tell the server this account is filling a basket right now (so the dashboard shows a live countdown) */
+function reportLiveFill(){ try{ const b=fillBasket; const prods=[...new Set((b.lines||[]).filter(l=>l.recipeId).map(l=>{ const r=byId(l.recipeId); return r?(r.brand+' — '+r.name):''; }).filter(Boolean))].join(', '); api('/api/live-fill','POST',{basket:b.basket,products:prods,fillStart:b.fillStart,operators:+b.operators||0}).catch(()=>{}); }catch(e){} }
+function clearLiveFill(){ try{ api('/api/live-fill','DELETE').catch(()=>{}); }catch(e){} }
 /* large-button product picker: Product -> brand -> recipe -> bag weight */
 function pickProduct(i){ pickBrand(i); }
 function pickBrand(i){ const brands=[...new Set(state.recipes.map(r=>r.brand))];
@@ -1999,7 +2017,7 @@ function drawFill(){
   const timerOn=b.fillStart&&!b.fillFinish;
   root.innerHTML=`<div class="card">
     <div class="row-flex" style="flex-wrap:wrap;gap:14px;align-items:flex-end">
-      <label class="fld">Basket no.${kp('','Basket number',b.basket,'','data-fill="basket" style="width:110px;font-weight:700" '+dis)}</label>
+      <label class="fld">Trolley / stack no.${kp('','Trolley / stack number',b.basket,'','data-fill="basket" style="width:120px;font-weight:700" '+dis)}</label>
       <label class="fld">People on line${ro?`<div class="flbig" style="padding:12px;border:1px solid var(--line);border-radius:10px;min-width:90px">${escapeHtml(''+(b.operators||2))} people</div>`:`<select data-fill="operators" style="font-size:17px;padding:12px;min-height:48px;font-weight:700" ${dis}><option value="2"${(+b.operators===3)?'':' selected'}>2 people</option><option value="3"${(+b.operators===3)?' selected':''}>3 people</option></select>`}</label>
       <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:130px" '+dis)}</label>
       <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
@@ -2007,8 +2025,9 @@ function drawFill(){
       <label class="fld">Temp start °C${kp('','Temp at start (use ± for minus)',b.tempStart,'','data-fill="tempStart" style="width:110px;font-weight:700" '+dis)}</label>
       <label class="fld">Temp finish °C${kp('','Temp at finish (use ± for minus)',b.tempFinish,'','data-fill="tempFinish" style="width:110px;font-weight:700" '+dis)}</label>
     </div>
-    <div style="background:#faf3ee;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-      <button class="btn coral" ${dis} id="flStart" style="font-size:20px;padding:20px 30px;min-width:185px">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
+    <div style="background:#faf3ee;border:2px solid ${b.fillStart?'var(--line)':'var(--coral)'};border-radius:12px;padding:14px;margin-top:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      ${(ro||b.fillStart)?'':'<div style="font-weight:800;color:var(--coral-deep);font-size:15px;min-width:62px">① Start</div>'}
+      <button class="btn coral ${(ro||b.fillStart)?'':'flpulse'}" ${dis} id="flStart" style="font-size:21px;padding:22px 34px;min-width:205px">${b.fillStart?'↺ Restart':'▶ Start filling'}</button>
       <button class="btn coral" id="flFinish" ${ro||!b.fillStart?'disabled':''} style="font-size:20px;padding:20px 30px;min-width:155px">■ Finish</button>
       <div style="text-align:center"><div id="flTimer" style="font-size:42px;font-weight:800;font-family:var(--font-display);color:${timerOn?'var(--coral-deep)':'var(--navy)'};line-height:1">0:00</div><div class="hint">Start ${fmtTime(b.fillStart)} · Finish ${fmtTime(b.fillFinish)}</div></div>
       <span class="spacer"></span>
@@ -2017,7 +2036,7 @@ function drawFill(){
     <h4 style="margin:14px 0 6px">Products in this basket</h4>
     <div id="flLines">${lineRows}</div>
     ${ro?'<p class="muted">View only — your account cannot add filling records.</p>':`<button class="btn ghost sm" id="flAdd">+ Add product</button>
-    <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave" style="font-size:17px;padding:15px 26px">✔ Submit basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg"></span></div>`}
+    <div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="flSave" ${!b.fillStart?'disabled':''} style="font-size:17px;padding:15px 26px${!b.fillStart?';opacity:.45':''}">✔ Submit basket</button><button class="btn ghost" id="flClear">Clear</button><span class="hint" id="flMsg">${!b.fillStart?'Press ▶ Start filling before you can submit.':''}</span></div>`}
   </div>
   <h3>Baskets filled today</h3>
   <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Best before</th><th>Fill start</th><th>Fill finish</th>${ro?'':'<th></th>'}</tr></thead><tbody id="flToday"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody></table></div>`;
@@ -2043,26 +2062,35 @@ async function fillSave(){
   if(!canEdit('filling')) return;
   const b=fillBasket; const msg=document.getElementById('flMsg');
   // all details required before a basket can be submitted
-  const miss=[];
-  if(!b.basket) miss.push('basket number');
-  if(!b.julian) miss.push('Julian code');
-  if(!b.mince) miss.push('date minced');
-  if(!b.filled) miss.push('date filled');
-  if(b.tempStart===''||b.tempStart==null) miss.push('temp start');
-  if(b.tempFinish===''||b.tempFinish==null) miss.push('temp finish');
-  if(!b.fillStart) miss.push('start filling time (press Start)');
+  document.querySelectorAll('#rootFilling .flmiss').forEach(el=>el.classList.remove('flmiss'));
+  const miss=[], markKeys=[];
+  if(!b.basket){ miss.push('Trolley / stack number'); markKeys.push('basket'); }
+  if(!b.julian){ miss.push('Julian code'); markKeys.push('julian'); }
+  if(!b.mince){ miss.push('Date minced'); markKeys.push('mince'); }
+  if(!b.filled){ miss.push('Date filled'); markKeys.push('filled'); }
+  if(b.tempStart===''||b.tempStart==null){ miss.push('Temp at start'); markKeys.push('tempStart'); }
+  if(b.tempFinish===''||b.tempFinish==null){ miss.push('Temp at finish'); markKeys.push('tempFinish'); }
+  if(!b.fillStart) miss.push('Press ▶ Start filling');
   const complete=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0);
-  if(!complete.length) miss.push('a product, pouch size and bags');
-  if(miss.length){ msg.textContent='Please complete: '+miss.join(', ')+'.'; return; }
+  if(!complete.length) miss.push('A product with pouch size and bags');
+  if(miss.length){
+    markKeys.forEach(k=>{ const el=document.querySelector('#rootFilling [data-fill="'+k+'"]'); if(el) el.classList.add('flmiss'); });
+    if(!complete.length){ const fl=document.getElementById('flLines'); if(fl) fl.classList.add('flmiss'); }
+    if(msg) msg.textContent='Missing: '+miss.join(', ')+'.';
+    pop('<div style="text-align:center;padding:6px 4px"><div style="font-size:42px;line-height:1">📋</div><h3 style="margin:8px 0 4px;color:#b4231f">Can’t submit yet</h3><p style="font-size:15px;margin:4px 0 8px">Please complete these first — they’re highlighted in red on the sheet:</p><ul style="text-align:left;display:inline-block;font-size:15px;line-height:1.7;margin:0">'+miss.map(x=>'<li>'+escapeHtml(x)+'</li>').join('')+'</ul><div><button class="btn coral" onclick="closeModal()" style="margin-top:12px;font-size:16px;padding:13px 28px">OK</button></div></div>');
+    return;
+  }
   // FAIL-SAFE: product must be frozen — any temperature above 0 °C blocks submission
   if(tempIsBad(b.tempStart)||tempIsBad(b.tempFinish)){ tempAlert(); msg.textContent='Blocked — a temperature is above 0 °C. Stop and get your manager.'; return; }
   if(!b.fillFinish) b.fillFinish=new Date().toISOString();   // auto-stamp finish on submit
+  if(!b.stackId) b.stackId='s'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);
+  const tr=+b.trays||0; const stComplete=(tr>0&&tr<13)?0:1;   // partial (leftover) if 1–12 trays, else full
   const lines=complete.map(l=>{ const r=byId(l.recipeId);
     return {recipe_id:r.id,product:r.brand+' — '+r.name,pack:l.pack,qty:+l.bags,kg:+((+l.bags)*packSizeKg(l.pack)).toFixed(3),
-      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,operators:+b.operators||2,
+      basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,operators:+b.operators||2,stackId:b.stackId,stackComplete:stComplete,trays:+b.trays||0,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
   msg.textContent='Saving…';
-  try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock();
+  try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock(); clearLiveFill();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
     stopFillTimer(); fillBasket=newFillBasket(next,+b.operators||2); drawFill();
     const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
@@ -2124,7 +2152,7 @@ function editFillRow(id){
     const mk=v=>v?new Date((filled||todayISO())+'T'+v+':00').toISOString():'';
     const fs=document.getElementById('feFS').value, ff=document.getElementById('feFF').value;
     const jul=document.getElementById('feJ').value;
-    const body={date:filled||p.date,recipe_id:recId,product,pack,qty:bags,kg,basket:document.getElementById('feBasket').value,julian:jul,bestBefore:document.getElementById('feBB').value,mince:document.getElementById('feMince').value,filled,tempStart:document.getElementById('feTS').value,tempFinish:document.getElementById('feTF').value,fillStart:fs?mk(fs):p.fill_start,fillFinish:ff?mk(ff):p.fill_finish,batch:jul,cook:p.cook_date||'',retort:p.retort||'',operators:p.operators||0,deductions};
+    const body={date:filled||p.date,recipe_id:recId,product,pack,qty:bags,kg,basket:document.getElementById('feBasket').value,julian:jul,bestBefore:document.getElementById('feBB').value,mince:document.getElementById('feMince').value,filled,tempStart:document.getElementById('feTS').value,tempFinish:document.getElementById('feTF').value,fillStart:fs?mk(fs):p.fill_start,fillFinish:ff?mk(ff):p.fill_finish,batch:jul,cook:p.cook_date||'',retort:p.retort||'',operators:p.operators||0,stackId:p.stack_id||'',stackComplete:(p.stack_complete==null?1:p.stack_complete),trays:p.trays||0,deductions};
     document.getElementById('feMsg').textContent='Saving…';
     try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadFillToday(); }catch(e){ document.getElementById('feMsg').textContent='Failed: '+e.message; }
   };
@@ -2160,6 +2188,7 @@ window.renderOptimings=renderOptimings;
 let _dashTimer=null,_dashTick=null,_dashDate=null;
 function stopDashTimers(){ if(_dashTimer){clearInterval(_dashTimer);_dashTimer=null;} if(_dashTick){clearInterval(_dashTick);_dashTick=null;} }
 window.stopDashTimers=stopDashTimers;
+function shiftDate(iso,n){ try{ const d=parseISO(iso); d.setDate(d.getDate()+n); return isoDate(d); }catch(e){ return iso; } }
 function planForDate(dateISO){
   const d=parseISO(dateISO); const k=isoDate(mondayOf(d)); const idx=(d.getDay()+6)%7;
   const w=state.weekPlans[k]; const jobs=(w&&w.days&&w.days[idx])||[]; const ops=+(w&&w.ops&&w.ops[idx])||2;
@@ -2185,6 +2214,7 @@ async function drawFilldash(){
   const root=document.getElementById('rootFilldash'); if(!root)return;
   const date=_dashDate, isToday=(date===todayISO());
   let prod=[]; try{ prod=await api('/api/production'); }catch(e){}
+  let live=[]; if(isToday){ try{ live=await api('/api/live-fills'); }catch(e){} }
   const plan=planForDate(date);
   const act=prod.filter(p=> (p.filled_date===date) || (!p.filled_date && p.date===date) );
   let actBags=0,actKg=0; const extra={};
@@ -2209,8 +2239,11 @@ async function drawFilldash(){
   Object.values(bMap).forEach(o=>{ o.open=!!(o.start&&!o.finish); });
   const baskets=Object.values(bMap).sort((a,b)=>{ const na=+a.basket,nb=+b.basket; if(!isNaN(na)&&!isNaN(nb))return na-nb; return (''+a.basket).localeCompare(''+b.basket); });
   const openB=baskets.filter(b=>b.open);
+  const liveCards=[]; const seenLC={};
+  (isToday?live:[]).forEach(l=>{ if(!l.fill_start)return; const k=(l.basket||'')+'|'+l.fill_start; if(seenLC[k])return; seenLC[k]=1; liveCards.push({basket:l.basket,start:l.fill_start,who:l.who,products:l.products}); });
+  openB.forEach(b=>{ if(!b.start)return; const k=(b.basket||'')+'|'+b.start; if(seenLC[k])return; seenLC[k]=1; liveCards.push({basket:b.basket,start:b.start,who:'',products:''}); });
   // pace
-  let firstStart=null; act.forEach(p=>{ if(p.fill_start&&(!firstStart||p.fill_start<firstStart))firstStart=p.fill_start; });
+  let firstStart=null,lastFinish=null; act.forEach(p=>{ if(p.fill_start&&(!firstStart||p.fill_start<firstStart))firstStart=p.fill_start; if(p.fill_finish&&(!lastFinish||p.fill_finish>lastFinish))lastFinish=p.fill_finish; });
   let runSince=0; if(firstStart){ const fs=new Date(firstStart); const sMin=fs.getHours()*60+fs.getMinutes(); const endMin=isToday?Math.min(new Date().getHours()*60+new Date().getMinutes(),hmToMin(FILL_END_HHMM)):hmToMin(FILL_END_HHMM); runSince=runMinutesBetween(sMin,Math.max(sMin,endMin)); }
   const actualPace=runSince>0?actBags/runSince:0;
   const targetPace=totalTargetMin>0?planBags/totalTargetMin:0;
@@ -2241,22 +2274,25 @@ async function drawFilldash(){
    .fdpill{display:inline-block;font-size:14px;font-weight:700;padding:6px 14px;border-radius:20px}
   </style>
   <div class="fdwrap">
-   <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+   <div class="card" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+     <button class="btn ghost sm" id="fdPrev" title="Previous day">◀</button>
      <label class="fld" style="margin:0">Day<input type="date" id="fdDate" value="${date}"></label>
+     <button class="btn ghost sm" id="fdNext" title="Next day" ${isToday?'disabled':''}>▶</button>
+     ${isToday?'':'<button class="btn ghost sm" id="fdToday">Today</button>'}
      <span class="fdpill" style="background:${pillBg};color:${pillFg}">${pillTxt}</span>
      <span class="hint">${plan.hasPlan?('Plan: '+planBags.toLocaleString()+' bags · '+fmt(planKg)+' kg · '+ops+' people · target finish ~'+minToHHMM(targetFinishMin)):''}</span>
      <span style="flex:1"></span>
-     <span class="hint">${isToday?'live · ':''}<button class="btn ghost sm" id="fdReload">↻ Refresh</button></span>
+     <span class="hint">${isToday?'live · ':'saved day · '}<button class="btn ghost sm" id="fdReload">↻ Refresh</button></span>
    </div>
    ${!plan.hasPlan?`<div class="card"><p class="muted" style="margin:0">No production is planned for ${date}.${actBags?(' '+actBags.toLocaleString()+' bags were filled.'):''} Enter the day's products in the <b>Production Planner</b> (and set 2 or 3 people) to track live targets here.</p></div>`:''}
    <div class="kpis">
      <div class="kpi"><div class="l">Day progress (bags)</div><div class="n">${progPct}%</div><div class="pbar"><i style="width:${progPct}%"></i></div></div>
      <div class="kpi"><div class="l">Bags filled / planned</div><div class="n">${actBags.toLocaleString()}<span style="font-size:15px;color:var(--muted)"> / ${planBags.toLocaleString()}</span></div></div>
      <div class="kpi"><div class="l">kg filled / planned</div><div class="n">${fmt(actKg)}<span style="font-size:15px;color:var(--muted)"> / ${fmt(planKg)}</span></div></div>
-     <div class="kpi"><div class="l">Projected finish</div><div class="n" style="color:${projRed?'#b4231f':'#1f7a47'}">${actBags?minToHHMM(projFinishMin):'—'}</div><div class="l">line target 14:30</div></div>
-     <div class="kpi"><div class="l">Pace now / target</div><div class="n">${actualPace.toFixed(1)}<span style="font-size:15px;color:var(--muted)"> / ${targetPace.toFixed(1)} bags-min</span></div><div class="l">at ${ops} people</div></div>
+     <div class="kpi"><div class="l">${isToday?'Projected finish':'Filling ended'}</div><div class="n" style="color:${isToday?(projRed?'#b4231f':'#1f7a47'):'var(--navy)'}">${isToday?(actBags?minToHHMM(projFinishMin):'—'):(lastFinish?fmtTime(lastFinish):'—')}</div><div class="l">${isToday?'line target 14:30':'last basket finished'}</div></div>
+     <div class="kpi"><div class="l">${isToday?'Pace now':'Day pace'} / target</div><div class="n">${actualPace.toFixed(1)}<span style="font-size:15px;color:var(--muted)"> / ${targetPace.toFixed(1)} bags-min</span></div><div class="l">at ${ops} people</div></div>
    </div>
-   ${openB.length?`<div class="card" style="background:#faf3ee;border-color:var(--coral)"><div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap"><div><div class="hint">Currently filling</div><div style="font-size:20px;font-weight:800;color:var(--navy)">Basket ${escapeHtml(''+openB[0].basket)}</div></div><div style="text-align:center"><div class="dashlive" data-start="${openB[0].start}" style="font-size:40px;font-weight:800;font-family:var(--font-display);color:var(--coral-deep);line-height:1">0:00</div><div class="hint">started ${fmtTime(openB[0].start)}</div></div>${openB.length>1?`<div class="hint">+${openB.length-1} more basket open</div>`:''}</div></div>`:''}
+   ${liveCards.length?`<div class="card" style="background:#faf3ee;border-color:var(--coral)"><div class="hint" style="margin-bottom:8px">● Currently filling — live</div><div style="display:flex;gap:28px;flex-wrap:wrap">${liveCards.map(c=>`<div style="text-align:center;min-width:130px"><div style="font-size:15px;font-weight:800;color:var(--navy)">Basket ${escapeHtml(''+(c.basket||'?'))}</div><div class="dashlive" data-start="${c.start}" style="font-size:38px;font-weight:800;font-family:var(--font-display);color:var(--coral-deep);line-height:1.05">0:00</div><div class="hint">${c.products?escapeHtml(c.products)+' · ':''}since ${fmtTime(c.start)}${c.who?(' · '+escapeHtml(c.who)):''}</div></div>`).join('')}</div></div>`:''}
    <div class="card"><h3 style="margin:0 0 8px">Bags per hour</h3>${hourlyChartSvg(buckets,hours,targetPerHr)}</div>
    <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">By product</h3>
      <table><thead><tr><th>Product</th><th>Size</th><th class="num">Planned</th><th class="num">Filled</th><th class="num">%</th><th>Status</th></tr></thead>
@@ -2271,12 +2307,65 @@ async function drawFilldash(){
    </div>
   </div>`;
   document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
+  { const pv=document.getElementById('fdPrev'); if(pv) pv.addEventListener('click',()=>{ _dashDate=shiftDate(_dashDate,-1); renderFilldash(); }); }
+  { const nx=document.getElementById('fdNext'); if(nx) nx.addEventListener('click',()=>{ _dashDate=shiftDate(_dashDate,1); renderFilldash(); }); }
+  { const td=document.getElementById('fdToday'); if(td) td.addEventListener('click',()=>{ _dashDate=todayISO(); renderFilldash(); }); }
   document.getElementById('fdReload').addEventListener('click',drawFilldash);
   if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
   if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
-  if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },60000); }
+  if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },30000); }
 }
 window.drawFilldash=drawFilldash;
+
+/* ===== Cooking (the cook's screen): assemble cooks from the chill ===== */
+function renderCooking(){ const root=document.getElementById('rootCooking'); if(!root) return; root.innerHTML='<p class="muted">Loading the chill…</p>'; drawCooking(); }
+window.renderCooking=renderCooking;
+async function drawCooking(){
+  const root=document.getElementById('rootCooking'); if(!root) return;
+  const canEd=canEdit('cooking');
+  let prod=[]; try{ prod=await api('/api/production'); }catch(e){ root.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; }
+  const chill=prod.filter(p=>(!p.cook_date) && (+p.qty>0) && (p.stack_id||p.filled_date||p.fill_start));
+  const groups={};
+  chill.forEach(p=>{ const k=p.stack_id||('_'+p.id); const g=groups[k]||(groups[k]={stack:p.basket||'—',key:k,trays:+p.trays||0,filled:p.filled_date||p.date||'',rows:[]}); g.rows.push(p); if((+p.trays||0)>g.trays)g.trays=+p.trays||0; if(!g.filled||((p.filled_date||p.date||'')&&(p.filled_date||p.date)<g.filled))g.filled=p.filled_date||p.date||g.filled; });
+  const order=Object.values(groups).sort((a,b)=>{ if((a.filled||'')!==(b.filled||'')) return (a.filled<b.filled?-1:1); const x=+a.stack,y=+b.stack; if(!isNaN(x)&&!isNaN(y))return x-y; return (''+a.stack).localeCompare(''+b.stack); });
+  const cols=canEd?8:6; const today=todayISO();
+  let rowsHtml=''; if(!order.length) rowsHtml='<tr><td colspan="'+cols+'" class="muted">The chill is empty — nothing filled is waiting to be cooked.</td></tr>';
+  order.forEach(g=>{
+    rowsHtml+='<tr style="background:#faf7f4"><td colspan="'+cols+'"><b>Stack '+escapeHtml(''+g.stack)+'</b> · filled '+escapeHtml(g.filled||'')+'</td></tr>';
+    g.rows.forEach(p=>{ rowsHtml+='<tr data-rid="'+p.id+'">'+(canEd?'<td><input type="checkbox" class="ckBox" data-rid="'+p.id+'"></td>':'')+'<td>'+escapeHtml(''+(p.basket||''))+'</td><td>'+escapeHtml(p.product||'')+'</td><td>'+escapeHtml(p.pack||'')+'</td><td class="num">'+fmt(p.qty)+'</td>'+(canEd?'<td class="num"><input type="number" class="ckBags" data-rid="'+p.id+'" value="'+(+p.qty||0)+'" min="0" max="'+(+p.qty||0)+'" style="width:84px"></td>':'')+'<td>'+escapeHtml(p.best_before||'')+'</td><td>'+escapeHtml(p.julian_code||'')+'</td></tr>'; });
+  });
+  const cooked=prod.filter(p=>p.cook_date); const ck={};
+  cooked.forEach(p=>{ const key=p.cook_date+'||'+(p.retort||''); const c=ck[key]||(ck[key]={cook:p.cook_date,retort:p.retort||'',bags:0,prods:{}}); c.bags+=+p.qty||0; c.prods[p.product]=1; });
+  const recent=Object.values(ck).sort((a,b)=>a.cook<b.cook?1:-1).slice(0,8);
+  root.innerHTML=
+   '<div class="card"><div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'+
+      '<label class="fld">Cook date<input type="date" id="ckDate" value="'+today+'" '+(canEd?'':'disabled')+'></label>'+
+      '<label class="fld">Retort<input id="ckRetort" placeholder="e.g. Retort 1" style="width:150px" '+(canEd?'':'disabled')+'></label>'+
+      (canEd?'<button class="btn coral" id="ckCook">▶ Cook selected</button>':'')+
+      '<span class="hint" id="ckSel">Nothing selected</span><span style="flex:1"></span>'+
+      '<span class="hint">A cook = 3 trolleys. Tick what goes in — lower <b>Cook bags</b> to take only part of a stack (the rest stays in the chill).</span>'+
+    '</div></div>'+
+   '<div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">❄ Chill — waiting to cook</h3>'+
+     '<table><thead><tr>'+(canEd?'<th></th>':'')+'<th>Stack</th><th>Product</th><th>Size</th><th class="num">Bags</th>'+(canEd?'<th class="num">Cook bags</th>':'')+'<th>Best before</th><th>Julian</th></tr></thead><tbody id="chillBody">'+rowsHtml+'</tbody></table></div>'+
+   '<div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Recent cooks</h3>'+
+     '<table><thead><tr><th>Cook date</th><th>Retort</th><th>Products</th><th class="num">Bags</th></tr></thead><tbody>'+
+     (recent.length?recent.map(c=>'<tr><td>'+escapeHtml(c.cook)+'</td><td>'+escapeHtml(c.retort||'—')+'</td><td>'+escapeHtml(Object.keys(c.prods).join(', '))+'</td><td class="num">'+fmt(c.bags)+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">No cooks recorded yet.</td></tr>')+'</tbody></table></div>';
+  if(!canEd) return;
+  function updSel(){ const boxes=[].slice.call(root.querySelectorAll('.ckBox:checked')); let bags=0; boxes.forEach(b=>{ const inp=root.querySelector('.ckBags[data-rid="'+b.dataset.rid+'"]'); bags+=+inp.value||0; }); document.getElementById('ckSel').textContent=boxes.length?(boxes.length+' line(s) · '+fmt(bags)+' bags selected'):'Nothing selected'; }
+  root.querySelectorAll('.ckBox').forEach(b=>b.addEventListener('change',updSel));
+  root.querySelectorAll('.ckBags').forEach(i=>i.addEventListener('input',updSel));
+  document.getElementById('ckCook').onclick=async()=>{
+    const boxes=[].slice.call(root.querySelectorAll('.ckBox:checked')); if(!boxes.length){ alert('Tick the stacks/lines that go into this cook.'); return; }
+    const cd=document.getElementById('ckDate').value; if(!cd){ alert('Set a cook date.'); return; }
+    const rt=document.getElementById('ckRetort').value;
+    const items=boxes.map(b=>{ const inp=root.querySelector('.ckBags[data-rid="'+b.dataset.rid+'"]'); return {id:b.dataset.rid,bags:+inp.value||0}; }).filter(x=>x.bags>0);
+    if(!items.length){ alert('Set how many bags to cook.'); return; }
+    const btn=document.getElementById('ckCook'); btn.disabled=true; btn.textContent='Cooking…';
+    try{ await api('/api/cook','POST',{cook_date:cd,retort:rt,items}); await reloadStock(); drawCooking(); }
+    catch(e){ alert('Cook failed: '+e.message); btn.disabled=false; btn.textContent='▶ Cook selected'; }
+  };
+}
+window.drawCooking=drawCooking;
 
 /* ===== Record Production ===== */
 let prodLines=[];
@@ -2307,6 +2396,8 @@ function renderProduction(){
       ${canEd?'<button class="btn coral sm" id="prAssign">📅 Assign cook date…</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
       <button class="btn ghost sm" id="prCsv">⬇ Export CSV</button>
+      <label class="fld" style="margin-left:8px">Print cooked on<input type="date" id="prCookDate" value="${todayISO()}"></label>
+      <button class="btn alt sm" id="prPrintCooked">🖨 Print cooked day</button>
     </div>
     <div class="kpis" id="prTotals"></div>
     <div class="card" style="padding:0;overflow:auto;max-height:62vh">
@@ -2322,15 +2413,15 @@ function renderProduction(){
           <th class="sortable" data-k="basket">Basket <span class="sa"></span></th>
           <th class="sortable" data-k="mince_date">Mince <span class="sa"></span></th>
           <th class="sortable" data-k="filled_date">Filled <span class="sa"></span></th>
-          <th>Fill start</th><th>Fill finish</th>
+          <th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th>
           <th class="sortable" data-k="cook_date">Cook <span class="sa"></span></th>
           <th>By</th><th></th></tr></thead>
-        <tbody id="prHist"><tr><td colspan="${canEd?15:14}" class="muted">Loading…</td></tr></tbody>
+        <tbody id="prHist"><tr><td colspan="${canEd?17:16}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
           <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
-          <th colspan="9" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
+          <th colspan="11" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
       </table>
     </div>
     <h4 style="margin:16px 0 6px">Totals by product <span class="hint">(current filter)</span></h4>
@@ -2354,12 +2445,13 @@ function renderProduction(){
   document.getElementById('prProd').onchange=drawProdHist; document.getElementById('prPack').onchange=drawProdHist;
   document.getElementById('prSearch').oninput=drawProdHist;
   document.getElementById('prCsv').onclick=exportProdCsv;
+  document.getElementById('prPrintCooked').onclick=()=>printCookedDay(document.getElementById('prCookDate').value);
   document.getElementById('prReset').onclick=()=>{ document.getElementById('prRange').value='all'; document.getElementById('prProd').value=''; document.getElementById('prPack').value=''; document.getElementById('prSearch').value=''; document.getElementById('prFromWrap').style.display='none'; document.getElementById('prToWrap').style.display='none'; drawProdHist(); };
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
 let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set(), prodUndo=[];
-function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',operators:p.operators||0,deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
+function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',operators:p.operators||0,stackId:p.stack_id||'',stackComplete:(p.stack_complete==null?1:p.stack_complete),trays:p.trays||0,deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
 function pushUndo(e){ prodUndo.push(e); if(prodUndo.length>40) prodUndo.shift(); updateUndoBtn(); }
 function updateUndoBtn(){ const b=document.getElementById('prUndo'); if(b){ b.disabled=!prodUndo.length; b.textContent=prodUndo.length?('↶ Undo '+(prodUndo[prodUndo.length-1].label||'')):'↶ Undo'; } }
 async function undoProd(){ const e=prodUndo.pop(); if(!e){ updateUndoBtn(); return; }
@@ -2420,7 +2512,7 @@ function drawProdHist(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
   const canEd=canEdit('production'); const manual=prSort.k==='seq';
   const drag=(canEd&&manual)?'draggable="true"':'';
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?15:14}" class="muted">No records match the filter.</td></tr>`;
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?17:16}" class="muted">No records match the filter.</td></tr>`;
   if(canEd){
     document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
     document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
@@ -2433,6 +2525,29 @@ function drawProdHist(){
   document.getElementById('prByProd').innerHTML=Object.keys(byp).sort((a,b)=>byp[b].k-byp[a].k)
     .map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(byp[k].b)}</td><td class="num">${fmt(byp[k].k)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">No production in range.</td></tr>';
 }
+/* print everything cooked on a given day, with full info incl temps */
+function printCookedDay(date){
+  if(!date){ alert('Pick a cook date to print.'); return; }
+  const rows=(allProd||[]).filter(p=>p.cook_date===date).sort((a,b)=>{ const x=(''+(a.product||'')).localeCompare(''+(b.product||'')); if(x)return x; const na=+a.basket,nb=+b.basket; if(!isNaN(na)&&!isNaN(nb))return na-nb; return (''+(a.basket||'')).localeCompare(''+(b.basket||'')); });
+  const bags=rows.reduce((a,p)=>a+(+p.qty||0),0), kg=rows.reduce((a,p)=>a+(+p.kg||0),0);
+  let dd=date; try{ dd=new Date(date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short',year:'numeric'}); }catch(e){}
+  let html=`<div class="mixsheet"><div class="hd">
+    <div><div class="t">Cooked — ${escapeHtml(dd)}</div><div class="b"><b>Wilsons Pet Food</b> · everything cooked on ${escapeHtml(date)}</div></div>
+    <div style="text-align:right"><div class="b"><b>Printed:</b> ${new Date().toLocaleDateString('en-GB')}</div><div class="b"><b>${rows.length}</b> record(s) · <b>${fmt(bags)}</b> bags · <b>${fmt(kg)}</b> kg</div></div></div>`;
+  if(!rows.length){ html+='<p class="b">Nothing was cooked on this date.</p>'; }
+  else {
+    html+=`<table class="ms-table"><thead><tr><th>Basket</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch (Julian)</th><th>Best before</th><th>Minced</th><th>Filled</th><th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th><th>Retort</th></tr></thead><tbody>`;
+    rows.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.basket||'')}</td><td><b>${escapeHtml(p.product||'')}</b></td><td>${escapeHtml(p.pack||'')}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.retort||'')}</td></tr>`; });
+    html+=`</tbody><tfoot><tr><th colspan="3">TOTAL</th><th class="num">${fmt(bags)}</th><th class="num">${fmt(kg)}</th><th colspan="9"></th></tr></tfoot></table>`;
+    const byp={}; rows.forEach(p=>{ const k=p.product||'?'; (byp[k]=byp[k]||{b:0,k:0}); byp[k].b+=+p.qty||0; byp[k].k+=+p.kg||0; });
+    html+=`<div style="margin-top:10px"><b class="b">By product</b><table class="ms-table" style="margin-top:4px"><thead><tr><th>Product</th><th class="num">Bags</th><th class="num">kg</th></tr></thead><tbody>${Object.keys(byp).sort().map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(byp[k].b)}</td><td class="num">${fmt(byp[k].k)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  html+='</div>';
+  const host=document.getElementById('view-print-picking'); host.innerHTML=html;
+  document.getElementById('pageStyle').textContent='@page{size:A4 landscape;margin:8mm}';
+  host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
+}
+window.printCookedDay=printCookedDay;
 function exportProdCsv(){
   const rows=prFiltered(); const head=['Date','Product','Size','Bags','kg','Batch (Julian)','Basket','Best before','Mince date','Filled date','Fill start','Fill finish','Temp start','Temp finish','Retort','Cook date','By'];
   const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
@@ -2539,7 +2654,7 @@ function editProd(id){
     let product=document.getElementById('epProduct').value, kg=+document.getElementById('epKg').value||0, deductions=[];
     if(r){ product=r.brand+' — '+r.name; kg=+(bags*packSizeKg(pack)).toFixed(3); deductions=deductionsFor(r,bags,pack); }
     const g=id=>document.getElementById(id).value;
-    const body={date:g('epDate'),recipe_id:recId,product,pack,qty:bags,kg,batch:g('epBatch'),basket:g('epBasket'),retort:g('epRetort'),mince:g('epMince'),filled:g('epFilled'),cook:g('epCook'),julian:g('epJulian'),bestBefore:g('epBB'),tempStart:g('epTS'),tempFinish:g('epTF'),fillStart:g('epFS'),fillFinish:g('epFF'),deductions};
+    const body={date:g('epDate'),recipe_id:recId,product,pack,qty:bags,kg,batch:g('epBatch'),basket:g('epBasket'),retort:g('epRetort'),mince:g('epMince'),filled:g('epFilled'),cook:g('epCook'),julian:g('epJulian'),bestBefore:g('epBB'),tempStart:g('epTS'),tempFinish:g('epTF'),fillStart:g('epFS'),fillFinish:g('epFF'),operators:p.operators||0,stackId:p.stack_id||'',stackComplete:(p.stack_complete==null?1:p.stack_complete),trays:p.trays||0,deductions};
     document.getElementById('epMsg').textContent='Saving…';
     pushUndo({type:'edit',id,before:Object.assign({},p),label:'edit'});
     try{ await api('/api/production/'+encodeURIComponent(id),'PUT',body); await reloadStock(); closeModal(); loadProd(); }
@@ -2736,8 +2851,9 @@ function userModal(id){
    </div>
    <div id="permWrap" style="margin-top:12px">
      <div class="row-flex" style="gap:8px;align-items:center"><b>Access</b><span class="spacer"></span><span class="hint">presets:</span>
-       <button class="btn ghost sm" onclick="applyPreset('production')">Production</button>
-       <button class="btn ghost sm" onclick="applyPreset('office')">Office</button>
+       <button class="btn ghost sm" onclick="applyPreset('filling')">Filling line</button>
+       <button class="btn ghost sm" onclick="applyPreset('cooking')">Cooking</button>
+       <button class="btn ghost sm" onclick="applyPreset('office')">Ops admin</button>
        <button class="btn ghost sm" onclick="applyPreset('clear')">Clear</button></div>
      <div id="permBox" class="card" style="padding:8px;max-height:300px;overflow:auto;margin-top:8px">${permMatrix(u?u.perms:null)}</div>
      <p class="hint">Admins always have full access — the table below applies to non‑admin accounts.</p>
