@@ -298,6 +298,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="production">Record Production</button>
     <button data-view="filldash">Filling Dashboard</button>
     <button data-view="cooking">Cooking</button>
+    <button data-view="prodsum">Production Summary</button>
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Deliveries</button>
     <button data-view="adjustments">Stocktake</button>
@@ -325,6 +326,10 @@ tr.prDrag:hover{background:#faf3ee}
   @keyframes flpulse{0%,100%{box-shadow:0 0 0 0 rgba(216,105,79,.55)}50%{box-shadow:0 0 0 12px rgba(216,105,79,0)}}
   .flpulse{animation:flpulse 1.3s infinite}
   .flmiss{outline:2px solid #d8694f!important;outline-offset:2px;border-radius:8px}
+  .gtile{position:relative}
+  .gtile.editing{border-style:dashed;border-color:var(--coral);cursor:grab}
+  .gedit{position:absolute;top:10px;right:12px;font-size:17px;color:var(--muted);cursor:pointer;line-height:1}
+  .gedit:hover{color:var(--coral)}
   .ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:6px}
   .otile{display:flex;align-items:center;gap:14px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;font-size:16px;font-weight:700;color:var(--navy);font-family:var(--font-body)}
   .otile:hover{border-color:var(--coral);background:#faf3ee}
@@ -511,6 +516,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-users"><h2 class="viewtitle">Users</h2><p class="sub">Manage who can sign in.</p><div id="rootUsers"></div></section>
   <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
   <section class="view" id="view-cooking"><h2 class="viewtitle">Cooking</h2><p class="sub">The chill — choose which filled stacks to cook, combine or top up, and stamp the cook date &amp; retort.</p><div id="rootCooking"></div></section>
+  <section class="view" id="view-prodsum"><h2 class="viewtitle">Production Summary</h2><p class="sub">What was minced, filled and cooked each day — in packs and kg.</p><div id="rootProdsum"></div></section>
   <section class="view" id="view-optimings"><h2 class="viewtitle">Operations Timings</h2><p class="sub">Filling target rates (packs per minute) by pack size and number of operators.</p><div id="rootOptimings"></div></section>
 </main>
 
@@ -1737,7 +1743,7 @@ function refreshAll(){
    ============================================================ */
 const API='';
 let TOKEN=localStorage.getItem('wpm_token')||'';
-let CURRENT_USER=null, KIOSK=false;
+let CURRENT_USER=null, KIOSK=false, HOME_CONFIG=null, homeEdit=false;
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function pop(html){ document.getElementById('modalInner').innerHTML=html; document.getElementById('modalBg').classList.add('open'); }
 async function api(path,method,body){
@@ -1815,6 +1821,7 @@ async function startApp(){
           ingredients:d.ingredients||[], suppliers:d.suppliers||[], packaging:d.packaging||[], stock:d.stock||[],
           log:loadLocalLog(), weekPlans:(d.weekPlans&&Object.keys(d.weekPlans).length)?d.weekPlans:loadLocalPlans(), security:{passHash:null}, dataVersion:8, rev:0 };
   FILL_TARGETS=normalizeFillTargets(d.fillTargets);
+  HOME_CONFIG=d.homeConfig||null;
   _srvPlan=JSON.stringify(state.weekPlans||{});
   document.getElementById('whoName').textContent=d.user.username+(d.user.role==='admin'?' (admin)':'');
   document.getElementById('whoWrap').style.display='';
@@ -1832,7 +1839,7 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ if(v!=='home' && !canView(v)) return; if(KIOSK){ goFullscreen(); } else if(v!=='filling' && typeof exitFullscreen==='function'){ exitFullscreen(); } const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
@@ -1857,12 +1864,14 @@ const ICONS={
   arrowRight:'<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>',
   gauge:'<path d="M12 12l4 -2"/><path d="M3.34 17a10 10 0 1 1 17.32 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>',
   flame:'<path d="M12 12c2 -2.96 0 -7 -1 -8c0 3.038 -1.773 4.741 -3 6c-1.226 1.26 -2 3.24 -2 5a6 6 0 1 0 12 0c0 -1.532 -1.056 -3.94 -2 -5c-1.382 1.605 -2.78 2 -4 2"/>',
+  chartBar:'<path d="M4 19l16 0"/><path d="M7 16l0 -6"/><path d="M12 16l0 -9"/><path d="M17 16l0 -4"/>',
   sliders:'<path d="M4 6l6 0"/><path d="M14 6l6 0"/><path d="M12 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 12l10 0"/><path d="M18 12l2 0"/><path d="M16 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 18l2 0"/><path d="M10 18l10 0"/><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
-  {k:'prod',t:'Production & deliveries',icon:'factory',sub:'Filling, cooking, dashboard, deliveries',items:[['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Planner','calendar','planner'],['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
+  {k:'prod',t:'Production',icon:'factory',sub:'Filling, cooking, dashboard, records, summary',items:[['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Summary','chartBar','prodsum'],['Production Planner','calendar','planner']]},
+  {k:'goodsin',t:'Deliveries',icon:'truck',sub:'Goods in & suppliers',items:[['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
   {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
 ];
@@ -1873,6 +1882,7 @@ const AREAS=[
   {k:'filling',label:'Filling Sheet',edit:true},{k:'production',label:'Record Production',edit:true},
   {k:'cooking',label:'Cooking',edit:true},
   {k:'filldash',label:'Filling Dashboard',edit:false},
+  {k:'prodsum',label:'Production Summary',edit:false},
   {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
   {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
   {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
@@ -1881,8 +1891,8 @@ const AREAS=[
 ];
 const PRESETS={
   filling:{view:{filling:1,filldash:1,mixing:1},edit:{filling:1}},
-  cooking:{view:{cooking:1,filldash:1,production:1,mixing:1},edit:{cooking:1}},
-  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,cooking:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,cooking:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
+  cooking:{view:{cooking:1,filldash:1,production:1,prodsum:1,mixing:1},edit:{cooking:1}},
+  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,cooking:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
@@ -1912,17 +1922,43 @@ function clockAfterRunMinutes(runMin){ let cur=hmToMin(FILL_START_HHMM), left=Ma
   const brks=FILL_BREAKS.map(b=>[hmToMin(b[0]),hmToMin(b[1])]).sort((a,b)=>a[0]-b[0]);
   for(const br of brks){ const avail=br[0]-cur; if(avail<0)continue; if(left<=avail)return cur+left; left-=avail; cur=br[1]; }
   return cur+left; }
-function renderHomeMenu(){
-  const sub=document.getElementById('homeSub'); if(sub){ sub.textContent='Choose an area to work in.'; sub.style.display=''; }
-  const groups=HOME_GROUPS.map(g=>({g,items:g.items.filter(it=>canView(it[2]))})).filter(x=>x.items.length);
-  const tiles=groups.map(x=>`<button class="gtile" onclick="openGroup('${x.g.k}')"><span class="gdot">${svg(x.g.icon)}</span><span class="gt">${x.g.t}</span><span class="gs">${escapeHtml(x.g.sub)}</span></button>`).join('');
-  const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML='<div class="hgrid">'+(tiles||'<p class="muted">No areas enabled for your account yet — ask an admin.</p>')+'</div>';
+/* apply the saved layout (order + custom names) on top of the built-in groups */
+function effGroups(){
+  const cfg=HOME_CONFIG||{}; const order=cfg.order||[]; const names=cfg.names||{};
+  const byKey={}; HOME_GROUPS.forEach(g=>byKey[g.k]=g);
+  const ordered=[]; order.forEach(k=>{ if(byKey[k]){ ordered.push(byKey[k]); delete byKey[k]; } });
+  HOME_GROUPS.forEach(g=>{ if(byKey[g.k]) ordered.push(g); });
+  return ordered.map(g=>({ k:g.k, icon:g.icon, sub:g.sub, t:(names[g.k]||g.t), items:g.items.map(it=>[(names['i:'+it[2]]||it[0]), it[1], it[2]]) }));
 }
+function renderHomeMenu(){
+  const sub=document.getElementById('homeSub'); if(sub){ sub.textContent=homeEdit?'Drag tiles to reorder · tap ✎ to rename · then Save.':'Choose an area to work in.'; sub.style.display=''; }
+  const groups=effGroups().map(g=>({g,items:g.items.filter(it=>canView(it[2]))})).filter(x=>homeEdit?true:x.items.length);
+  const bar=isAdmin()?(homeEdit?'<button class="btn coral sm" id="homeSaveLayout">✔ Save layout</button> <button class="btn ghost sm" id="homeCancelLayout">Cancel</button>':'<button class="btn ghost sm" id="homeEditLayout">✎ Edit layout</button>'):'';
+  const tiles=groups.map(x=>`<button class="gtile${homeEdit?' editing':''}" data-gk="${x.g.k}" ${homeEdit?'draggable="true"':''} ${homeEdit?'':`onclick="openGroup('${x.g.k}')"`}><span class="gdot">${svg(x.g.icon)}</span><span class="gt">${escapeHtml(x.g.t)}</span><span class="gs">${escapeHtml(x.g.sub)}</span>${homeEdit?'<span class="gedit" data-ren="'+x.g.k+'" title="Rename">✎</span>':''}</button>`).join('');
+  const hs=document.getElementById('homeScreen'); if(hs) hs.innerHTML=(bar?('<div style="margin-bottom:12px">'+bar+'</div>'):'')+'<div class="hgrid">'+(tiles||'<p class="muted">No areas enabled for your account yet — ask an admin.</p>')+'</div>';
+  const eb=document.getElementById('homeEditLayout'); if(eb) eb.onclick=()=>{ homeEdit=true; renderHomeMenu(); };
+  const cb=document.getElementById('homeCancelLayout'); if(cb) cb.onclick=refreshHomeConfig;
+  const sb=document.getElementById('homeSaveLayout'); if(sb) sb.onclick=saveHomeLayout;
+  if(homeEdit) wireHomeEdit();
+}
+function refreshHomeConfig(){ api('/api/home-config').then(r=>{ HOME_CONFIG=r.homeConfig||null; homeEdit=false; renderHomeMenu(); }).catch(()=>{ homeEdit=false; renderHomeMenu(); }); }
+function wireHomeEdit(){
+  const grid=document.querySelector('#homeScreen .hgrid'); if(!grid) return; let dragK=null;
+  grid.querySelectorAll('.gtile').forEach(t=>{
+    t.addEventListener('dragstart',e=>{ dragK=t.dataset.gk; try{ e.dataTransfer.effectAllowed='move'; }catch(_){} });
+    t.addEventListener('dragover',e=>{ e.preventDefault(); });
+    t.addEventListener('drop',e=>{ e.preventDefault(); const overK=t.dataset.gk; if(dragK&&overK&&dragK!==overK) reorderHomeGroup(dragK,overK); });
+  });
+  grid.querySelectorAll('[data-ren]').forEach(s=>s.addEventListener('click',e=>{ e.stopPropagation(); const k=s.dataset.ren; const cur=(effGroups().find(g=>g.k===k)||{}).t||''; const v=prompt('Rename this tile:',cur); if(v!=null){ setHomeName(k,v.trim()); renderHomeMenu(); } }));
+}
+function reorderHomeGroup(dragK,overK){ const order=effGroups().map(g=>g.k); const from=order.indexOf(dragK), to=order.indexOf(overK); if(from<0||to<0) return; order.splice(from,1); order.splice(to,0,dragK); HOME_CONFIG=HOME_CONFIG||{}; HOME_CONFIG.order=order; renderHomeMenu(); }
+function setHomeName(k,name){ HOME_CONFIG=HOME_CONFIG||{}; HOME_CONFIG.names=HOME_CONFIG.names||{}; if(name) HOME_CONFIG.names[k]=name; else delete HOME_CONFIG.names[k]; }
+async function saveHomeLayout(){ try{ await api('/api/home-config','PUT',{homeConfig:HOME_CONFIG||{}}); homeEdit=false; renderHomeMenu(); }catch(e){ alert('Could not save layout: '+e.message); } }
 function openGroup(k){
-  const g=HOME_GROUPS.find(x=>x.k===k); if(!g) return;
+  const g=effGroups().find(x=>x.k===k); if(!g) return;
   const items=g.items.filter(it=>canView(it[2]));
   const sub=document.getElementById('homeSub'); if(sub) sub.style.display='none';
-  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><span class="oic">${svg(it[1])}</span><span>${it[0]}</span><span class="oar">${svg('arrowRight')}</span></button>`).join('');
+  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><span class="oic">${svg(it[1])}</span><span>${escapeHtml(it[0])}</span><span class="oar">${svg('arrowRight')}</span></button>`).join('');
   document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()">'+svg('arrowLeft')+'<span>Home</span></button>'+
     '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px">'+svg(g.icon)+'</span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span></div>'+
     '<div class="ogrid">'+opts+'</div>';
@@ -2367,17 +2403,41 @@ async function drawCooking(){
 }
 window.drawCooking=drawCooking;
 
+/* ===== Production Summary: minced / filled / cooked per day (packs + kg) ===== */
+function renderProdsum(){ const root=document.getElementById('rootProdsum'); if(!root) return; root.innerHTML='<p class="muted">Loading…</p>'; drawProdsum(); }
+window.renderProdsum=renderProdsum;
+async function drawProdsum(){
+  const root=document.getElementById('rootProdsum'); if(!root) return;
+  let prod=[]; try{ prod=await api('/api/production'); }catch(e){ root.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; }
+  const days={};
+  function add(day,kind,bags,kg){ if(!day) return; const d=days[day]||(days[day]={date:day,mB:0,mK:0,fB:0,fK:0,cB:0,cK:0}); d[kind+'B']+=bags; d[kind+'K']+=kg; }
+  prod.forEach(p=>{ const bags=+p.qty||0, kg=+p.kg||0; add(p.mince_date,'m',bags,kg); add(p.filled_date,'f',bags,kg); add(p.cook_date,'c',bags,kg); });
+  const rows=Object.values(days).sort((a,b)=>a.date<b.date?1:-1);
+  const T={mB:0,mK:0,fB:0,fK:0,cB:0,cK:0}; rows.forEach(d=>{ T.mB+=d.mB;T.mK+=d.mK;T.fB+=d.fB;T.fK+=d.fK;T.cB+=d.cB;T.cK+=d.cK; });
+  const kpi=(n,l)=>'<div class="kpi" style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px"><div class="n" style="font-size:24px;font-weight:800;color:var(--navy);font-family:var(--font-display);line-height:1.1">'+n+'</div><div class="l" style="font-size:12px;color:var(--muted);margin-top:2px">'+escapeHtml(l)+'</div></div>';
+  root.innerHTML=
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px">'+
+      kpi(fmt(T.fB),'Filled — packs')+kpi(fmt(T.fK)+' kg','Filled — kg')+kpi(fmt(T.cB),'Cooked — packs')+kpi(fmt(T.cK)+' kg','Cooked — kg')+kpi(rows.length,'Days with activity')+
+    '</div>'+
+    '<div class="card" style="padding:0;overflow:auto;max-height:62vh"><table><thead><tr>'+
+      '<th>Date</th><th class="num">Minced packs</th><th class="num">Minced kg</th><th class="num">Filled packs</th><th class="num">Filled kg</th><th class="num">Cooked packs</th><th class="num">Cooked kg</th></tr></thead><tbody>'+
+      (rows.length?rows.map(d=>'<tr><td>'+escapeHtml(d.date)+'</td><td class="num">'+fmt(d.mB)+'</td><td class="num">'+fmt(d.mK)+'</td><td class="num">'+fmt(d.fB)+'</td><td class="num">'+fmt(d.fK)+'</td><td class="num">'+fmt(d.cB)+'</td><td class="num">'+fmt(d.cK)+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">No production yet.</td></tr>')+
+      '</tbody><tfoot><tr style="position:sticky;bottom:0;background:#143644;color:#fff"><th>TOTAL</th><th class="num">'+fmt(T.mB)+'</th><th class="num">'+fmt(T.mK)+'</th><th class="num">'+fmt(T.fB)+'</th><th class="num">'+fmt(T.fK)+'</th><th class="num">'+fmt(T.cB)+'</th><th class="num">'+fmt(T.cK)+'</th></tr></tfoot></table></div>'+
+    '<p class="hint" style="margin-top:8px">Each basket counts on its <b>minced</b> day, its <b>filled</b> day and its <b>cooked</b> day. kg is the pack weight.</p>';
+}
+window.drawProdsum=drawProdsum;
+
 /* ===== Record Production ===== */
 let prodLines=[];
 function renderProduction(){
   const root=document.getElementById('rootProduction'); if(!root) return;
-  if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
+  if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:todayISO()}];
   const canEd=canEdit('production');
   const entryCard=canEd?`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
     <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
     <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>`:'';
   root.innerHTML=entryCard+`
-    <h3>Production history</h3>
+    <h3>Cooked production records</h3><p class="sub" style="margin-top:-2px">Only <b>cooked</b> trolleys appear here, newest cook first. Filled-but-not-yet-cooked baskets live in the <b>Cooking</b> tab until they're cooked.</p>
     <div class="toolbar">
       <label class="fld">Date range<select id="prRange">
         <option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option>
@@ -2404,6 +2464,7 @@ function renderProduction(){
       <table id="prTable">
         <thead><tr>
           ${canEd?'<th style="width:28px"><input type="checkbox" id="prAll" title="Select all shown"></th>':''}
+          <th class="sortable" data-k="cook_date">Cook date <span class="sa"></span></th>
           <th class="sortable" data-k="date">Date <span class="sa"></span></th>
           <th class="sortable" data-k="product">Product <span class="sa"></span></th>
           <th class="sortable" data-k="pack">Size <span class="sa"></span></th>
@@ -2414,14 +2475,13 @@ function renderProduction(){
           <th class="sortable" data-k="mince_date">Mince <span class="sa"></span></th>
           <th class="sortable" data-k="filled_date">Filled <span class="sa"></span></th>
           <th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th>
-          <th class="sortable" data-k="cook_date">Cook <span class="sa"></span></th>
           <th>By</th><th></th></tr></thead>
         <tbody id="prHist"><tr><td colspan="${canEd?17:16}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
-          <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
+          <th colspan="${canEd?5:4}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
-          <th colspan="11" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
+          <th colspan="10" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
       </table>
     </div>
     <h4 style="margin:16px 0 6px">Totals by product <span class="hint">(current filter)</span></h4>
@@ -2431,7 +2491,7 @@ function renderProduction(){
     document.getElementById('prAdd').onclick=()=>{
       const last=prodLines[prodLines.length-1]||{};
       const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):'';
-      prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||''});
+      prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||todayISO()});
       drawProdLines();
     };
     document.getElementById('prSave').onclick=saveProduction;
@@ -2450,7 +2510,7 @@ function renderProduction(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
-let allProd=[], prSort={k:'date',dir:-1}, prodSel=new Set(), prodUndo=[];
+let allProd=[], prSort={k:'cook_date',dir:-1}, prodSel=new Set(), prodUndo=[];
 function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',operators:p.operators||0,stackId:p.stack_id||'',stackComplete:(p.stack_complete==null?1:p.stack_complete),trays:p.trays||0,deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
 function pushUndo(e){ prodUndo.push(e); if(prodUndo.length>40) prodUndo.shift(); updateUndoBtn(); }
 function updateUndoBtn(){ const b=document.getElementById('prUndo'); if(b){ b.disabled=!prodUndo.length; b.textContent=prodUndo.length?('↶ Undo '+(prodUndo[prodUndo.length-1].label||'')):'↶ Undo'; } }
@@ -2483,7 +2543,7 @@ function prFiltered(){
   const {from,to}=prRangeBounds();
   const prod=document.getElementById('prProd').value, pack=document.getElementById('prPack').value;
   const q=(document.getElementById('prSearch').value||'').toLowerCase();
-  let rows=allProd.filter(p=>(p.date>=from&&p.date<=to)&&(!prod||p.product===prod)&&(!pack||p.pack===pack)
+  let rows=allProd.filter(p=>(p.cook_date)&&(p.cook_date>=from&&p.cook_date<=to)&&(!prod||p.product===prod)&&(!pack||p.pack===pack)
     &&(!q||((p.batch||'')+' '+(p.basket||'')+' '+(p.product||'')).toLowerCase().includes(q)));
   const k=prSort.k, dir=prSort.dir;
   rows.sort((a,b)=>{ let av=a[k], bv=b[k];
@@ -2512,7 +2572,7 @@ function drawProdHist(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
   const canEd=canEdit('production'); const manual=prSort.k==='seq';
   const drag=(canEd&&manual)?'draggable="true"':'';
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?17:16}" class="muted">No records match the filter.</td></tr>`;
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?17:16}" class="muted">No records match the filter.</td></tr>`;
   if(canEd){
     document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
     document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
@@ -2574,7 +2634,7 @@ function drawProdLines(){
   const box=document.getElementById('prLines');
   box.querySelectorAll('.plRec').forEach(s=>s.onchange=e=>{ const i=+e.target.dataset.i; prodLines[i].recipeId=e.target.value; prodLines[i].pack=''; drawProdLines(); });
   box.querySelectorAll('.plPack').forEach(s=>s.onchange=e=>{ prodLines[+e.target.dataset.i].pack=e.target.value; drawProdLines(); });
-  box.querySelectorAll('.plBags').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].bags=e.target.value; drawProdLines(); });
+  box.querySelectorAll('.plBags').forEach(s=>s.oninput=e=>{ const i=+e.target.dataset.i; prodLines[i].bags=e.target.value; const l=prodLines[i], r=byId(l.recipeId), h=e.target.closest('.prline').querySelector('.hint'); if(h) h.textContent=(r&&l.pack&&l.bags)?(fmt((+l.bags||0)*packSizeKg(l.pack))+' kg mix'):''; });
   box.querySelectorAll('.plBatch').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].batch=e.target.value; });
   box.querySelectorAll('.plBasket').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].basket=e.target.value; });
   box.querySelectorAll('.plMince').forEach(s=>s.oninput=e=>{ prodLines[+e.target.dataset.i].mince=e.target.value; });

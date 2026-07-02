@@ -96,7 +96,7 @@ function importHistory() {
     db.prepare('DELETE FROM production_items WHERE prod_id IN (SELECT id FROM production WHERE hist=1)').run();
     db.prepare('DELETE FROM production WHERE hist=1').run();
     db.prepare('DELETE FROM deliveries WHERE hist=1').run();
-    (seed.productionSeed || []).forEach(p => insP.run(uid('ph'), p.date || '', p.recipe_id || '', p.product || '', p.pack || '', +p.qty || 0, +p.kg || 0, p.batch || '', p.basket || '', p.mince || '', p.cook || '', 'history', now()));
+    (seed.productionSeed || []).forEach(p => insP.run(uid('ph'), p.date || '', p.recipe_id || '', p.product || '', p.pack || '', +p.qty || 0, +p.kg || 0, p.batch || '', p.basket || '', p.mince || '', (p.cook || p.date || ''), 'history', now()));
     (seed.deliveriesSeed || []).forEach(d => insD.run(uid('dh'), d.date || '', d.supplier || '', d.approval || '', d.ing_id || '', d.descr || '', +d.qty || 0, d.ref || '', d.approved || '', d.temp || '', d.veh || '', d.qual || '', d.type || '', d.batch || '', d.initials || '', 'history', now()));
     const sc = seed.stockCurrent || {};
     Object.keys(sc).forEach(iid => upS.run(iid, +sc[iid].remaining || 0, +sc[iid].reorder || 0, ''));
@@ -104,6 +104,16 @@ function importHistory() {
     db.exec('COMMIT');
     console.log('Imported history v' + want + ': ' + (seed.productionSeed || []).length + ' production rows, ' + (seed.deliveriesSeed || []).length + ' deliveries; set ' + Object.keys(sc).length + ' current stock levels.');
   } catch (e) { db.exec('ROLLBACK'); console.log('history import failed:', e.message); }
+}
+// one-time: treat already-imported history as cooked so it shows in Record Production (cooked-only) + finished goods
+function backfillHistoryCooked() {
+  try {
+    const done = db.prepare("SELECT value FROM meta WHERE key='histCookedV'").get();
+    if (done && done.value === '1') return;
+    const r = db.prepare("UPDATE production SET cook_date = (CASE WHEN filled_date IS NOT NULL AND filled_date <> '' THEN filled_date ELSE date END) WHERE hist=1 AND (cook_date IS NULL OR cook_date='')").run();
+    db.prepare("INSERT INTO meta(key,value) VALUES('histCookedV','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+    if (r && r.changes) console.log('Marked ' + r.changes + ' historical production rows as cooked (cook_date backfilled).');
+  } catch (e) { console.log('history-cooked backfill failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -218,7 +228,8 @@ const server = http.createServer(async (req, res) => {
           packaging: db.prepare('SELECT * FROM packaging').all(),
           stock: stockSnapshot(),
           weekPlans: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='weekPlans'").get(); try { return r ? JSON.parse(r.value) : {}; } catch (e) { return {}; } })(),
-          fillTargets: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='fillTargets'").get(); try { return r ? JSON.parse(r.value) : null; } catch (e) { return null; } })()
+          fillTargets: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='fillTargets'").get(); try { return r ? JSON.parse(r.value) : null; } catch (e) { return null; } })(),
+          homeConfig: (function () { const r = db.prepare("SELECT value FROM meta WHERE key='homeConfig'").get(); try { return r ? JSON.parse(r.value) : null; } catch (e) { return null; } })()
         });
       }
       // shared weekly production plan (one JSON blob in meta) — drives the filling dashboard
@@ -227,6 +238,9 @@ const server = http.createServer(async (req, res) => {
       // filling-line target rates (packs-per-minute per pack size, by operator count)
       if (url === '/api/fill-targets' && m === 'GET') { const r = db.prepare("SELECT value FROM meta WHERE key='fillTargets'").get(); let v = null; try { v = r ? JSON.parse(r.value) : null; } catch (e) {} return json(res, 200, { fillTargets: v }); }
       if (url === '/api/fill-targets' && m === 'PUT') { const b = await readBody(req); db.prepare("INSERT INTO meta(key,value) VALUES('fillTargets',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(b.fillTargets || {})); return json(res, 200, { ok: true }); }
+      // home-screen tile layout (order + custom names) — shared across accounts
+      if (url === '/api/home-config' && m === 'GET') { const r = db.prepare("SELECT value FROM meta WHERE key='homeConfig'").get(); let v = null; try { v = r ? JSON.parse(r.value) : null; } catch (e) {} return json(res, 200, { homeConfig: v }); }
+      if (url === '/api/home-config' && m === 'PUT') { const b = await readBody(req); db.prepare("INSERT INTO meta(key,value) VALUES('homeConfig',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(b.homeConfig || {})); return json(res, 200, { ok: true }); }
       if (url === '/api/stock' && m === 'GET') return json(res, 200, stockSnapshot());
 
       // stock settings (opening / reorder / supplier)
@@ -399,7 +413,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked();
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);
