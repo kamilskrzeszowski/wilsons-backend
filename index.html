@@ -299,6 +299,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="filldash">Filling Dashboard</button>
     <button data-view="cooking">Cooking</button>
     <button data-view="prodsum">Production Summary</button>
+    <button data-view="pickmix">Pick &amp; Mix</button>
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Deliveries</button>
     <button data-view="adjustments">Stocktake</button>
@@ -307,6 +308,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="optimings">Operations timings</button>
     <button data-view="users" style="display:none">Users</button>
   </nav>
+  <button class="lockbtn" id="backBtn" onclick="goBack()" title="Back to the previous menu">← Back</button>
   <button class="lockbtn" id="homeBtn" onclick="navTo('home')" title="Home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></svg>&nbsp;Home</button>
   <span id="syncPill" class="syncpill local" title="Data sync status">Local only</span>
   <button id="lockBtn" class="lockbtn" style="display:none">🔒</button>
@@ -330,6 +332,8 @@ tr.prDrag:hover{background:#faf3ee}
   .gtile.editing{border-style:dashed;border-color:var(--coral);cursor:grab}
   .gedit{position:absolute;top:10px;right:12px;font-size:17px;color:var(--muted);cursor:pointer;line-height:1}
   .gedit:hover{color:var(--coral)}
+  .otile{position:relative}
+  .otile.editing{border-style:dashed;border-color:var(--coral);cursor:grab}
   .ogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:6px}
   .otile{display:flex;align-items:center;gap:14px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;font-size:16px;font-weight:700;color:var(--navy);font-family:var(--font-body)}
   .otile:hover{border-color:var(--coral);background:#faf3ee}
@@ -517,6 +521,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
   <section class="view" id="view-cooking"><h2 class="viewtitle">Cooking</h2><p class="sub">The chill — choose which filled stacks to cook, combine or top up, and stamp the cook date &amp; retort.</p><div id="rootCooking"></div></section>
   <section class="view" id="view-prodsum"><h2 class="viewtitle">Production Summary</h2><p class="sub">What was minced, filled and cooked each day — in packs and kg.</p><div id="rootProdsum"></div></section>
+  <section class="view" id="view-pickmix"><h2 class="viewtitle">Pick &amp; Mix</h2><p class="sub">Choose the batch code of each ingredient for a mix — for full traceability.</p><div id="rootPickmix"></div></section>
   <section class="view" id="view-optimings"><h2 class="viewtitle">Operations Timings</h2><p class="sub">Filling target rates (packs per minute) by pack size and number of operators.</p><div id="rootOptimings"></div></section>
 </main>
 
@@ -1839,7 +1844,7 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers}[v]||function(){})(); }
 function navTo(v){ if(v!=='home' && !canView(v)) return; if(KIOSK){ goFullscreen(); } else if(v!=='filling' && typeof exitFullscreen==='function'){ exitFullscreen(); } const b=document.querySelector('#tabs button[data-view="'+v+'"]'); if(b){ b.click(); window.scrollTo(0,0); } }
 window.navTo=navTo;
 const ICONS={
@@ -1865,12 +1870,13 @@ const ICONS={
   gauge:'<path d="M12 12l4 -2"/><path d="M3.34 17a10 10 0 1 1 17.32 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>',
   flame:'<path d="M12 12c2 -2.96 0 -7 -1 -8c0 3.038 -1.773 4.741 -3 6c-1.226 1.26 -2 3.24 -2 5a6 6 0 1 0 12 0c0 -1.532 -1.056 -3.94 -2 -5c-1.382 1.605 -2.78 2 -4 2"/>',
   chartBar:'<path d="M4 19l16 0"/><path d="M7 16l0 -6"/><path d="M12 16l0 -9"/><path d="M17 16l0 -4"/>',
+  flask:'<path d="M9 3l6 0"/><path d="M10 3l0 6l-4 8a1.7 1.7 0 0 0 1.5 2.5h9a1.7 1.7 0 0 0 1.5 -2.5l-4 -8l0 -6"/><path d="M6.5 15l11 0"/>',
   sliders:'<path d="M4 6l6 0"/><path d="M14 6l6 0"/><path d="M12 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 12l10 0"/><path d="M18 12l2 0"/><path d="M16 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 18l2 0"/><path d="M10 18l10 0"/><path d="M8 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
-  {k:'prod',t:'Production',icon:'factory',sub:'Filling, cooking, dashboard, records, summary',items:[['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Summary','chartBar','prodsum'],['Production Planner','calendar','planner']]},
+  {k:'prod',t:'Production',icon:'factory',sub:'Pick & mix, filling, cooking, records',items:[['Pick & Mix','flask','pickmix'],['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Summary','chartBar','prodsum'],['Production Planner','calendar','planner']]},
   {k:'goodsin',t:'Deliveries',icon:'truck',sub:'Goods in & suppliers',items:[['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
   {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
@@ -1883,6 +1889,7 @@ const AREAS=[
   {k:'cooking',label:'Cooking',edit:true},
   {k:'filldash',label:'Filling Dashboard',edit:false},
   {k:'prodsum',label:'Production Summary',edit:false},
+  {k:'pickmix',label:'Pick & Mix (traceability)',edit:true},
   {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
   {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
   {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
@@ -1892,7 +1899,7 @@ const AREAS=[
 const PRESETS={
   filling:{view:{filling:1,filldash:1,mixing:1},edit:{filling:1}},
   cooking:{view:{cooking:1,filldash:1,production:1,prodsum:1,mixing:1},edit:{cooking:1}},
-  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,cooking:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
+  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,pickmix:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1},edit:{filling:1,production:1,cooking:1,pickmix:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1}}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
@@ -1922,15 +1929,26 @@ function clockAfterRunMinutes(runMin){ let cur=hmToMin(FILL_START_HHMM), left=Ma
   const brks=FILL_BREAKS.map(b=>[hmToMin(b[0]),hmToMin(b[1])]).sort((a,b)=>a[0]-b[0]);
   for(const br of brks){ const avail=br[0]-cur; if(avail<0)continue; if(left<=avail)return cur+left; left-=avail; cur=br[1]; }
   return cur+left; }
+/* remember which group (submenu) a view was opened from, for the Back button */
+let _lastGroup='';
+function navToItem(v,gk){ _lastGroup=gk||''; navTo(v); }
+window.navToItem=navToItem;
+function goBack(){ const g=_lastGroup; navTo('home'); if(g) openGroup(g); }
+window.goBack=goBack;
 /* apply the saved layout (order + custom names) on top of the built-in groups */
 function effGroups(){
   const cfg=HOME_CONFIG||{}; const order=cfg.order||[]; const names=cfg.names||{};
+  const io=cfg.itemOrder||{};
   const byKey={}; HOME_GROUPS.forEach(g=>byKey[g.k]=g);
   const ordered=[]; order.forEach(k=>{ if(byKey[k]){ ordered.push(byKey[k]); delete byKey[k]; } });
   HOME_GROUPS.forEach(g=>{ if(byKey[g.k]) ordered.push(g); });
-  return ordered.map(g=>({ k:g.k, icon:g.icon, sub:g.sub, t:(names[g.k]||g.t), items:g.items.map(it=>[(names['i:'+it[2]]||it[0]), it[1], it[2]]) }));
+  return ordered.map(g=>{ let items=g.items.slice(); const ord=io[g.k]||[];
+    if(ord.length){ const byV={}; items.forEach(it=>byV[it[2]]=it); const arr=[]; ord.forEach(v=>{ if(byV[v]){ arr.push(byV[v]); delete byV[v]; } }); items.forEach(it=>{ if(byV[it[2]]) arr.push(it); }); items=arr; }
+    return { k:g.k, icon:g.icon, sub:g.sub, t:(names[g.k]||g.t), items:items.map(it=>[(names['i:'+it[2]]||it[0]), it[1], it[2]]) };
+  });
 }
 function renderHomeMenu(){
+  _lastGroup='';
   const sub=document.getElementById('homeSub'); if(sub){ sub.textContent=homeEdit?'Drag tiles to reorder · tap ✎ to rename · then Save.':'Choose an area to work in.'; sub.style.display=''; }
   const groups=effGroups().map(g=>({g,items:g.items.filter(it=>canView(it[2]))})).filter(x=>homeEdit?true:x.items.length);
   const bar=isAdmin()?(homeEdit?'<button class="btn coral sm" id="homeSaveLayout">✔ Save layout</button> <button class="btn ghost sm" id="homeCancelLayout">Cancel</button>':'<button class="btn ghost sm" id="homeEditLayout">✎ Edit layout</button>'):'';
@@ -1941,7 +1959,7 @@ function renderHomeMenu(){
   const sb=document.getElementById('homeSaveLayout'); if(sb) sb.onclick=saveHomeLayout;
   if(homeEdit) wireHomeEdit();
 }
-function refreshHomeConfig(){ api('/api/home-config').then(r=>{ HOME_CONFIG=r.homeConfig||null; homeEdit=false; renderHomeMenu(); }).catch(()=>{ homeEdit=false; renderHomeMenu(); }); }
+function refreshHomeConfig(after){ const done=(typeof after==='function')?after:renderHomeMenu; api('/api/home-config').then(r=>{ HOME_CONFIG=r.homeConfig||null; homeEdit=false; done(); }).catch(()=>{ homeEdit=false; done(); }); }
 function wireHomeEdit(){
   const grid=document.querySelector('#homeScreen .hgrid'); if(!grid) return; let dragK=null;
   grid.querySelectorAll('.gtile').forEach(t=>{
@@ -1953,15 +1971,31 @@ function wireHomeEdit(){
 }
 function reorderHomeGroup(dragK,overK){ const order=effGroups().map(g=>g.k); const from=order.indexOf(dragK), to=order.indexOf(overK); if(from<0||to<0) return; order.splice(from,1); order.splice(to,0,dragK); HOME_CONFIG=HOME_CONFIG||{}; HOME_CONFIG.order=order; renderHomeMenu(); }
 function setHomeName(k,name){ HOME_CONFIG=HOME_CONFIG||{}; HOME_CONFIG.names=HOME_CONFIG.names||{}; if(name) HOME_CONFIG.names[k]=name; else delete HOME_CONFIG.names[k]; }
-async function saveHomeLayout(){ try{ await api('/api/home-config','PUT',{homeConfig:HOME_CONFIG||{}}); homeEdit=false; renderHomeMenu(); }catch(e){ alert('Could not save layout: '+e.message); } }
+async function saveHomeLayout(after){ const done=(typeof after==='function')?after:renderHomeMenu; try{ await api('/api/home-config','PUT',{homeConfig:HOME_CONFIG||{}}); homeEdit=false; done(); }catch(e){ alert('Could not save layout: '+e.message); } }
+function reorderHomeItem(k,dragV,overV){ const g=effGroups().find(x=>x.k===k); if(!g) return; const order=g.items.map(i=>i[2]); const from=order.indexOf(dragV), to=order.indexOf(overV); if(from<0||to<0) return; order.splice(from,1); order.splice(to,0,dragV); HOME_CONFIG=HOME_CONFIG||{}; HOME_CONFIG.itemOrder=HOME_CONFIG.itemOrder||{}; HOME_CONFIG.itemOrder[k]=order; }
+function wireGroupEdit(k){
+  const grid=document.querySelector('#homeScreen .ogrid'); if(!grid) return; let dragV=null;
+  grid.querySelectorAll('.otile').forEach(t=>{
+    t.addEventListener('dragstart',e=>{ dragV=t.dataset.iv; try{ e.dataTransfer.effectAllowed='move'; }catch(_){} });
+    t.addEventListener('dragover',e=>{ e.preventDefault(); });
+    t.addEventListener('drop',e=>{ e.preventDefault(); const overV=t.dataset.iv; if(dragV&&overV&&dragV!==overV){ reorderHomeItem(k,dragV,overV); openGroup(k); } });
+  });
+  grid.querySelectorAll('[data-iren]').forEach(s=>s.addEventListener('click',e=>{ e.stopPropagation(); const v=s.dataset.iren; const g=effGroups().find(x=>x.k===k); const it=g&&g.items.find(i=>i[2]===v); const cur=it?it[0]:''; const nv=prompt('Rename this item:',cur); if(nv!=null){ setHomeName('i:'+v,nv.trim()); openGroup(k); } }));
+}
 function openGroup(k){
   const g=effGroups().find(x=>x.k===k); if(!g) return;
-  const items=g.items.filter(it=>canView(it[2]));
+  const items=homeEdit?g.items:g.items.filter(it=>canView(it[2]));
   const sub=document.getElementById('homeSub'); if(sub) sub.style.display='none';
-  const opts=items.map(it=>`<button class="otile" onclick="navTo('${it[2]}')"><span class="oic">${svg(it[1])}</span><span>${escapeHtml(it[0])}</span><span class="oar">${svg('arrowRight')}</span></button>`).join('');
+  const opts=items.map(it=>`<button class="otile${homeEdit?' editing':''}" data-iv="${it[2]}" ${homeEdit?'draggable="true"':''} ${homeEdit?'':`onclick="navToItem('${it[2]}','${k}')"`}><span class="oic">${svg(it[1])}</span><span>${escapeHtml(it[0])}</span>${homeEdit?'<span class="gedit" data-iren="'+it[2]+'" title="Rename">✎</span>':('<span class="oar">'+svg('arrowRight')+'</span>')}</button>`).join('');
+  const bar=isAdmin()?(homeEdit?'<button class="btn coral sm" id="grpSave">✔ Save layout</button> <button class="btn ghost sm" id="grpCancel">Cancel</button>':'<button class="btn ghost sm" id="grpEdit">✎ Edit layout</button>'):'';
   document.getElementById('homeScreen').innerHTML='<button class="crumb" onclick="renderHomeMenu()">'+svg('arrowLeft')+'<span>Home</span></button>'+
-    '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px">'+svg(g.icon)+'</span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span></div>'+
+    '<div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px"><span class="gdot" style="width:42px;height:42px;font-size:22px">'+svg(g.icon)+'</span><span style="font-size:20px;font-weight:800;color:var(--navy);font-family:var(--font-display)">'+escapeHtml(g.t)+'</span>'+(bar?('<span style="flex:1"></span>'+bar):'')+'</div>'+
+    (homeEdit?'<p class="muted" style="margin:-6px 0 10px">Drag items to reorder · tap ✎ to rename · then Save.</p>':'')+
     '<div class="ogrid">'+opts+'</div>';
+  const eb=document.getElementById('grpEdit'); if(eb) eb.onclick=()=>{ homeEdit=true; openGroup(k); };
+  const cb=document.getElementById('grpCancel'); if(cb) cb.onclick=()=>refreshHomeConfig(()=>openGroup(k));
+  const sb=document.getElementById('grpSave'); if(sb) sb.onclick=()=>saveHomeLayout(()=>openGroup(k));
+  if(homeEdit) wireGroupEdit(k);
 }
 window.openGroup=openGroup; window.renderHomeMenu=renderHomeMenu;
 document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) renderForTab(b.dataset.view); });
@@ -2090,7 +2124,7 @@ function drawFill(){
 async function loadFillToday(){
   let rows; try{ rows=await api('/api/production'); }catch(e){ return; }
   const t=todayISO(); const ce=canEdit('filling');
-  const today=rows.filter(p=>(p.filled_date===t)||(p.date===t && p.fill_start)); window._fillRows=today;
+  const today=rows.filter(p=>p.filled_date===t); window._fillRows=today;
   const el=document.getElementById('flToday'); if(!el)return;
   el.innerHTML=today.slice(0,100).map(p=>`<tr><td><b>${escapeHtml(p.basket||'')}</b></td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td>${escapeHtml(p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td>${ce?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFillRow('${p.id}')">Edit</button> <button class="btn danger" onclick="delFillRow('${p.id}')">✕</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${ce?9:8}" class="muted">Nothing filled today yet.</td></tr>`;
 }
@@ -2126,7 +2160,7 @@ async function fillSave(){
       basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,operators:+b.operators||2,stackId:b.stackId,stackComplete:stComplete,trays:+b.trays||0,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
   msg.textContent='Saving…';
-  try{ await api('/api/production','POST',{date:b.filled||todayISO(),lines}); await reloadStock(); clearLiveFill();
+  try{ await api('/api/production','POST',{date:b.filled||todayISO(),fromFill:true,lines}); await reloadStock(); clearLiveFill();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
     stopFillTimer(); fillBasket=newFillBasket(next,+b.operators||2); drawFill();
     const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
@@ -2225,6 +2259,8 @@ let _dashTimer=null,_dashTick=null,_dashDate=null;
 function stopDashTimers(){ if(_dashTimer){clearInterval(_dashTimer);_dashTimer=null;} if(_dashTick){clearInterval(_dashTick);_dashTick=null;} }
 window.stopDashTimers=stopDashTimers;
 function shiftDate(iso,n){ try{ const d=parseISO(iso); d.setDate(d.getDate()+n); return isoDate(d); }catch(e){ return iso; } }
+function clearLiveWho(who){ if(!confirm('Clear this "currently filling" entry? Use only if the station is not actually filling.')) return; api('/api/live-fill?who='+encodeURIComponent(who),'DELETE').then(()=>drawFilldash()).catch(e=>alert('Could not clear: '+e.message)); }
+window.clearLiveWho=clearLiveWho;
 function planForDate(dateISO){
   const d=parseISO(dateISO); const k=isoDate(mondayOf(d)); const idx=(d.getDay()+6)%7;
   const w=state.weekPlans[k]; const jobs=(w&&w.days&&w.days[idx])||[]; const ops=+(w&&w.ops&&w.ops[idx])||2;
@@ -2328,7 +2364,7 @@ async function drawFilldash(){
      <div class="kpi"><div class="l">${isToday?'Projected finish':'Filling ended'}</div><div class="n" style="color:${isToday?(projRed?'#b4231f':'#1f7a47'):'var(--navy)'}">${isToday?(actBags?minToHHMM(projFinishMin):'—'):(lastFinish?fmtTime(lastFinish):'—')}</div><div class="l">${isToday?'line target 14:30':'last basket finished'}</div></div>
      <div class="kpi"><div class="l">${isToday?'Pace now':'Day pace'} / target</div><div class="n">${actualPace.toFixed(1)}<span style="font-size:15px;color:var(--muted)"> / ${targetPace.toFixed(1)} bags-min</span></div><div class="l">at ${ops} people</div></div>
    </div>
-   ${liveCards.length?`<div class="card" style="background:#faf3ee;border-color:var(--coral)"><div class="hint" style="margin-bottom:8px">● Currently filling — live</div><div style="display:flex;gap:28px;flex-wrap:wrap">${liveCards.map(c=>`<div style="text-align:center;min-width:130px"><div style="font-size:15px;font-weight:800;color:var(--navy)">Basket ${escapeHtml(''+(c.basket||'?'))}</div><div class="dashlive" data-start="${c.start}" style="font-size:38px;font-weight:800;font-family:var(--font-display);color:var(--coral-deep);line-height:1.05">0:00</div><div class="hint">${c.products?escapeHtml(c.products)+' · ':''}since ${fmtTime(c.start)}${c.who?(' · '+escapeHtml(c.who)):''}</div></div>`).join('')}</div></div>`:''}
+   ${liveCards.length?`<div class="card" style="background:#faf3ee;border-color:var(--coral)"><div class="hint" style="margin-bottom:8px">● Currently filling — live</div><div style="display:flex;gap:28px;flex-wrap:wrap">${liveCards.map(c=>`<div style="text-align:center;min-width:130px"><div style="font-size:15px;font-weight:800;color:var(--navy)">Basket ${escapeHtml(''+(c.basket||'?'))}</div><div class="dashlive" data-start="${c.start}" style="font-size:38px;font-weight:800;font-family:var(--font-display);color:var(--coral-deep);line-height:1.05">0:00</div><div class="hint">${c.products?escapeHtml(c.products)+' · ':''}since ${fmtTime(c.start)}${c.who?(' · '+escapeHtml(c.who)):''}</div>${isAdmin()&&c.who?`<div style="margin-top:5px"><button class="btn ghost sm" data-clearwho="${escapeHtml(''+c.who)}">✕ not filling</button></div>`:''}</div>`).join('')}</div></div>`:''}
    <div class="card"><h3 style="margin:0 0 8px">Bags per hour</h3>${hourlyChartSvg(buckets,hours,targetPerHr)}</div>
    <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">By product</h3>
      <table><thead><tr><th>Product</th><th>Size</th><th class="num">Planned</th><th class="num">Filled</th><th class="num">%</th><th>Status</th></tr></thead>
@@ -2347,6 +2383,7 @@ async function drawFilldash(){
   { const nx=document.getElementById('fdNext'); if(nx) nx.addEventListener('click',()=>{ _dashDate=shiftDate(_dashDate,1); renderFilldash(); }); }
   { const td=document.getElementById('fdToday'); if(td) td.addEventListener('click',()=>{ _dashDate=todayISO(); renderFilldash(); }); }
   document.getElementById('fdReload').addEventListener('click',drawFilldash);
+  root.querySelectorAll('[data-clearwho]').forEach(b=>b.addEventListener('click',()=>clearLiveWho(b.getAttribute('data-clearwho'))));
   if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
   if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
   if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },30000); }
@@ -2403,29 +2440,168 @@ async function drawCooking(){
 }
 window.drawCooking=drawCooking;
 
-/* ===== Production Summary: minced / filled / cooked per day (packs + kg) ===== */
-function renderProdsum(){ const root=document.getElementById('rootProdsum'); if(!root) return; root.innerHTML='<p class="muted">Loading…</p>'; drawProdsum(); }
+/* ===== Production Summary: minced / filled / cooked per day (packs + kg) — sliceable ===== */
+let _psum=null;
+function renderProdsum(){ const root=document.getElementById('rootProdsum'); if(!root) return; root.innerHTML='<p class="muted">Loading…</p>'; loadProdsum(); }
 window.renderProdsum=renderProdsum;
-async function drawProdsum(){
+async function loadProdsum(){ try{ _psum=await api('/api/production'); }catch(e){ const r=document.getElementById('rootProdsum'); if(r) r.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; } buildProdsum(); }
+function buildProdsum(){
   const root=document.getElementById('rootProdsum'); if(!root) return;
-  let prod=[]; try{ prod=await api('/api/production'); }catch(e){ root.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; }
-  const days={};
-  function add(day,kind,bags,kg){ if(!day) return; const d=days[day]||(days[day]={date:day,mB:0,mK:0,fB:0,fK:0,cB:0,cK:0}); d[kind+'B']+=bags; d[kind+'K']+=kg; }
-  prod.forEach(p=>{ const bags=+p.qty||0, kg=+p.kg||0; add(p.mince_date,'m',bags,kg); add(p.filled_date,'f',bags,kg); add(p.cook_date,'c',bags,kg); });
-  const rows=Object.values(days).sort((a,b)=>a.date<b.date?1:-1);
+  const prods=[...new Set(_psum.map(p=>p.product).filter(Boolean))].sort();
+  const packs=[...new Set(_psum.map(p=>p.pack).filter(Boolean))].sort((a,b)=>packGrams(a)-packGrams(b));
+  root.innerHTML=
+    '<div class="toolbar" style="flex-wrap:wrap;gap:10px;margin-bottom:10px">'+
+      '<label class="fld">From<input type="date" id="psFrom"></label>'+
+      '<label class="fld">To<input type="date" id="psTo"></label>'+
+      '<label class="fld">Product<select id="psProd"><option value="">All products</option>'+prods.map(p=>'<option>'+escapeHtml(p)+'</option>').join('')+'</select></label>'+
+      '<label class="fld">Pouch size<select id="psPack"><option value="">All sizes</option>'+packs.map(p=>'<option>'+escapeHtml(p)+'</option>').join('')+'</select></label>'+
+      '<label class="fld">Show<select id="psScope"><option value="all">Minced · Filled · Cooked</option><option value="c">Cooked only</option><option value="f">Filled only</option><option value="m">Minced only</option></select></label>'+
+      '<button class="btn ghost sm" id="psReset">Clear</button>'+
+      '<button class="btn ghost sm" id="psCsv">⬇ Export CSV</button>'+
+    '</div><div id="psumBody"></div>';
+  ['psFrom','psTo','psProd','psPack','psScope'].forEach(id=>{ const el=document.getElementById(id); if(el) el.onchange=drawProdsumTable; });
+  document.getElementById('psReset').onclick=()=>{ ['psFrom','psTo','psProd','psPack'].forEach(id=>document.getElementById(id).value=''); document.getElementById('psScope').value='all'; drawProdsumTable(); };
+  document.getElementById('psCsv').onclick=exportProdsumCsv;
+  drawProdsumTable();
+}
+function prodsumRows(){
+  const from=document.getElementById('psFrom').value||'0000-01-01', to=document.getElementById('psTo').value||'9999-12-31';
+  const prodF=document.getElementById('psProd').value, packF=document.getElementById('psPack').value, scope=document.getElementById('psScope').value;
+  const base=(_psum||[]).filter(p=>(!prodF||p.product===prodF)&&(!packF||p.pack===packF));
+  const days={}; function add(day,kind,bags,kg){ if(!day||day<from||day>to) return; const d=days[day]||(days[day]={date:day,mB:0,mK:0,fB:0,fK:0,cB:0,cK:0}); d[kind+'B']+=bags; d[kind+'K']+=kg; }
+  base.forEach(p=>{ const bags=+p.qty||0,kg=+p.kg||0; if(scope==='all'||scope==='m') add(p.mince_date,'m',bags,kg); if(scope==='all'||scope==='f') add(p.filled_date,'f',bags,kg); if(scope==='all'||scope==='c') add(p.cook_date,'c',bags,kg); });
+  return Object.values(days).sort((a,b)=>a.date<b.date?1:-1);
+}
+function drawProdsumTable(){
+  const host=document.getElementById('psumBody'); if(!host) return;
+  const rows=prodsumRows();
   const T={mB:0,mK:0,fB:0,fK:0,cB:0,cK:0}; rows.forEach(d=>{ T.mB+=d.mB;T.mK+=d.mK;T.fB+=d.fB;T.fK+=d.fK;T.cB+=d.cB;T.cK+=d.cK; });
   const kpi=(n,l)=>'<div class="kpi" style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px"><div class="n" style="font-size:24px;font-weight:800;color:var(--navy);font-family:var(--font-display);line-height:1.1">'+n+'</div><div class="l" style="font-size:12px;color:var(--muted);margin-top:2px">'+escapeHtml(l)+'</div></div>';
-  root.innerHTML=
+  host.innerHTML=
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px">'+
-      kpi(fmt(T.fB),'Filled — packs')+kpi(fmt(T.fK)+' kg','Filled — kg')+kpi(fmt(T.cB),'Cooked — packs')+kpi(fmt(T.cK)+' kg','Cooked — kg')+kpi(rows.length,'Days with activity')+
+      kpi(fmt(T.fB),'Filled — packs')+kpi(fmt(T.fK)+' kg','Filled — kg')+kpi(fmt(T.cB),'Cooked — packs')+kpi(fmt(T.cK)+' kg','Cooked — kg')+kpi(rows.length,'Days in slice')+
     '</div>'+
-    '<div class="card" style="padding:0;overflow:auto;max-height:62vh"><table><thead><tr>'+
-      '<th>Date</th><th class="num">Minced packs</th><th class="num">Minced kg</th><th class="num">Filled packs</th><th class="num">Filled kg</th><th class="num">Cooked packs</th><th class="num">Cooked kg</th></tr></thead><tbody>'+
-      (rows.length?rows.map(d=>'<tr><td>'+escapeHtml(d.date)+'</td><td class="num">'+fmt(d.mB)+'</td><td class="num">'+fmt(d.mK)+'</td><td class="num">'+fmt(d.fB)+'</td><td class="num">'+fmt(d.fK)+'</td><td class="num">'+fmt(d.cB)+'</td><td class="num">'+fmt(d.cK)+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">No production yet.</td></tr>')+
-      '</tbody><tfoot><tr style="position:sticky;bottom:0;background:#143644;color:#fff"><th>TOTAL</th><th class="num">'+fmt(T.mB)+'</th><th class="num">'+fmt(T.mK)+'</th><th class="num">'+fmt(T.fB)+'</th><th class="num">'+fmt(T.fK)+'</th><th class="num">'+fmt(T.cB)+'</th><th class="num">'+fmt(T.cK)+'</th></tr></tfoot></table></div>'+
-    '<p class="hint" style="margin-top:8px">Each basket counts on its <b>minced</b> day, its <b>filled</b> day and its <b>cooked</b> day. kg is the pack weight.</p>';
+    '<div class="card" style="padding:0;overflow:auto;max-height:60vh"><table><thead><tr><th>Date</th><th class="num">Minced packs</th><th class="num">Minced kg</th><th class="num">Filled packs</th><th class="num">Filled kg</th><th class="num">Cooked packs</th><th class="num">Cooked kg</th></tr></thead><tbody>'+
+    (rows.length?rows.map(d=>'<tr><td>'+escapeHtml(d.date)+'</td><td class="num">'+fmt(d.mB)+'</td><td class="num">'+fmt(d.mK)+'</td><td class="num">'+fmt(d.fB)+'</td><td class="num">'+fmt(d.fK)+'</td><td class="num">'+fmt(d.cB)+'</td><td class="num">'+fmt(d.cK)+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">No production in this slice.</td></tr>')+
+    '</tbody><tfoot><tr style="position:sticky;bottom:0;background:#143644;color:#fff"><th>TOTAL</th><th class="num">'+fmt(T.mB)+'</th><th class="num">'+fmt(T.mK)+'</th><th class="num">'+fmt(T.fB)+'</th><th class="num">'+fmt(T.fK)+'</th><th class="num">'+fmt(T.cB)+'</th><th class="num">'+fmt(T.cK)+'</th></tr></tfoot></table></div>'+
+    '<p class="hint" style="margin-top:8px">Slice by product, pouch size, date range and activity above. Each basket counts on its <b>minced</b>, <b>filled</b> and <b>cooked</b> day. kg is the pack weight.</p>';
 }
-window.drawProdsum=drawProdsum;
+function exportProdsumCsv(){
+  const rows=prodsumRows(); const head=['Date','Minced packs','Minced kg','Filled packs','Filled kg','Cooked packs','Cooked kg'];
+  const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const lines=[head.join(',')].concat(rows.map(d=>[d.date,d.mB,d.mK,d.fB,d.fK,d.cB,d.cK].map(esc).join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='production-summary.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+window.drawProdsum=buildProdsum;
+
+/* ===== Pick & Mix — ingredient batch traceability ===== */
+let pmSeg='new', pmMix=null;
+function newPmMix(){ return {recipeId:'',batch:julianToday(),kg:0,sel:{}}; }
+function renderPickmix(){ const root=document.getElementById('rootPickmix'); if(!root) return; if(!pmMix) pmMix=newPmMix();
+  root.innerHTML='<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">'+
+    '<button class="btn '+(pmSeg==='new'?'coral':'ghost')+' sm" data-ps="new">＋ New mix</button>'+
+    '<button class="btn '+(pmSeg==='mixes'?'coral':'ghost')+' sm" data-ps="mixes">Recent mixes</button>'+
+    '<button class="btn '+(pmSeg==='trace'?'coral':'ghost')+' sm" data-ps="trace">🔎 Trace / recall</button>'+
+   '</div><div id="pmBody"></div>';
+  root.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{ pmSeg=b.dataset.ps; renderPickmix(); });
+  if(pmSeg==='new') pmNew(); else if(pmSeg==='mixes') pmMixes(); else pmTrace();
+}
+window.renderPickmix=renderPickmix;
+function pmNeed(li){ const r=byId(pmMix.recipeId); const base=r?baseKg(r):0; return base>0?(li.kg*(+pmMix.kg||0)/base):0; }
+function pmNew(){
+  const host=document.getElementById('pmBody'); if(!host) return; const ed=canEdit('pickmix'); const r=byId(pmMix.recipeId);
+  const rowsHtml=r?(r.ingredients||[]).map(li=>{ const chosen=(pmMix.sel[li.ingId]||[]).map(s=>s.batch);
+    return '<tr><td>'+escapeHtml(ingName(li.ingId))+'</td><td class="num" data-need="'+li.ingId+'">'+fmt(pmNeed(li))+'</td>'+
+      '<td>'+(chosen.length?('<b>'+chosen.map(escapeHtml).join(' + ')+'</b>'+(ed?' <a href="#" data-clr="'+li.ingId+'" style="color:#b4231f;text-decoration:none">✕</a>':'')):'<span style="color:#b4231f">— choose —</span>')+'</td>'+
+      (ed?'<td><button class="btn ghost sm" data-pick="'+li.ingId+'">'+(chosen.length?'Change':'Choose batch')+'</button></td>':'')+'</tr>'; }).join(''):'';
+  host.innerHTML='<div class="card">'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'+
+      '<label class="fld" style="flex:2;min-width:220px">Recipe<select id="pmRec" '+(ed?'':'disabled')+'>'+prodSelectOptions(pmMix.recipeId)+'</select></label>'+
+      '<label class="fld">Mix batch / Julian<input id="pmBatch" value="'+escapeHtml(pmMix.batch)+'" style="width:150px" '+(ed?'':'disabled')+'></label>'+
+      '<label class="fld">Mix size (kg)<input id="pmKg" type="number" min="0" value="'+((+pmMix.kg||'')||'')+'" style="width:130px" '+(ed?'':'disabled')+'></label>'+
+    '</div>'+
+    (r?('<h4 style="margin:14px 0 6px">Ingredients — choose a batch for each</h4>'+
+      '<div style="overflow:auto"><table><thead><tr><th>Ingredient</th><th class="num">Need (kg)</th><th>Batch chosen</th>'+(ed?'<th></th>':'')+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div>'+
+      (ed?'<div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="pmSave">✔ Save mix</button><button class="btn ghost" id="pmClear">Clear</button><span class="hint" id="pmMsg"></span></div>':'')
+    ):'<p class="muted" style="margin-top:12px">Choose a recipe to list its ingredients.</p>')+
+   '</div>';
+  const rec=document.getElementById('pmRec'); if(rec) rec.onchange=e=>{ pmMix.recipeId=e.target.value; pmMix.sel={}; const rr=byId(e.target.value); pmMix.kg=rr?baseKg(rr):0; pmNew(); };
+  const kb=document.getElementById('pmBatch'); if(kb) kb.oninput=e=>pmMix.batch=e.target.value;
+  const kk=document.getElementById('pmKg'); if(kk) kk.oninput=e=>{ pmMix.kg=+e.target.value||0; const rr=byId(pmMix.recipeId); if(!rr)return; host.querySelectorAll('[data-need]').forEach(td=>{ const li=(rr.ingredients||[]).find(x=>x.ingId===td.dataset.need); if(li) td.textContent=fmt(pmNeed(li)); }); };
+  host.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>pmPickBatch(b.dataset.pick));
+  host.querySelectorAll('[data-clr]').forEach(a=>a.onclick=e=>{ e.preventDefault(); delete pmMix.sel[a.dataset.clr]; pmNew(); });
+  const sv=document.getElementById('pmSave'); if(sv) sv.onclick=pmSave;
+  const cl=document.getElementById('pmClear'); if(cl) cl.onclick=()=>{ pmMix=newPmMix(); pmNew(); };
+}
+async function pmPickBatch(ingId){
+  let data; try{ data=await api('/api/ingredient-batches?ing_id='+encodeURIComponent(ingId)); }catch(e){ alert('Could not load batches: '+e.message); return; }
+  const lots=data.lots||[], fifo=data.fifo; const r=byId(pmMix.recipeId); const li=(r.ingredients||[]).find(x=>x.ingId===ingId); const need=li?pmNeed(li):0;
+  const cur=(pmMix.sel[ingId]||[]).map(s=>s.batch);
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">'+escapeHtml(ingName(ingId))+' — choose batch</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+   '<p class="hint">Need about <b>'+fmt(need)+' kg</b>. Newest first; the oldest batch still in stock is suggested (FIFO). Tap more than one to split across batches.</p>'+
+   (lots.length?'<div class="pickgrid">'+lots.map(l=>{ const low=l.remaining<=0.0001; const isf=(l.batch===fifo); const on=cur.indexOf(l.batch)>=0;
+      return '<button class="pickbtn" data-b="'+escapeHtml(l.batch)+'" style="text-align:left'+(low?';opacity:.55':'')+(on?';border-color:var(--coral)':'')+'"><b>'+escapeHtml(l.batch)+'</b>'+(on?' ✓':'')+(isf?' <span style="background:#e6f4ec;color:#1f7a47;font-size:11px;padding:1px 7px;border-radius:10px">use first</span>':'')+(low?' <span style="background:#fae3df;color:#b4231f;font-size:11px;padding:1px 7px;border-radius:10px">empty</span>':'')+'<br><span class="hint">'+escapeHtml(l.last_date||'')+' · '+escapeHtml(l.supplier||'')+' · '+fmt(l.remaining)+' kg left</span></button>'; }).join('')+'</div>':'<p class="muted">No batches recorded for this ingredient — add its deliveries (with batch codes) first.</p>')+
+   '<div style="margin-top:10px;display:flex;gap:8px"><button class="btn coral sm" id="pmDone">Done</button><button class="btn ghost sm" id="pmClrOne">Clear this ingredient</button></div>');
+  document.querySelectorAll('[data-b]').forEach(btn=>btn.onclick=()=>{ const l=pmMix.sel[ingId]||[]; const i=l.findIndex(s=>s.batch===btn.dataset.b); if(i>=0) l.splice(i,1); else l.push({batch:btn.dataset.b}); pmMix.sel[ingId]=l; pmPickBatch(ingId); });
+  const dn=document.getElementById('pmDone'); if(dn) dn.onclick=()=>{ closeModal(); pmNew(); };
+  const c1=document.getElementById('pmClrOne'); if(c1) c1.onclick=()=>{ delete pmMix.sel[ingId]; closeModal(); pmNew(); };
+}
+window.pmPickBatch=pmPickBatch;
+function pmSave(){
+  const r=byId(pmMix.recipeId); const msg=document.getElementById('pmMsg');
+  if(!r){ if(msg)msg.textContent='Choose a recipe.'; return; }
+  if(!pmMix.batch){ if(msg)msg.textContent='Enter a mix batch / Julian.'; return; }
+  const base=baseKg(r), mkg=+pmMix.kg||0;
+  const miss=(r.ingredients||[]).filter(li=>!(pmMix.sel[li.ingId]&&pmMix.sel[li.ingId].length));
+  if(miss.length){ if(msg)msg.textContent='Choose a batch for: '+miss.map(li=>ingName(li.ingId)).slice(0,6).join(', ')+(miss.length>6?'…':'')+'.'; return; }
+  const items=[]; (r.ingredients||[]).forEach(li=>{ const need=base>0?(li.kg*mkg/base):0; const sel=pmMix.sel[li.ingId]||[]; const each=sel.length?need/sel.length:0; sel.forEach(s=>items.push({ing_id:li.ingId,batch_code:s.batch,qty:+each.toFixed(3)})); });
+  if(msg)msg.textContent='Saving…';
+  api('/api/mixes','POST',{date:todayISO(),recipe_id:r.id,batch:pmMix.batch,kg:mkg,items}).then(()=>{ pmMix=newPmMix(); pmNew(); const m=document.getElementById('pmMsg'); if(m)m.textContent='Saved ✓ mix recorded with its ingredient batches.'; }).catch(e=>{ const m=document.getElementById('pmMsg'); if(m)m.textContent='Failed: '+e.message; });
+}
+async function pmMixes(){
+  const host=document.getElementById('pmBody'); if(!host) return; host.innerHTML='<p class="muted">Loading…</p>';
+  let mixes; try{ mixes=await api('/api/mixes'); }catch(e){ host.innerHTML='<p class="muted">Could not load.</p>'; return; } const ed=canEdit('pickmix');
+  host.innerHTML='<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Date</th><th>Product</th><th>Mix batch</th><th class="num">kg</th><th></th></tr></thead><tbody>'+
+    (mixes.length?mixes.map(m=>{ const r=byId(m.recipe_id); const pn=r?(r.brand+' — '+r.name):(m.recipe_id||''); return '<tr><td>'+escapeHtml(m.date||'')+'</td><td>'+escapeHtml(pn)+'</td><td><b>'+escapeHtml(m.batch||'')+'</b></td><td class="num">'+fmt(m.kg)+'</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" data-mv="'+m.id+'">View</button> <button class="btn ghost sm" data-mp="'+m.id+'">🖨</button>'+(ed?' <button class="btn danger" data-md="'+m.id+'">✕</button>':'')+'</td></tr>'; }).join(''):'<tr><td colspan="5" class="muted">No mixes recorded yet.</td></tr>')+
+   '</tbody></table></div>';
+  host.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>pmView(b.dataset.mv));
+  host.querySelectorAll('[data-mp]').forEach(b=>b.onclick=()=>pmPrint(b.dataset.mp));
+  host.querySelectorAll('[data-md]').forEach(b=>b.onclick=()=>pmDel(b.dataset.md));
+}
+async function pmView(id){ let mix; try{ mix=await api('/api/mixes/'+encodeURIComponent(id)); }catch(e){ alert(e.message); return; } const r=byId(mix.recipe_id);
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Mix '+escapeHtml(mix.batch||'')+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div><p class="hint">'+escapeHtml(r?(r.brand+' — '+r.name):'')+' · '+escapeHtml(mix.date||'')+' · '+fmt(mix.kg)+' kg</p><div style="overflow:auto"><table><thead><tr><th>Ingredient</th><th>Batch</th><th class="num">kg</th></tr></thead><tbody>'+(mix.items||[]).map(it=>'<tr><td>'+escapeHtml(ingName(it.ing_id))+'</td><td><b>'+escapeHtml(it.batch_code)+'</b></td><td class="num">'+fmt(it.qty)+'</td></tr>').join('')+'</tbody></table></div>'); }
+async function pmDel(id){ if(!confirm('Delete this mix record?'))return; try{ await api('/api/mixes/'+encodeURIComponent(id),'DELETE'); pmMixes(); }catch(e){ alert(e.message); } }
+async function pmPrint(id){ let mix; try{ mix=await api('/api/mixes/'+encodeURIComponent(id)); }catch(e){ alert(e.message); return; } const r=byId(mix.recipe_id);
+  let html='<div class="mixsheet"><div class="hd"><div><div class="t">Mix record — '+escapeHtml(mix.batch||'')+'</div><div class="b"><b>Wilsons Pet Food</b> · '+escapeHtml(r?(r.brand+' — '+r.name):'')+' · '+fmt(mix.kg)+' kg · '+escapeHtml(mix.date||'')+'</div></div><div style="text-align:right"><div class="b"><b>Printed:</b> '+new Date().toLocaleDateString('en-GB')+'</div><div class="b">By: '+escapeHtml(mix.by||'')+'</div></div></div>'+
+   '<table class="ms-table"><thead><tr><th>Ingredient</th><th>Batch code</th><th class="num">kg</th></tr></thead><tbody>'+(mix.items||[]).map(it=>'<tr><td>'+escapeHtml(ingName(it.ing_id))+'</td><td><b>'+escapeHtml(it.batch_code)+'</b></td><td class="num">'+fmt(it.qty)+'</td></tr>').join('')+'</tbody></table>'+
+   '<p class="b" style="margin-top:14px">Signed: ____________________     Date: __________</p></div>';
+  const hostp=document.getElementById('view-print-picking'); hostp.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; hostp.classList.add('printing'); window.print(); setTimeout(()=>{ hostp.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
+}
+window.pmView=pmView; window.pmDel=pmDel; window.pmPrint=pmPrint;
+function pmTrace(){
+  const host=document.getElementById('pmBody'); if(!host) return;
+  host.innerHTML='<div class="card"><h4 style="margin:0 0 8px">Recall — where did an ingredient batch go?</h4>'+
+    '<div class="row-flex" style="gap:10px;align-items:flex-end"><label class="fld">Ingredient batch code<input id="pmTraceCode" placeholder="e.g. 0184" style="width:200px"></label><button class="btn coral" id="pmTraceBtn">Trace ▸</button></div>'+
+    '<p class="hint" style="margin-top:6px">To trace <b>back</b> from a product, open <b>Recent mixes → View</b> for that mix batch — it lists every ingredient batch.</p>'+
+    '<div id="pmTraceOut" style="margin-top:12px"></div></div>';
+  document.getElementById('pmTraceBtn').onclick=pmDoTrace;
+  document.getElementById('pmTraceCode').addEventListener('keydown',e=>{ if(e.key==='Enter') pmDoTrace(); });
+}
+async function pmDoTrace(){
+  const code=(document.getElementById('pmTraceCode').value||'').trim(); const out=document.getElementById('pmTraceOut'); if(!code){ out.innerHTML=''; return; }
+  out.innerHTML='<p class="muted">Searching…</p>';
+  let rows, prod; try{ rows=await api('/api/trace/batch?code='+encodeURIComponent(code)); prod=await api('/api/production'); }catch(e){ out.innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; return; }
+  if(!rows.length){ out.innerHTML='<p class="muted">No mixes used batch <b>'+escapeHtml(code)+'</b>.</p>'; return; }
+  const byMix={}; rows.forEach(r=>{ if(!byMix[r.id]) byMix[r.id]={date:r.date,recipe_id:r.recipe_id,batch:r.batch,kg:r.kg}; });
+  let html='<p class="hint">Batch <b>'+escapeHtml(code)+'</b> went into '+Object.keys(byMix).length+' mix(es):</p>';
+  Object.keys(byMix).forEach(id=>{ const m=byMix[id]; const r=byId(m.recipe_id); const pn=r?(r.brand+' — '+r.name):(m.recipe_id||'');
+    const linked=prod.filter(p=>p.recipe_id===m.recipe_id && (p.julian_code===m.batch||p.batch===m.batch));
+    const cooks=[...new Set(linked.filter(p=>p.cook_date).map(p=>p.cook_date))];
+    html+='<div class="card" style="margin-bottom:8px"><b>'+escapeHtml(pn)+'</b> · mix '+escapeHtml(m.batch||'')+' · '+escapeHtml(m.date||'')+' · '+fmt(m.kg)+' kg<br><span class="hint">'+(linked.length?(fmt(linked.reduce((a,p)=>a+(+p.qty||0),0))+' bags filled'+(cooks.length?(' · cooked '+cooks.map(escapeHtml).join(', ')):' · not yet cooked')):'not yet linked to filling (its Julian is '+escapeHtml(m.batch||'')+')')+'</span></div>';
+  });
+  out.innerHTML=html;
+}
+window.pmDoTrace=pmDoTrace;
 
 /* ===== Record Production ===== */
 let prodLines=[];
@@ -2439,7 +2615,7 @@ function renderProduction(){
   root.innerHTML=entryCard+`
     <h3>Cooked production records</h3><p class="sub" style="margin-top:-2px">Only <b>cooked</b> trolleys appear here, newest cook first. Filled-but-not-yet-cooked baskets live in the <b>Cooking</b> tab until they're cooked.</p>
     <div class="toolbar">
-      <label class="fld">Date range<select id="prRange">
+      <label class="fld">Cook date range<select id="prRange">
         <option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option>
         <option value="this_week">This week</option><option value="last_7">Last 7 days</option>
         <option value="mtd">Month to date</option><option value="last_month">Last month</option>
@@ -2449,11 +2625,11 @@ function renderProduction(){
       <label class="fld" id="prToWrap" style="display:none">To<input type="date" id="prTo"></label>
       <label class="fld">Product<select id="prProd"><option value="">All</option></select></label>
       <label class="fld">Pouch size<select id="prPack"><option value="">All</option></select></label>
+      <label class="fld">Retort<select id="prRetort"><option value="">All</option></select></label>
       <label class="fld">Find<input id="prSearch" placeholder="batch / basket…" style="width:120px"></label>
       <span class="spacer"></span>
       ${canEd?'<button class="btn ghost sm" id="prUndo" disabled>↶ Undo</button>':''}
       ${canEd?'<button class="btn ghost sm" id="prManual">↕ Custom order</button>':''}
-      ${canEd?'<button class="btn coral sm" id="prAssign">📅 Assign cook date…</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
       <button class="btn ghost sm" id="prCsv">⬇ Export CSV</button>
       <label class="fld" style="margin-left:8px">Print cooked on<input type="date" id="prCookDate" value="${todayISO()}"></label>
@@ -2465,7 +2641,6 @@ function renderProduction(){
         <thead><tr>
           ${canEd?'<th style="width:28px"><input type="checkbox" id="prAll" title="Select all shown"></th>':''}
           <th class="sortable" data-k="cook_date">Cook date <span class="sa"></span></th>
-          <th class="sortable" data-k="date">Date <span class="sa"></span></th>
           <th class="sortable" data-k="product">Product <span class="sa"></span></th>
           <th class="sortable" data-k="pack">Size <span class="sa"></span></th>
           <th class="sortable num" data-k="qty">Bags <span class="sa"></span></th>
@@ -2476,9 +2651,9 @@ function renderProduction(){
           <th class="sortable" data-k="filled_date">Filled <span class="sa"></span></th>
           <th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th>
           <th>By</th><th></th></tr></thead>
-        <tbody id="prHist"><tr><td colspan="${canEd?17:16}" class="muted">Loading…</td></tr></tbody>
+        <tbody id="prHist"><tr><td colspan="${canEd?16:15}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
-          <th colspan="${canEd?5:4}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
+          <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
           <th colspan="10" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
@@ -2495,7 +2670,6 @@ function renderProduction(){
       drawProdLines();
     };
     document.getElementById('prSave').onclick=saveProduction;
-    document.getElementById('prAssign').onclick=assignCookModal;
     document.getElementById('prUndo').onclick=undoProd; updateUndoBtn();
     document.getElementById('prManual').onclick=()=>{ if(prSort.k==='seq'){ prSort.k='date'; prSort.dir=-1; } else { prSort.k='seq'; prSort.dir=1; } drawProdHist(); };
     document.getElementById('prAll').onclick=e=>{ document.querySelectorAll('#prHist .prSel').forEach(c=>{ c.checked=e.target.checked; prodSel[c.checked?'add':'delete'](c.dataset.id); }); };
@@ -2503,10 +2677,11 @@ function renderProduction(){
   document.getElementById('prRange').onchange=()=>{ const c=document.getElementById('prRange').value==='custom'; document.getElementById('prFromWrap').style.display=c?'':'none'; document.getElementById('prToWrap').style.display=c?'':'none'; drawProdHist(); };
   document.getElementById('prFrom').onchange=drawProdHist; document.getElementById('prTo').onchange=drawProdHist;
   document.getElementById('prProd').onchange=drawProdHist; document.getElementById('prPack').onchange=drawProdHist;
+  document.getElementById('prRetort').onchange=drawProdHist;
   document.getElementById('prSearch').oninput=drawProdHist;
   document.getElementById('prCsv').onclick=exportProdCsv;
   document.getElementById('prPrintCooked').onclick=()=>printCookedDay(document.getElementById('prCookDate').value);
-  document.getElementById('prReset').onclick=()=>{ document.getElementById('prRange').value='all'; document.getElementById('prProd').value=''; document.getElementById('prPack').value=''; document.getElementById('prSearch').value=''; document.getElementById('prFromWrap').style.display='none'; document.getElementById('prToWrap').style.display='none'; drawProdHist(); };
+  document.getElementById('prReset').onclick=()=>{ document.getElementById('prRange').value='all'; document.getElementById('prProd').value=''; document.getElementById('prPack').value=''; document.getElementById('prRetort').value=''; document.getElementById('prSearch').value=''; document.getElementById('prFromWrap').style.display='none'; document.getElementById('prToWrap').style.display='none'; drawProdHist(); };
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
@@ -2542,8 +2717,9 @@ function prRangeBounds(){
 function prFiltered(){
   const {from,to}=prRangeBounds();
   const prod=document.getElementById('prProd').value, pack=document.getElementById('prPack').value;
+  const retort=(document.getElementById('prRetort')||{}).value||'';
   const q=(document.getElementById('prSearch').value||'').toLowerCase();
-  let rows=allProd.filter(p=>(p.cook_date)&&(p.cook_date>=from&&p.cook_date<=to)&&(!prod||p.product===prod)&&(!pack||p.pack===pack)
+  let rows=allProd.filter(p=>(p.cook_date)&&(p.cook_date>=from&&p.cook_date<=to)&&(!prod||p.product===prod)&&(!pack||p.pack===pack)&&(!retort||(p.retort||'')===retort)
     &&(!q||((p.batch||'')+' '+(p.basket||'')+' '+(p.product||'')).toLowerCase().includes(q)));
   const k=prSort.k, dir=prSort.dir;
   rows.sort((a,b)=>{ let av=a[k], bv=b[k];
@@ -2559,6 +2735,7 @@ function populateProdFilters(){
   const cp=ps.value, ck=pk.value;
   ps.innerHTML='<option value="">All</option>'+prods.map(p=>`<option${p===cp?' selected':''}>${escapeHtml(p)}</option>`).join('');
   pk.innerHTML='<option value="">All</option>'+packs.map(p=>`<option${p===ck?' selected':''}>${escapeHtml(p)}</option>`).join('');
+  const rt=document.getElementById('prRetort'); if(rt){ const cr=rt.value; const rets=[...new Set(allProd.map(p=>p.retort).filter(Boolean))].sort(); rt.innerHTML='<option value="">All</option>'+rets.map(r=>`<option${r===cr?' selected':''}>${escapeHtml(r)}</option>`).join(''); }
 }
 async function loadProd(){ try{ allProd=await api('/api/production'); }catch(e){ return; } populateProdFilters(); drawProdHist(); }
 function drawProdHist(){
@@ -2572,7 +2749,7 @@ function drawProdHist(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
   const canEd=canEdit('production'); const manual=prSort.k==='seq';
   const drag=(canEd&&manual)?'draggable="true"':'';
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?17:16}" class="muted">No records match the filter.</td></tr>`;
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?16:15}" class="muted">No records match the filter.</td></tr>`;
   if(canEd){
     document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
     document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
@@ -2596,9 +2773,9 @@ function printCookedDay(date){
     <div style="text-align:right"><div class="b"><b>Printed:</b> ${new Date().toLocaleDateString('en-GB')}</div><div class="b"><b>${rows.length}</b> record(s) · <b>${fmt(bags)}</b> bags · <b>${fmt(kg)}</b> kg</div></div></div>`;
   if(!rows.length){ html+='<p class="b">Nothing was cooked on this date.</p>'; }
   else {
-    html+=`<table class="ms-table"><thead><tr><th>Basket</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch (Julian)</th><th>Best before</th><th>Minced</th><th>Filled</th><th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th><th>Retort</th></tr></thead><tbody>`;
-    rows.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.basket||'')}</td><td><b>${escapeHtml(p.product||'')}</b></td><td>${escapeHtml(p.pack||'')}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.retort||'')}</td></tr>`; });
-    html+=`</tbody><tfoot><tr><th colspan="3">TOTAL</th><th class="num">${fmt(bags)}</th><th class="num">${fmt(kg)}</th><th colspan="9"></th></tr></tfoot></table>`;
+    html+=`<table class="ms-table"><thead><tr><th>Basket</th><th>Product</th><th>Size</th><th class="num">Bags</th><th class="num">kg</th><th>Batch (Julian)</th><th>Best before</th><th>Minced</th><th>Filled</th><th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th><th class="num">People</th><th>Retort</th></tr></thead><tbody>`;
+    rows.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.basket||'')}</td><td><b>${escapeHtml(p.product||'')}</b></td><td>${escapeHtml(p.pack||'')}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td class="num">${escapeHtml(''+(p.operators||''))}</td><td>${escapeHtml(p.retort||'')}</td></tr>`; });
+    html+=`</tbody><tfoot><tr><th colspan="3">TOTAL</th><th class="num">${fmt(bags)}</th><th class="num">${fmt(kg)}</th><th colspan="10"></th></tr></tfoot></table>`;
     const byp={}; rows.forEach(p=>{ const k=p.product||'?'; (byp[k]=byp[k]||{b:0,k:0}); byp[k].b+=+p.qty||0; byp[k].k+=+p.kg||0; });
     html+=`<div style="margin-top:10px"><b class="b">By product</b><table class="ms-table" style="margin-top:4px"><thead><tr><th>Product</th><th class="num">Bags</th><th class="num">kg</th></tr></thead><tbody>${Object.keys(byp).sort().map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(byp[k].b)}</td><td class="num">${fmt(byp[k].k)}</td></tr>`).join('')}</tbody></table></div>`;
   }
@@ -2840,24 +3017,52 @@ let _pkgTarget='rootPackaging';
 function renderPackaging(target){
   _pkgTarget=target||'rootPackaging';
   const root=document.getElementById(_pkgTarget); if(!root) return;
-  root.innerHTML=`<div class="toolbar"><label class="fld">Search<input id="pkSearch" placeholder="filter…" style="width:180px"></label><div class="spacer"></div><button class="btn alt sm" id="pkAdd">＋ Add item</button></div>
-    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Item</th><th>Type</th><th class="num">Qty</th><th class="num">Re-order</th><th>Status</th><th></th></tr></thead><tbody id="pkBody"></tbody></table></div>`;
+  const canEd=canEdit('packaging');
+  root.innerHTML=`<div class="toolbar"><label class="fld">Search<input id="pkSearch" placeholder="filter…" style="width:180px"></label><div class="spacer"></div>${canEd?'<button class="btn ghost sm" id="pkAuto">⚙ Auto-map bags</button>':''}<button class="btn alt sm" id="pkAdd">＋ Add item</button></div>
+    <p class="hint">Bags come off stock when a basket is <b>filled</b> — for items linked to a product + size in the <b>Bag for</b> column. Use <b>Auto-map bags</b> to link them from their names, then fix any (Edit).</p>
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Item</th><th>Type</th><th>Bag for (product · size)</th><th class="num">Qty</th><th class="num">Re-order</th><th>Status</th><th></th></tr></thead><tbody id="pkBody"></tbody></table></div>`;
   const draw=()=>{ const q=(document.getElementById('pkSearch').value||'').toLowerCase();
     const list=state.packaging.filter(p=>!q||(p.name+' '+(p.type||'')).toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
     document.getElementById('pkBody').innerHTML=list.map(p=>{ const st=p.reorder>0?(p.qty<=0?'out':(p.qty<=p.reorder?'low':'ok')):(p.qty<0?'out':'ok');
-      return `<tr><td><b>${escapeHtml(p.name)}</b></td><td>${escapeHtml(p.type||'')}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.reorder)}</td><td><span class="pill ${st}">${st}</span></td><td class="num"><button class="btn ghost sm" onclick="editPkg('${p.id}')">Edit</button></td></tr>`; }).join('')||'<tr><td colspan="6" class="muted">None.</td></tr>'; };
-  document.getElementById('pkSearch').oninput=draw; document.getElementById('pkAdd').onclick=()=>editPkg(null); draw();
+      let bf='<span class="muted">—</span>'; if(p.map_recipe){ const r=byId(p.map_recipe); if(r) bf='<b>'+escapeHtml(r.brand+' — '+r.name)+'</b>'+(p.map_pack?(' · '+escapeHtml(p.map_pack)):''); }
+      return `<tr><td><b>${escapeHtml(p.name)}</b></td><td>${escapeHtml(p.type||'')}</td><td>${bf}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.reorder)}</td><td><span class="pill ${st}">${st}</span></td><td class="num"><button class="btn ghost sm" onclick="editPkg('${p.id}')">Edit</button></td></tr>`; }).join('')||'<tr><td colspan="7" class="muted">None.</td></tr>'; };
+  document.getElementById('pkSearch').oninput=draw; document.getElementById('pkAdd').onclick=()=>editPkg(null);
+  const au=document.getElementById('pkAuto'); if(au) au.onclick=autoMapBags; draw();
 }
 function editPkg(id){ const p=id?state.packaging.find(x=>x.id===id):{id:null,name:'',type:'Packaging (bag)',qty:0,reorder:0};
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${id?'Edit':'New'} packaging item</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px"><label class="fld" style="flex:2">Name<input id="pkName" value="${escapeHtml(p.name)}"></label><label class="fld">Type<select id="pkType">${PKG_TYPES.map(t=>`<option${t===p.type?' selected':''}>${escapeHtml(t)}</option>`).join('')}</select></label></div>
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld">Quantity<input id="pkQty" type="number" value="${p.qty}"></label><label class="fld">Re-order point<input id="pkRe" type="number" value="${p.reorder}"></label></div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld" style="flex:2">Bag used for product (optional)<select id="pkMapRec"><option value="">— none —</option>${[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>'<option value="'+r.id+'"'+(r.id===(p.map_recipe||'')?' selected':'')+'>'+escapeHtml(r.name)+'</option>').join('')+'</optgroup>').join('')}</select></label><label class="fld">Size<select id="pkMapPack"><option value="">—</option></select></label></div>
+   <p class="hint">If set, filling a basket of this product + size takes that many bags off this item.</p>
    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" id="pkSave">Save</button>${id?'<button class="btn danger" id="pkDel">Delete</button>':''}</div>`);
-  document.getElementById('pkSave').onclick=async()=>{ const body={name:document.getElementById('pkName').value.trim(),type:document.getElementById('pkType').value,qty:+document.getElementById('pkQty').value||0,reorder:+document.getElementById('pkRe').value||0}; if(!body.name){alert('Name required');return;}
+  (function(){ const rs=document.getElementById('pkMapRec'), pks=document.getElementById('pkMapPack'); function fillPacks(sel){ const r=byId(rs.value); const packs=r?(r.packs||[]):[]; pks.innerHTML='<option value="">—</option>'+packs.map(pk=>'<option'+(pk===sel?' selected':'')+'>'+escapeHtml(pk)+'</option>').join(''); } fillPacks(p.map_pack||''); rs.onchange=()=>fillPacks(''); })();
+  document.getElementById('pkSave').onclick=async()=>{ const body={name:document.getElementById('pkName').value.trim(),type:document.getElementById('pkType').value,qty:+document.getElementById('pkQty').value||0,reorder:+document.getElementById('pkRe').value||0,map_recipe:document.getElementById('pkMapRec').value||'',map_pack:document.getElementById('pkMapPack').value||''}; if(!body.name){alert('Name required');return;}
     if(id) await api('/api/packaging/'+encodeURIComponent(id),'PUT',body); else await api('/api/packaging','POST',body); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(_pkgTarget); };
   const del=document.getElementById('pkDel'); if(del) del.onclick=async()=>{ if(!confirm('Delete item?'))return; await api('/api/packaging/'+encodeURIComponent(id),'DELETE'); state.packaging=await api('/api/packaging'); closeModal(); renderPackaging(_pkgTarget); };
 }
 window.editPkg=editPkg;
+function _pkgNorm(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function stripPkg(p){ return {name:p.name,type:p.type||'',qty:+p.qty||0,reorder:+p.reorder||0,map_recipe:p.map_recipe||'',map_pack:p.map_pack||''}; }
+function guessBagMap(name){
+  const mg=/(\d+)\s*g\b/i.exec(name); const grams=mg?+mg[1]:null;
+  const nn=_pkgNorm(name).replace(/\bbag\b/g,'').replace(/\bpouch\b/g,'');
+  let best=null,bestScore=0;
+  state.recipes.forEach(r=>{ const toks=_pkgNorm(r.brand+' '+r.name).split(' ').filter(t=>t.length>2); if(!toks.length)return; const hit=toks.filter(t=>nn.indexOf(t)>=0).length; const score=hit/toks.length; if(score>bestScore){ bestScore=score; best=r; } });
+  if(!best||bestScore<0.5) return null;
+  let pack=''; if(grams) pack=(best.packs||[]).find(pk=>Math.round((packSizeKg(pk)||0)*1000)===grams)||'';
+  if(!pack&&(best.packs||[]).length===1) pack=best.packs[0];
+  if(!pack) return null;
+  return {recipe:best.id,pack};
+}
+async function autoMapBags(){
+  if(!confirm('Auto-link each bag to a product + size, guessed from its name? Nothing is deducted retroactively — this just sets the links, which you can review and fix.')) return;
+  let n=0,skip=0;
+  for(const p of state.packaging){ if(p.map_recipe&&p.map_pack) continue; const type=(p.type||'').toLowerCase(); if(type.indexOf('bag')<0&&type.indexOf('pouch')<0) continue; const g=guessBagMap(p.name); if(!g){ skip++; continue; }
+    try{ await api('/api/packaging/'+encodeURIComponent(p.id),'PUT',Object.assign(stripPkg(p),{map_recipe:g.recipe,map_pack:g.pack})); n++; }catch(e){} }
+  state.packaging=await api('/api/packaging'); renderPackaging(_pkgTarget); alert('Auto-linked '+n+' bag(s)'+(skip?(' · '+skip+' need setting by hand (Edit)'):'')+'. Please review the Bag-for column and fix any that are wrong.');
+}
+window.autoMapBags=autoMapBags;
 
 /* ===== Suppliers ===== */
 function renderSuppliers(){

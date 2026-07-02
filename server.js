@@ -54,12 +54,18 @@ try { db.exec("ALTER TABLE production ADD COLUMN fill_finish TEXT DEFAULT ''"); 
 try { db.exec("ALTER TABLE production ADD COLUMN retort TEXT DEFAULT ''"); } catch (e) {}
 db.exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
 db.exec("CREATE TABLE IF NOT EXISTS live_fills(who TEXT PRIMARY KEY, basket TEXT, products TEXT, fill_start TEXT, operators INTEGER, updated TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS mixes(id TEXT PRIMARY KEY, date TEXT, recipe_id TEXT, batch TEXT, kg REAL, by TEXT, created TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS mix_items(mix_id TEXT, ing_id TEXT, batch_code TEXT, qty REAL)");
 try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN seq REAL DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN operators INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN stack_id TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN stack_complete INTEGER DEFAULT 1"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN trays INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN bag_pkg TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE production ADD COLUMN bag_qty REAL DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE packaging ADD COLUMN map_recipe TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE packaging ADD COLUMN map_pack TEXT DEFAULT ''"); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -141,10 +147,23 @@ function authUser(req) {
 }
 
 /* ---------------- computed stock ---------------- */
+function packKgOf(label) { const m = /([\d.]+)\s*(kg|g)/i.exec(label || ''); if (!m) return 0; return m[2].toLowerCase() === 'kg' ? parseFloat(m[1]) : parseFloat(m[1]) / 1000; }
+// bags consumed at FILL: find the packaging item mapped to a product+size, and adjust its live count
+function bagPkgFor(recipe_id, pack) { if (!recipe_id || !pack) return null; try { return db.prepare("SELECT id FROM packaging WHERE map_recipe=? AND map_pack=?").get(recipe_id, pack) || null; } catch (e) { return null; } }
+function bagAdjust(pkgId, delta) { if (pkgId && delta) db.prepare('UPDATE packaging SET qty=qty+? WHERE id=?').run(delta, pkgId); }
+// ingredients are consumed when a batch is COOKED into finished product (not at fill), computed from recipe % of cooked bags.
+// Historical rows (hist=1) are excluded — the imported opening stock already accounts for them.
+function ingUsedCooked() {
+  const used = {};
+  const recipes = {}; db.prepare('SELECT id, ingredients FROM recipes').all().forEach(r => { try { recipes[r.id] = JSON.parse(r.ingredients || '[]'); } catch (e) { recipes[r.id] = []; } });
+  const rows = db.prepare("SELECT recipe_id, pack, qty FROM production WHERE (hist IS NULL OR hist=0) AND cook_date IS NOT NULL AND cook_date <> ''").all();
+  rows.forEach(row => { const ings = recipes[row.recipe_id]; if (!ings || !ings.length) return; const base = ings.reduce((a, li) => a + (+li.kg || 0), 0); if (base <= 0) return; const factor = ((+row.qty || 0) * packKgOf(row.pack)) / base; ings.forEach(li => { used[li.ingId] = (used[li.ingId] || 0) + (+li.kg || 0) * factor; }); });
+  return used;
+}
 function stockSnapshot() {
   const ings = db.prepare('SELECT * FROM ingredients ORDER BY name').all();
   const st = {}; db.prepare('SELECT * FROM stock').all().forEach(s => st[s.ing_id] = s);
-  const used = {}; db.prepare('SELECT ing_id, SUM(kg) k FROM production_items GROUP BY ing_id').all().forEach(r => used[r.ing_id] = r.k);
+  const used = ingUsedCooked();
   const del = {}; db.prepare('SELECT ing_id, SUM(qty) q FROM deliveries WHERE hist IS NULL OR hist=0 GROUP BY ing_id').all().forEach(r => del[r.ing_id] = r.q);
   const adj = {}; db.prepare('SELECT ing_id, SUM(delta) d FROM adjustments GROUP BY ing_id').all().forEach(r => adj[r.ing_id] = r.d);
   return ings.map(i => {
@@ -262,6 +281,8 @@ const server = http.createServer(async (req, res) => {
           lines.forEach(l => { const id = uid('p');
             ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, l.stackId || '', (l.stackComplete == null ? 1 : (l.stackComplete ? 1 : 0)), +l.trays || 0, user.username, now());
             (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
+            // bags off stock — only when this comes from the Filling Sheet, and only if the product+size is mapped to a bag
+            if (b.fromFill) { const pk = bagPkgFor(l.recipe_id, l.pack); if (pk) { const bags = +l.qty || 0; bagAdjust(pk.id, -bags); db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(pk.id, bags, id); } }
           });
           // completeness + trays are properties of the whole stack — apply the latest fill's value to every row of that stack
           const stackState = {};
@@ -275,12 +296,16 @@ const server = http.createServer(async (req, res) => {
       if (url.startsWith('/api/production/') && m === 'PUT') {
         const id = decodeURIComponent(url.split('/').pop());
         const b = await readBody(req);
-        const ex = db.prepare('SELECT id FROM production WHERE id=?').get(id);
+        const ex = db.prepare('SELECT * FROM production WHERE id=?').get(id);
         if (!ex) return json(res, 404, { error: 'not found' });
         db.exec('BEGIN');
         try {
+          if (ex.bag_pkg) bagAdjust(ex.bag_pkg, +ex.bag_qty || 0);   // put the old bags back before re-applying
           db.prepare('UPDATE production SET date=?,recipe_id=?,product=?,pack=?,qty=?,kg=?,batch=?,basket=?,mince_date=?,cook_date=?,julian_code=?,best_before=?,filled_date=?,temp_start=?,temp_finish=?,fill_start=?,fill_finish=?,retort=?,operators=?,stack_id=?,stack_complete=?,trays=? WHERE id=?')
             .run(b.date || '', b.recipe_id || '', b.product || '', b.pack || '', +b.qty || 0, +b.kg || 0, b.batch || '', b.basket || '', b.mince || '', b.cook || '', b.julian || '', b.bestBefore || '', b.filled || '', b.tempStart || '', b.tempFinish || '', b.fillStart || '', b.fillFinish || '', b.retort || '', (b.operators == null ? 0 : +b.operators || 0), b.stackId || '', (b.stackComplete == null ? 1 : (b.stackComplete ? 1 : 0)), +b.trays || 0, id);
+          // re-apply bag deduction only if this row was a fill deduction to begin with
+          let nbp = '', nbq = 0; if (ex.bag_pkg) { const pk = bagPkgFor(b.recipe_id || '', b.pack || ''); if (pk) { nbq = +b.qty || 0; nbp = pk.id; bagAdjust(pk.id, -nbq); } }
+          db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(nbp, nbq, id);
           db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
           const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
           (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
@@ -327,7 +352,8 @@ const server = http.createServer(async (req, res) => {
             if (take >= row.qty) { upWhole.run(cd, rt, row.id); }
             else { const kgPer = row.qty ? row.kg / row.qty : 0; const nid = uid('p');
               insSplit.run(nid, row.date, row.recipe_id, row.product, row.pack, take, +(kgPer * take).toFixed(3), row.batch, row.basket, row.mince_date, cd, row.julian_code, row.best_before, row.filled_date, row.temp_start, row.temp_finish, row.fill_start, row.fill_finish, rt, row.operators, row.stack_id, row.stack_complete, row.trays, user.username, now());
-              upRemain.run(row.qty - take, +(row.kg - kgPer * take).toFixed(3), row.id); }
+              upRemain.run(row.qty - take, +(row.kg - kgPer * take).toFixed(3), row.id);
+              if (row.bag_pkg) { db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(row.bag_pkg, take, nid); db.prepare('UPDATE production SET bag_qty=? WHERE id=?').run((+row.bag_qty || 0) - take, row.id); } }
           });
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'cook write failed' }); }
@@ -335,8 +361,32 @@ const server = http.createServer(async (req, res) => {
       }
       // live "currently filling" feed — the floor reports an in-progress basket so other accounts see the countdown
       if (url === '/api/live-fill' && m === 'POST') { const b = await readBody(req); db.prepare("INSERT INTO live_fills(who,basket,products,fill_start,operators,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(who) DO UPDATE SET basket=excluded.basket,products=excluded.products,fill_start=excluded.fill_start,operators=excluded.operators,updated=excluded.updated").run(user.username, b.basket || '', b.products || '', b.fillStart || '', +b.operators || 0, now()); return json(res, 200, { ok: true }); }
-      if (url === '/api/live-fill' && m === 'DELETE') { db.prepare('DELETE FROM live_fills WHERE who=?').run(user.username); return json(res, 200, { ok: true }); }
+      if (url === '/api/live-fill' && m === 'DELETE') { const q = new URLSearchParams((req.url.split('?')[1] || '')); const who = q.get('who'); if (who && user.role === 'admin') db.prepare('DELETE FROM live_fills WHERE who=?').run(who); else db.prepare('DELETE FROM live_fills WHERE who=?').run(user.username); return json(res, 200, { ok: true }); }
       if (url === '/api/live-fills' && m === 'GET') { const cutoff = new Date(Date.now() - 4 * 3600 * 1000).toISOString(); return json(res, 200, db.prepare('SELECT who, basket, products, fill_start, operators, updated FROM live_fills WHERE updated >= ? ORDER BY fill_start').all(cutoff)); }
+
+      // ---- ingredient batch traceability (Pick & Mix) ----
+      // batch lots for an ingredient, from deliveries, with remaining after mix consumption + FIFO suggestion
+      if (url === '/api/ingredient-batches' && m === 'GET') {
+        const q = new URLSearchParams((req.url.split('?')[1] || '')); const ing = q.get('ing_id') || '';
+        const del = db.prepare("SELECT batch, MIN(date) first_date, MAX(date) last_date, SUM(qty) delivered, GROUP_CONCAT(DISTINCT supplier) supplier FROM deliveries WHERE ing_id=? AND batch IS NOT NULL AND batch<>'' GROUP BY batch").all(ing);
+        const used = {}; db.prepare("SELECT batch_code, SUM(qty) u FROM mix_items WHERE ing_id=? GROUP BY batch_code").all(ing).forEach(r => { used[r.batch_code] = r.u || 0; });
+        const lots = del.map(d => ({ batch: d.batch, first_date: d.first_date, last_date: d.last_date, supplier: d.supplier || '', delivered: d.delivered || 0, used: used[d.batch] || 0, remaining: (d.delivered || 0) - (used[d.batch] || 0) }));
+        let fifo = null; lots.slice().sort((a, b) => String(a.first_date).localeCompare(String(b.first_date))).forEach(l => { if (!fifo && l.remaining > 0.0001) fifo = l.batch; });
+        lots.sort((a, b) => String(b.last_date).localeCompare(String(a.last_date)));
+        return json(res, 200, { ing_id: ing, fifo, lots });
+      }
+      if (url === '/api/mixes' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM mixes ORDER BY date DESC, created DESC').all());
+      if (url === '/api/mixes' && m === 'POST') {
+        const b = await readBody(req); const id = uid('mx');
+        db.prepare('INSERT INTO mixes(id,date,recipe_id,batch,kg,by,created) VALUES(?,?,?,?,?,?,?)').run(id, b.date || '', b.recipe_id || '', b.batch || '', +b.kg || 0, user.username, now());
+        const ins = db.prepare('INSERT INTO mix_items(mix_id,ing_id,batch_code,qty) VALUES(?,?,?,?)');
+        (b.items || []).forEach(it => { if (it.ing_id && it.batch_code) ins.run(id, it.ing_id, it.batch_code, +it.qty || 0); });
+        return json(res, 200, { ok: true, id });
+      }
+      if (url.startsWith('/api/mixes/') && m === 'GET') { const id = decodeURIComponent(url.split('/').pop()); const mix = db.prepare('SELECT * FROM mixes WHERE id=?').get(id); if (!mix) return json(res, 404, { error: 'not found' }); mix.items = db.prepare('SELECT ing_id,batch_code,qty FROM mix_items WHERE mix_id=?').all(id); return json(res, 200, mix); }
+      if (url.startsWith('/api/mixes/') && m === 'DELETE') { const id = decodeURIComponent(url.split('/').pop()); db.prepare('DELETE FROM mix_items WHERE mix_id=?').run(id); db.prepare('DELETE FROM mixes WHERE id=?').run(id); return json(res, 200, { ok: true }); }
+      // recall: which mixes used an ingredient batch code
+      if (url === '/api/trace/batch' && m === 'GET') { const q = new URLSearchParams((req.url.split('?')[1] || '')); const code = q.get('code') || ''; return json(res, 200, db.prepare('SELECT m.id,m.date,m.recipe_id,m.batch,m.kg,mi.ing_id,mi.qty FROM mix_items mi JOIN mixes m ON m.id=mi.mix_id WHERE mi.batch_code=? ORDER BY m.date DESC').all(code)); }
       // mark a stack complete / still-open (used when a part-full stack is topped up later)
       if (url === '/api/stack/complete' && m === 'POST') {
         const b = await readBody(req); if (!b.stack_id) return json(res, 400, { error: 'stack_id required' });
@@ -354,6 +404,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (url.startsWith('/api/production/') && m === 'DELETE') {
         const id = decodeURIComponent(url.split('/').pop());
+        const ex = db.prepare('SELECT bag_pkg,bag_qty FROM production WHERE id=?').get(id);
+        if (ex && ex.bag_pkg) bagAdjust(ex.bag_pkg, +ex.bag_qty || 0);   // return the bags
         db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
         db.prepare('DELETE FROM production WHERE id=?').run(id);
         return json(res, 200, { ok: true });
@@ -382,7 +434,7 @@ const server = http.createServer(async (req, res) => {
       const coll = {
         ingredients: { table: 'ingredients', cols: ['id', 'name', 'category', 'supplier', 'notes'] },
         suppliers: { table: 'suppliers', cols: ['id', 'name', 'approval', 'product', 'activity', 'address', 'postcode'] },
-        packaging: { table: 'packaging', cols: ['id', 'name', 'type', 'qty', 'reorder'] }
+        packaging: { table: 'packaging', cols: ['id', 'name', 'type', 'qty', 'reorder', 'map_recipe', 'map_pack'] }
       };
       for (const key in coll) {
         const c = coll[key];
