@@ -58,4 +58,4 @@ function buildXlsx(sheets) {
   return zip(files);
 }
 
-module.exports = { buildXlsx };
+module.exports = { buildXlsx, zip };

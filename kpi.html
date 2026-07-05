@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wilson's Pet Food — Operations KPI Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+const KPI_QS=new URLSearchParams(location.search);
+const KPI_TOKEN=KPI_QS.get('token')||'';
+const KPI_SHARED=!!KPI_TOKEN;
+const KPI_DISPLAY=KPI_QS.has('display');
+const KPI_MINI=KPI_QS.has('mini');
+if(KPI_MINI)document.documentElement.classList.add('mini');
+const KPI_EMBED=KPI_QS.has('embed')||KPI_DISPLAY;
+if(KPI_EMBED)document.documentElement.classList.add('embed');
+if(KPI_DISPLAY)document.documentElement.classList.add('display');
+let KPI_CAPS={settings:true,input:true};
+</script>
+<script src="/assets/chart.umd.min.js"></script>
+<script src="/assets/xlsx.full.min.js"></script>
+<style>
+
+  :root{
+    --bg:#0f1419; --panel:#1a2128; --panel2:#222b34; --border:#2d3742;
+    --text:#e7eef5; --muted:#8a99a8; --accent:#f37d89; --accent2:#fbbac1;
+    --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --grey:#64748b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.4}
+  header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;background:linear-gradient(180deg,#1a2128 0%,#0f1419 100%)}
+  h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em}
+  h1 .sub{color:var(--muted);font-weight:400;font-size:14px;margin-left:8px}
+
+  .brand{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .brand-logo{height:44px;width:auto;display:block}
+  .brand .sub{color:var(--muted);font-size:14px;font-weight:400;letter-spacing:.01em;border-left:1px solid var(--border);padding-left:14px;line-height:1.2}
+  .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .toggle{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:3px}
+  .toggle button{background:transparent;border:0;color:var(--muted);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+  .toggle button.active{background:var(--accent);color:white}
+  select{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;cursor:pointer}
+  .filters{padding:14px 28px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;background:var(--panel)}
+  .chip{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:999px;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s}
+  .chip:hover{color:var(--text)}
+  .chip.active{background:var(--accent);color:white;border-color:var(--accent)}
+  main{padding:24px 28px}
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px}
+  .summary .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .summary .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .summary .val{font-size:22px;font-weight:600;margin-top:4px}
+  .summary .sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;position:relative;overflow:hidden}
+  .kpi:hover{border-color:#3a4856;transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.25)}
+  .kpi .strip{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grey)}
+  .kpi.green .strip{background:var(--green)}
+  .kpi.amber .strip{background:var(--amber)}
+  .kpi.red .strip{background:var(--red)}
+  .kpi .group{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .kpi .badge{font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(78,161,255,.15);color:var(--accent2);text-transform:none;letter-spacing:0;font-weight:600}
+  .kpi .name{font-size:14px;font-weight:600;margin-top:4px;margin-bottom:10px}
+  .kpi .row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .kpi .actual{font-size:26px;font-weight:700;letter-spacing:-0.01em}
+  .kpi .actual.pos{color:var(--red)}
+  .kpi .actual.neg{color:var(--green)}
+  .kpi .target{font-size:12px;color:var(--muted)}
+  .kpi .delta{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;margin-top:6px}
+  .kpi .delta.green{background:rgba(34,197,94,.15);color:var(--green)}
+  .kpi .delta.amber{background:rgba(245,158,11,.15);color:var(--amber)}
+  .kpi .delta.red{background:rgba(239,68,68,.15);color:var(--red)}
+  .kpi .delta.grey{background:rgba(100,116,139,.15);color:var(--grey)}
+  .kpi .note{font-size:10px;color:var(--accent2);margin-top:6px;font-style:italic}
+  .kpi canvas{margin-top:10px;height:50px!important;width:100%!important;display:block}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal.open{display:flex}
+  .modal-body{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:900px;width:100%;max-height:90vh;overflow:auto}
+  .modal-body h2{margin:0 0 4px 0;font-size:18px}
+  .modal-body .desc{color:var(--muted);font-size:13px;margin-bottom:16px}
+  .modal-body canvas{width:100%!important;height:380px!important}
+  .modal-close{float:right;background:transparent;border:0;color:var(--muted);font-size:24px;cursor:pointer;line-height:1;margin-top:-4px}
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+  footer{padding:18px 28px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+
+
+  .tabs{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:3px}
+  .tabs button{background:transparent;border:0;color:var(--muted);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+  .tabs button.active{background:var(--accent);color:#fff}
+  .btn{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-size:13px;cursor:pointer;font-weight:500}
+  .btn:hover{border-color:#3a4856}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .status{font-size:12px;color:var(--muted)}
+  #settingsView{padding:24px 28px;max-width:1000px}
+  .setblock{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:18px}
+  .setblock h3{margin:0 0 4px 0;font-size:15px}
+  .setblock p.help{margin:0 0 14px 0;color:var(--muted);font-size:12px}
+  .rate-row,.tg-row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .rate-row input,.tg-row input{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px}
+  .rate-row input[type=date]{width:150px}.rate-row input.rate{width:90px}
+  .tg-row label{flex:1;min-width:230px;font-size:13px}
+  .tg-row .uom{color:var(--muted);font-size:11px;width:46px}
+  .site-h{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2);margin:14px 0 6px}
+  .setgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px 24px}
+  .cat-h{grid-column:1/-1;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:12px 0 2px;border-top:1px solid var(--border);padding-top:10px}
+  .setbar{position:sticky;top:0;background:var(--bg);padding:8px 0 14px;display:flex;gap:10px;z-index:2}
+  .linkbtn{background:transparent;border:0;color:var(--accent);cursor:pointer;font-size:12px;padding:2px 6px}
+
+
+  .kpi .gctl{display:flex;gap:7px;align-items:center}
+  .kpi .grip{cursor:move;color:var(--muted);opacity:.45;font-size:12px;letter-spacing:-1px}
+  .kpi:hover .grip{opacity:.9}
+  .kpi .hidebtn{cursor:pointer;color:var(--muted);opacity:0;font-size:12px;font-weight:700;line-height:1}
+  .kpi:hover .hidebtn{opacity:.6}
+  .kpi .hidebtn:hover{opacity:1;color:var(--red)}
+  .kpi.dragging{opacity:.35}
+  .kpi.dragover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(243,125,137,.35)}
+  .vis-row{font-size:13px;display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
+  .vis-row input{accent-color:var(--accent);width:15px;height:15px}
+  .budget-row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .budget-row input{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px}
+  .budget-row input[type=date]{width:150px}.budget-row input.budget{width:110px}
+</style>
+<style id="wilsonsTheme">
+@font-face{font-family:'Bobby Jones';src:url('/assets/BobbyJones-Regular.otf') format('opentype');font-weight:400;font-display:swap}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Rg.ttf') format('truetype');font-weight:400;font-display:swap}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Md.ttf') format('truetype');font-weight:500;font-display:swap}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Bd.ttf') format('truetype');font-weight:700;font-display:swap}
+:root{
+  --bg:#f7f4ec; --panel:#ffffff; --panel2:#f1eee4; --border:#e2ddcd;
+  --text:#143644; --muted:#7a8a94; --accent:#f37d89; --accent2:#e2606c;
+  --green:#2e8b6f; --amber:#e0a13f; --red:#c0563b; --grey:#8a99a8;
+}
+html,body{font-family:'Effra',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{background:transparent;border-bottom:1px solid var(--border);padding:16px 26px}
+.brand-logo{display:none}
+.brand .sub{border-left:0;padding-left:0;font-family:'Bobby Jones','Effra',sans-serif;font-size:20px;color:var(--text);text-transform:uppercase;letter-spacing:.03em}
+.tabs,.toggle{background:#fff;border:1px solid var(--border);border-radius:20px}
+.tabs button,.toggle button{font-family:'Bobby Jones','Effra',sans-serif;text-transform:uppercase;font-size:12px;letter-spacing:.04em;border-radius:16px;color:var(--muted)}
+.tabs button.active,.toggle button.active{background:var(--accent);color:var(--text)}
+.chip{background:#fff;border-color:var(--border)}
+.chip.active{background:var(--accent);color:var(--text);border-color:var(--accent);font-weight:700}
+.filters{background:transparent;border-bottom:0;padding-top:12px}
+select{background:#fff;border-color:var(--border);border-radius:8px;color:var(--text)}
+.btn{background:#fff;border-color:var(--border);border-radius:10px;color:var(--text)}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--text);font-weight:700}
+.summary .card{border-radius:16px;border-color:#eee9db;box-shadow:0 1px 4px rgba(20,54,68,.08);border:0}
+.summary .val{font-family:'Bobby Jones','Effra',sans-serif;font-weight:400;font-size:24px}
+.kpi{border-radius:16px;border:0;box-shadow:0 1px 4px rgba(20,54,68,.08)}
+.kpi:hover{border:0;box-shadow:0 6px 18px rgba(20,54,68,.14)}
+.kpi .name{font-size:14px}
+.kpi .actual{font-family:'Bobby Jones','Effra',sans-serif;font-weight:400;font-size:24px}
+.kpi .delta.green{background:rgba(46,139,111,.12)}
+.kpi .delta.amber{background:rgba(224,161,63,.14)}
+.kpi .delta.red{background:rgba(192,86,59,.12)}
+.kpi .badge{background:rgba(243,125,137,.16);color:var(--accent2)}
+.modal{background:rgba(20,54,68,.5)}
+.modal-body{border-radius:16px;border:0;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-body h2{font-family:'Bobby Jones','Effra',sans-serif;font-weight:400;text-transform:uppercase}
+.setblock{border-radius:16px;border-color:#eee9db;box-shadow:0 1px 4px rgba(20,54,68,.08);border:0}
+.setblock h3{font-family:'Bobby Jones','Effra',sans-serif;font-weight:400;text-transform:uppercase;font-size:14px}
+input[type=number],input[type=date],input[type=text]{background:#fff;color:var(--text);border:1px solid var(--border);border-radius:8px}
+footer{border-top:1px solid var(--border)}
+/* embedded in Wilsons HQ: the app supplies the page title */
+html.embed header{padding:10px 4px 8px}
+html.embed .brand{display:none}
+html.embed main{padding:16px 4px}
+html.embed .filters{padding-left:4px;padding-right:4px}
+html.embed #settingsView{padding:16px 4px}
+html.embed footer{display:none}
+/* mini mode: a condensed strip of chosen KPI cards for the home screen */
+html.mini body{background:transparent}
+html.mini header,html.mini .filters,html.mini #summary,html.mini #grid,html.mini footer,html.mini #settingsView,html.mini .empty,html.mini .modal{display:none!important}
+html.mini main{padding:0}
+#miniStrip{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:2px}
+.minicard{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(20,54,68,.08);padding:10px 14px;cursor:pointer;border-top:3px solid var(--grey)}
+.minicard:hover{box-shadow:0 4px 12px rgba(20,54,68,.14)}
+.minicard.green{border-top-color:var(--green)}
+.minicard.amber{border-top-color:var(--amber)}
+.minicard.red{border-top-color:var(--red)}
+.minicard .mn{font-size:10.5px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.minicard .mv{font-family:'Bobby Jones','Effra',sans-serif;font-size:20px;color:var(--text);margin-top:2px;line-height:1.1}
+.minicard .mv.pos{color:var(--red)} .minicard .mv.neg{color:var(--green)}
+.minicard .mt{font-size:10.5px;color:var(--muted);margin-top:2px}
+/* display mode: wall screen — dashboard only, nothing clickable needed */
+html.display .tabs,html.display #uploadBtn,html.display #fullscreenBtn,html.display footer{display:none!important}
+html.display header{padding:14px 22px}
+html.display .brand{display:flex}
+html.display .brand .sub{font-size:22px}
+html.display main{padding:18px 22px}
+#displayOverlay{position:fixed;inset:0;background:rgba(20,54,68,.85);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#fff;font-family:'Effra',sans-serif}
+#displayOverlay button{background:var(--accent);color:#143644;border:0;border-radius:24px;padding:16px 34px;font-size:18px;font-weight:700;cursor:pointer;font-family:'Bobby Jones','Effra',sans-serif;text-transform:uppercase;letter-spacing:.04em}
+#displayOverlay p{margin:0;color:#c8d2d8;font-size:14px}
+.syncnote{font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:16px;background:#e7f2ec;color:#2e8b6f;white-space:nowrap}
+.syncnote.off{background:#f7dcd9;color:#b4231f}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg class="brand-logo" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 438.98 205.97">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #f37d89;
+        stroke-width: 0px;
+      }
+    </style>
+  </defs>
+  <g>
+    <path class="cls-1" d="M292.22,65.37c.13-1.5.35-2.94.35-4.38,0-3.74-.74-7.32-3.06-10.36-1.55-2.03-3.71-2.46-5.73-.93-1.7,1.29-3.34,2.84-4.5,4.61-3.02,4.58-4.31,9.57-1.81,14.83,1.33,2.8,3.73,4.52,6.88,4.56,3.24.04,5.37-1.91,6.67-4.73.53-1.15.82-2.41,1.2-3.59Z"/>
+    <path class="cls-1" d="M298.99,68.51c-.12.6-.27,1.2-.34,1.81-.53,4.62,1.47,9.12,6.29,9.51,2.6.21,4.81-.67,6.66-2.47,4.47-4.36,5.12-13.65,1.37-19.44-1.82-2.82-4.03-3.33-6.76-1.39-4.13,2.93-6.21,7.15-7.21,11.98Z"/>
+    <path class="cls-1" d="M269.8,72.99c.79-4.74-.12-9.18-2.67-13.24-2.02-3.21-4.97-3.53-7.68-.89-4.55,4.42-6.25,10-5.77,16.12.48,6.21,6.58,8.82,11.69,5.27,2.53-1.76,3.74-4.33,4.43-7.26Z"/>
+    <path class="cls-1" d="M330.53,89.41c.6-3.64.35-7.09-.97-10.43-1.42-3.58-4.12-4.48-7.3-2.36-5.21,3.47-7.87,8.48-8.52,14.61-.32,3.02.64,5.68,3.37,7.08,2.76,1.41,5.67,1.3,8.35-.65,2.86-2.1,4.3-5.01,5.07-8.24Z"/>
+  </g>
+  <g>
+    <path class="cls-1" d="M82.21,205.97c-12.67-.38-21.78-11.91-28.01-33.38-7.56,15.85-18.45,19.69-32.23,12.22C-10.26,165.61,1.52,72.68,4.86,49.7c1.56-9.24,29.12-19.88,27.56-7.61-4.67,32.13-9.56,75.65,0,107.62.44,1.75.67,1.53,1.11.11,3.34-14.86,6.45-28.8,10.67-42.98,2.44-8.69,8.45-14.08,15.56-14.16,12.67-.14,12.67,14.02,14.45,24.56,3.33,20.84,6.45,37.4,10.67,53.46,1.56,4.41,2.89,2.1,3.78-.99,13.34-47.12,10-102.7-9.11-155.73-3.78-8.6,23.78-20.8,27.34-9.26,10.67,29.65,22,74.51,16.45,122.9-3.78,30.33-9.78,78.66-41.12,78.36Z"/>
+    <path class="cls-1" d="M137.78,85.19c.89-8.42,24.45-12.5,23.56-2.45-2.89,29.79-4,60.02,2.22,89.06,2,8.57-21.78,17.55-23.56,8.8-6.45-31-5.33-63.48-2.22-95.41ZM137.78,58.96c.44-4.27.67-8.54,1.11-12.8.44-5.29,9.56-7.18,13.56-7.58,3.78.05,10.67,1.15,10,6.96-.44,4.13-.44,8.29-.89,12.43-.44,5.1-9.34,7.12-13.78,7.44-3.78.33-10.45-.67-10-6.46Z"/>
+    <path class="cls-1" d="M197.57,35.27c-1.78,41.69-5.78,84.29,1.56,125.31,2,11.41-21.56,20.89-23.56,9.3-7.56-44.36-3.56-90.29-2-135.45.44-11.7,24.45-12.06,24.01.84Z"/>
+    <path class="cls-1" d="M217.35,176.97c28.9-24.21-14.89-39.12-12.89-65.87,1.33-15.55,4.44-36.2,20.67-43.84,8.89-4.09,28.67,2.56,15.12,8.93-10,4.77-11.78,23.41-12,32.59-.22,13.35,7.33,17.95,15.78,27.17,15.11,15.88,6.22,31.46-11.56,46.92-8.22,7.25-27.56,4.99-15.11-5.9Z"/>
+    <path class="cls-1" d="M363.17,134.99c.35-7.95,1.57-16.64,1.92-25.2-5.77,15.63-8.74,32.24-19.24,45.84-2.97,3.91-14.51,4.28-17.84,1.92-5.25-3.6-8.92-34.98-4.55-50.86,1.22-4.45,19.76-6.63,18.54-1.94-2.27,8.07-2.97,17.17-1.92,26.11,2.97-8.53,5.25-17.46,8.57-25.53,3.85-9.84,8.75-24.44,24.48-23.75,13.64.66,10.14,19.48,9.79,27.28-.17,7.2-6.64,40.48,2.45,44.59,8.22,3.91-8.74,9.43-14.86,6.92-9.44-4.02-7.34-18.43-7.34-25.39Z"/>
+    <path class="cls-1" d="M404.61,169.14c28.89-15.3-14.89-39.04-12.89-59.26,1.33-13.27,4.44-30.43,20.67-39.98,8.89-5.4,28.67-2.55,15.12,6.32-10,6.27-11.78,23.56-12,32.21-.22,12.52,7.33,17.24,15.78,28.15,15.11,19.67,6.22,35.74-11.56,43.05-8.23,3.34-27.56-4.63-15.11-10.49Z"/>
+    <path class="cls-1" d="M288.28,146.1c-26.14,5.93-35.91-8.48-35.31-22.66.65-10.38,1.67-28.63,13.48-35.72,4.58-2.71,16.63-1.45,20.4,1.39,15.39-.32,29.09,4.63,27.91,17.94-1.35,12.8-2.02,34.03-26.48,39.05ZM290.73,105.88c.36-5.59-.88-8.8-8.68-5.51-1.3,3.76-2.47,8.4-3.16,10.71-1.62,6.83-2.94,15.03-.08,22.14.71,1.84,3.95,1.06,4.53-.14,4.74-8.53,6.85-17.76,7.39-27.2Z"/>
+  </g>
+  <g>
+    <path class="cls-1" d="M258.65,176.73c0-.4.02-.8.02-1.21,0-1.33-.02-2.67-.02-4,0-.24.02-.47.07-.69.07-.31.26-.57.52-.73.21-.12.45-.12.69-.17.9-.07,1.78-.09,2.67-.09h3.62c.17,0,.33.02.47.09.38.19.59.5.59.9,0,.47-.02.95-.02,1.42-.02.07,0,.14-.02.24-.05.14-.07.28-.14.4-.07.21-.26.28-.47.31-.17,0-.35.02-.52,0-.71-.02-1.42.02-2.13.07-.28.02-.54,0-.83.02-.17,0-.36,0-.52.02s-.26.1-.31.24c-.09.19-.14.38-.14.59.02.59.02,1.18.02,1.78,0,.17.09.28.19.43.07.07.14.12.24.12.35-.02.69-.02,1.02-.05.07,0,.14-.02.21-.02.64.02,1.28.02,1.92.05.36,0,.55.19.55.54.02.5.02,1.02.02,1.54,0,.07,0,.12-.02.19-.02.31-.21.5-.55.54-.4.07-.8.07-1.21.05-.62-.02-1.25,0-1.87,0-.21,0-.35.09-.47.26-.12.17-.19.33-.19.54-.02.52-.02,1.04-.02,1.56,0,1.06.02,2.13.02,3.2,0,.38,0,.78-.07,1.18-.02.09-.05.19-.07.26-.07.24-.24.35-.47.38-.35,0-.69,0-1.04-.02-.33,0-.66-.02-.99-.02-.21,0-.35-.09-.47-.28-.17-.21-.24-.47-.24-.76v-.95c0-.38-.02-.76-.02-1.14v-6.79Z"/>
+    <path class="cls-1" d="M269.12,175.36c.02-.99.02-2.01.02-3.01.02-.17.02-.31.05-.45.07-.36.12-.71.19-1.07.14-.47.45-.73.92-.78.43-.02.85-.07,1.28-.09h1.25c.64-.02,1.3-.02,1.97-.02.26-.02.52,0,.78,0,.43.02.88.02,1.3.05.09,0,.19,0,.26.02.14,0,.26.02.38.02.4,0,.71.19.85.54.05.17.07.35.07.52.02.47.02.92.05,1.37,0,.12-.02.21,0,.31.02.17-.05.31-.12.45-.09.19-.28.21-.45.24-.38.02-.73.05-1.11.05-.85.02-1.73.05-2.58.07-.31,0-.59.02-.9.07-.19.02-.38.12-.45.33-.19.45-.24.95-.14,1.42.07.26.21.4.45.5.21.07.45.09.66.09h2.04c.24,0,.45.05.69.14.09.05.19.12.21.24.19.52.26,1.07.09,1.61-.07.19-.19.38-.31.54-.09.14-.24.19-.4.19-.45.05-.9.12-1.35.17-.47.02-.95.09-1.4.09-.28,0-.59.26-.64.54-.02.21-.05.43-.05.66-.02.69-.02,1.4-.02,2.11,0,.19,0,.38.02.57s.12.36.21.5c.09.12.26.14.4.14.45,0,.92,0,1.4-.02.45,0,.92-.02,1.37-.05.33,0,.64-.02.95-.02.28,0,.57.02.83.14.09.05.19.09.26.14.31.24.47.54.47.95,0,.26.02.52.05.76v.64c-.02.24-.19.4-.35.54-.05.05-.17.07-.24.07-.78.02-1.56.02-2.34.05-.4,0-.8.05-1.21.05-.64.02-1.25.02-1.89.05-.45.02-.9.07-1.35.09-.43.02-.88.02-1.3-.07-.24-.02-.45-.12-.64-.24-.07-.07-.14-.12-.17-.19-.17-.28-.24-.54-.26-.85-.05-.62-.02-1.23-.02-1.85.05-1.23.09-2.46.12-3.69.02-.45,0-.9,0-1.16.05-1.28.07-2.37.09-3.48Z"/>
+    <path class="cls-1" d="M281,175.36c.02-.99.02-2.01.02-3.01.02-.17.02-.31.05-.45.07-.36.12-.71.19-1.07.14-.47.45-.73.92-.78.43-.02.85-.07,1.28-.09h1.25c.64-.02,1.3-.02,1.97-.02.26-.02.52,0,.78,0,.43.02.88.02,1.3.05.09,0,.19,0,.26.02.14,0,.26.02.38.02.4,0,.71.19.85.54.05.17.07.35.07.52.02.47.02.92.05,1.37,0,.12-.02.21,0,.31.02.17-.05.31-.12.45-.09.19-.28.21-.45.24-.38.02-.73.05-1.11.05-.85.02-1.73.05-2.58.07-.31,0-.59.02-.9.07-.19.02-.38.12-.45.33-.19.45-.24.95-.14,1.42.07.26.21.4.45.5.21.07.45.09.66.09h2.04c.24,0,.45.05.69.14.09.05.19.12.21.24.19.52.26,1.07.09,1.61-.07.19-.19.38-.31.54-.09.14-.24.19-.4.19-.45.05-.9.12-1.35.17-.47.02-.95.09-1.4.09-.28,0-.59.26-.64.54-.02.21-.05.43-.05.66-.02.69-.02,1.4-.02,2.11,0,.19,0,.38.02.57s.12.36.21.5c.09.12.26.14.4.14.45,0,.92,0,1.4-.02.45,0,.92-.02,1.37-.05.33,0,.64-.02.95-.02.28,0,.57.02.83.14.09.05.19.09.26.14.31.24.47.54.47.95,0,.26.02.52.05.76v.64c-.02.24-.19.4-.35.54-.05.05-.17.07-.24.07-.78.02-1.56.02-2.34.05-.4,0-.8.05-1.21.05-.64.02-1.25.02-1.89.05-.45.02-.9.07-1.35.09-.43.02-.88.02-1.3-.07-.24-.02-.45-.12-.64-.24-.07-.07-.14-.12-.17-.19-.17-.28-.24-.54-.26-.85-.05-.62-.02-1.23-.02-1.85.05-1.23.09-2.46.12-3.69.02-.45,0-.9,0-1.16.05-1.28.07-2.37.09-3.48Z"/>
+    <path class="cls-1" d="M295.42,186.65c-.24,0-.47-.02-.71-.02-.24-.02-.5-.05-.73-.05-.26,0-.45-.09-.66-.24-.24-.17-.38-.4-.4-.71-.05-.62-.07-1.25-.12-1.89s-.05-1.28-.05-1.94c-.02-.78-.02-1.56-.05-2.37-.05-1.51-.02-3.03,0-4.54.02-.33.05-.66.07-.99,0-.45-.02-.9-.02-1.35,0-.28,0-.57.05-.83.02-.28.07-.54.12-.8.05-.14.12-.31.17-.45.14-.28.38-.4.64-.47.38-.09.76-.09,1.14-.07h.92c.64,0,1.25-.02,1.87-.02h.38c.4.05.83.09,1.25.09.31.02.59.14.88.28.45.26.83.59,1.25.85.33.19.62.45.83.78.35.45.66.9.9,1.4.21.45.33.92.38,1.4.02.45.12.88.17,1.3.02.17.05.33.05.5.05.5.09.99.09,1.49.02.45,0,.88-.02,1.33-.05.78-.24,1.54-.4,2.32-.12.45-.28.9-.45,1.35-.19.54-.45,1.04-.85,1.47-.14.17-.26.36-.4.5-.57.54-1.21.99-1.94,1.3-.09.05-.19.12-.28.14-.14.05-.26.07-.4.09-.17.05-.35.05-.55.09-.33.07-.69.07-1.04.07h-2.06ZM300.18,178.58c.02-.57-.07-1.14-.21-1.7-.12-.52-.28-1.04-.45-1.56-.14-.43-.4-.78-.8-1.02-.09-.07-.21-.14-.31-.24-.14-.14-.33-.21-.52-.26-.28-.07-.57-.05-.88-.02-.21,0-.38.12-.47.31-.12.21-.19.45-.19.71-.02.36-.02.71-.02,1.04,0,.47.05.95.05,1.42,0,.92-.02,1.87-.02,2.79v1.37c0,.43.07.8.21,1.18.09.28.31.4.62.38.28-.05.59-.07.88-.17.85-.21,1.47-.76,1.78-1.59.12-.33.21-.69.28-1.02.05-.14.09-.28.09-.45v-.83c-.02-.12-.05-.24-.02-.36Z"/>
+    <path class="cls-1" d="M312.32,177.99c.02-.59.07-1.21.09-1.8.02-.71,0-1.42,0-2.15v-.31c0-.09-.02-.19-.05-.26-.07-.19-.17-.26-.35-.26-.47,0-.95.02-1.4,0-.24,0-.5-.02-.69-.21-.17-.14-.26-.35-.26-.57,0-.59.09-1.18.33-1.75.14-.31.35-.52.71-.52h1.4c.35.02.69.07,1.02.07.9,0,1.8.02,2.7.02.47,0,.92-.05,1.37-.07.26,0,.52.02.76.14.14.07.24.19.31.33.07.21.12.43.09.64-.02.38-.07.78-.05,1.18,0,.26-.26.54-.47.59-.19.05-.38.09-.59.09-.45.02-.9.02-1.35.05-.19,0-.33.14-.38.36-.02.26-.07.52-.07.76-.02,1.21-.02,2.39-.07,3.57,0,.54-.05,1.09-.07,1.66-.02.5-.02,1.02-.05,1.51,0,1.06,0,2.13-.02,3.2,0,.35,0,.71-.05,1.04-.02.21-.07.4-.12.59-.05.14-.09.28-.14.43-.05.21-.19.35-.38.43-.14.05-.31.09-.47.12-.28.05-.57.09-.88.02-.43-.07-.71-.31-.83-.71-.05-.19-.07-.38-.07-.57-.02-1.51-.02-3.03-.02-4.54h-.02c.02-1.02.02-2.04.07-3.08Z"/>
+    <path class="cls-1" d="M330.22,183.12c0,.88-.02,1.75-.05,2.63,0,.26-.09.5-.19.73-.02.09-.09.17-.19.19-.66.09-1.3.17-1.96.05-.14-.02-.26-.07-.33-.19v-.02c-.28-.21-.31-.54-.28-.85v-5.8c.02-.12.02-.24.02-.35,0-.24-.07-.33-.26-.4-.12-.02-.24-.05-.33-.05-.45.02-.9.05-1.37.05-.35.02-.73.05-1.11.09-.12.02-.26,0-.4.02-.19,0-.31.12-.35.28-.05.12-.07.24-.07.38-.02.62-.02,1.23-.05,1.85,0,1.25-.02,2.49-.02,3.72,0,.33-.02.66-.14.97-.09.26-.21.35-.47.35-.4,0-.83.02-1.23.02-.19,0-.38,0-.57-.02-.45-.07-.71-.43-.71-.85.02-.88.02-1.75.02-2.6v-1.87c.02-.57.05-1.14.05-1.7.02-.78.05-1.56.05-2.37.02-.69.05-1.4.05-2.08,0-.38-.05-.76-.05-1.14-.02-.64-.05-1.28-.02-1.89,0-.47.07-.95.14-1.42.02-.14.09-.31.14-.45.14-.26.38-.4.69-.4.47-.02.95,0,1.42-.02.24,0,.4.14.55.31.07.05.09.14.09.21.02.73.07,1.47.07,2.2v2.79c-.02.19.05.36.14.52.05.09.12.14.24.14.26,0,.52.02.78.02.45.02.88-.02,1.32-.07.26-.02.55-.02.81-.02h.17c.26-.02.35-.09.4-.33.05-.19.07-.36.07-.54,0-1.44.02-2.89.02-4.33,0-.28.12-.52.33-.71.14-.17.35-.21.54-.21.33,0,.66,0,.99.02.21,0,.4.02.59.05.14.02.24.09.28.24.05.19.09.38.12.57.02.36,0,.73,0,1.09.02.78,0,1.54.05,2.32.05,1.28,0,2.58,0,3.88.02.71,0,1.42,0,2.15,0,.95.02,1.92.02,2.86Z"/>
+    <path class="cls-1" d="M332.49,175.36c.02-.99.02-2.01.02-3.01.02-.17.02-.31.05-.45.07-.36.12-.71.19-1.07.14-.47.45-.73.92-.78.43-.02.85-.07,1.28-.09h1.25c.64-.02,1.3-.02,1.97-.02.26-.02.52,0,.78,0,.43.02.88.02,1.3.05.09,0,.19,0,.26.02.14,0,.26.02.38.02.4,0,.71.19.85.54.05.17.07.35.07.52.02.47.02.92.05,1.37,0,.12-.02.21,0,.31.02.17-.05.31-.12.45-.09.19-.28.21-.45.24-.38.02-.73.05-1.11.05-.85.02-1.73.05-2.58.07-.31,0-.59.02-.9.07-.19.02-.38.12-.45.33-.19.45-.24.95-.14,1.42.07.26.21.4.45.5.21.07.45.09.66.09h2.04c.24,0,.45.05.69.14.09.05.19.12.21.24.19.52.26,1.07.09,1.61-.07.19-.19.38-.31.54-.09.14-.24.19-.4.19-.45.05-.9.12-1.35.17-.47.02-.95.09-1.4.09-.28,0-.59.26-.64.54-.02.21-.05.43-.05.66-.02.69-.02,1.4-.02,2.11,0,.19,0,.38.02.57s.12.36.21.5c.09.12.26.14.4.14.45,0,.92,0,1.4-.02.45,0,.92-.02,1.37-.05.33,0,.64-.02.95-.02.28,0,.57.02.83.14.09.05.19.09.26.14.31.24.47.54.47.95,0,.26.02.52.05.76v.64c-.02.24-.19.4-.35.54-.05.05-.17.07-.24.07-.78.02-1.56.02-2.34.05-.4,0-.8.05-1.21.05-.64.02-1.25.02-1.89.05-.45.02-.9.07-1.35.09-.43.02-.88.02-1.3-.07-.24-.02-.45-.12-.64-.24-.07-.07-.14-.12-.17-.19-.17-.28-.24-.54-.26-.85-.05-.62-.02-1.23-.02-1.85.05-1.23.09-2.46.12-3.69.02-.45,0-.9,0-1.16.05-1.28.07-2.37.09-3.48Z"/>
+    <path class="cls-1" d="M351.64,186.65c-.24,0-.47-.02-.71-.02-.24-.02-.5-.05-.73-.05-.26,0-.45-.09-.66-.24-.24-.17-.38-.4-.4-.71-.05-.62-.07-1.25-.12-1.89s-.05-1.28-.05-1.94c-.02-.78-.02-1.56-.05-2.37-.05-1.51-.02-3.03,0-4.54.02-.33.05-.66.07-.99,0-.45-.02-.9-.02-1.35,0-.28,0-.57.05-.83.02-.28.07-.54.12-.8.05-.14.12-.31.17-.45.14-.28.38-.4.64-.47.38-.09.76-.09,1.14-.07h.92c.64,0,1.25-.02,1.87-.02h.38c.4.05.83.09,1.25.09.31.02.59.14.88.28.45.26.83.59,1.25.85.33.19.62.45.83.78.35.45.66.9.9,1.4.21.45.33.92.38,1.4.02.45.12.88.17,1.3.02.17.05.33.05.5.05.5.09.99.09,1.49.02.45,0,.88-.02,1.33-.05.78-.24,1.54-.4,2.32-.12.45-.28.9-.45,1.35-.19.54-.45,1.04-.85,1.47-.14.17-.26.36-.4.5-.57.54-1.21.99-1.94,1.3-.09.05-.19.12-.28.14-.14.05-.26.07-.4.09-.17.05-.35.05-.55.09-.33.07-.69.07-1.04.07h-2.06ZM356.4,178.58c.02-.57-.07-1.14-.21-1.7-.12-.52-.28-1.04-.45-1.56-.14-.43-.4-.78-.8-1.02-.09-.07-.21-.14-.31-.24-.14-.14-.33-.21-.52-.26-.28-.07-.57-.05-.88-.02-.21,0-.38.12-.47.31-.12.21-.19.45-.19.71-.02.36-.02.71-.02,1.04,0,.47.05.95.05,1.42,0,.92-.02,1.87-.02,2.79v1.37c0,.43.07.8.21,1.18.09.28.31.4.62.38.28-.05.59-.07.88-.17.85-.21,1.47-.76,1.78-1.59.12-.33.21-.69.28-1.02.05-.14.09-.28.09-.45v-.83c-.02-.12-.05-.24-.02-.36Z"/>
+    <path class="cls-1" d="M361.77,177.28c.05-.36.05-.73.09-1.09.09-.88.26-1.73.54-2.56.19-.54.43-1.07.73-1.54.38-.59.9-1.04,1.49-1.44.28-.21.62-.38.95-.52.45-.19.92-.28,1.4-.28.45-.02.92-.05,1.4.02.28.02.59.09.9.19h.02c.4.21.83.4,1.21.64.38.26.64.59.9.92.57.73.92,1.54,1.11,2.44.19.99.43,1.99.47,3.01.02.54.02,1.11.02,1.66,0,.02,0,.05-.02.07-.12.47-.09.97-.21,1.44-.19.92-.4,1.85-.78,2.7-.09.19-.17.36-.24.54-.21.52-.52.99-.83,1.47-.26.4-.64.71-1.04.97-.09.09-.21.17-.33.24-.12.1-.26.17-.38.24-.17.07-.33.14-.5.21-.33.17-.69.19-1.04.21-.52.02-1.07,0-1.59-.09-.5-.09-.99-.17-1.44-.45-.45-.33-.9-.66-1.25-1.11-.43-.57-.78-1.18-1.04-1.82-.31-.8-.47-1.66-.52-2.51,0-.24-.07-.47-.07-.69-.05-.4-.07-.8-.09-1.18.02-.57.07-1.14.14-1.68ZM369.73,177.32c-.07-.78-.21-1.56-.45-2.32-.12-.4-.31-.8-.57-1.16l-.09-.09c-.4-.31-.83-.45-1.33-.45-.5.02-.92.24-1.25.62-.59.71-.92,1.56-1.14,2.44-.12.4-.14.81-.17,1.21-.07,1.09-.05,2.18.14,3.24.09.52.21,1.02.45,1.49.24.47.59.8,1.11.95.31.07.64.14.97.17.38.05.73-.09,1.07-.28.28-.17.47-.43.57-.76.24-.64.38-1.28.5-1.94.14-.73.17-1.49.19-2.25,0-.28.02-.57,0-.85Z"/>
+    <path class="cls-1" d="M385.71,185.75c0,.26-.09.5-.21.73-.07.14-.19.19-.36.21-.64,0-1.3.05-1.96.05-.21.02-.4-.02-.54-.21-.09-.09-.21-.07-.33-.02-.31.07-.62.19-.92.26-.4.12-.83.24-1.25.19-.57-.05-1.16-.12-1.7-.24-.12-.02-.24-.07-.33-.14-.24-.12-.5-.24-.73-.38-.17-.09-.31-.24-.43-.38-.24-.24-.43-.52-.64-.78-.1-.12-.21-.26-.33-.38-.24-.33-.43-.69-.52-1.09-.05-.14-.12-.28-.14-.43-.07-.24-.12-.47-.14-.71-.07-.35-.12-.71-.17-1.06-.07-.5-.05-.99-.05-1.49,0-.76.05-1.51.07-2.27.02-.73.12-1.47.26-2.18.14-.64.33-1.28.5-1.89.05-.26.17-.5.33-.71.12-.14.19-.31.26-.47.02-.07.07-.17.14-.24.33-.38.69-.76,1.06-1.09.05-.02.07-.07.12-.09.4-.21.76-.43,1.16-.64.57-.28,1.18-.45,1.8-.5h.47c.19,0,.38.02.59,0,.33-.02.64.05.95.12.24.05.47.12.66.26.07.05.12.07.19.07.09.05.17.07.26.12.26.14.52.28.78.43.05.02.09.05.12.09.28.36.54.69.64,1.14.12.47.17.95.21,1.42.02.38.02.76.05,1.11,0,.14-.05.28-.07.43-.02.14-.12.26-.26.31-.12.05-.24.07-.38.07-.4.05-.8.07-1.21.12-.26,0-.45-.12-.59-.31-.17-.21-.21-.45-.24-.69-.02-.21-.07-.45-.09-.66-.02-.28-.12-.5-.31-.69-.05-.02-.07-.05-.09-.07-.31-.14-.62-.24-.95-.26-.5-.02-.95.12-1.4.31-.52.24-.88.64-1.16,1.09-.28.4-.4.9-.54,1.37-.09.33-.17.69-.24,1.02,0,.09-.02.17-.02.26-.02.5-.02,1.02-.09,1.51-.09.71-.09,1.4-.07,2.11,0,.31.05.64.14.95.05.12.07.26.09.4,0,.05,0,.12.02.17.07.19.14.38.24.54.09.17.21.33.31.5.26.4.66.59,1.09.71.66.19,1.28.09,1.89-.12.24-.09.43-.26.59-.45.21-.28.26-.62.28-.95,0-.14,0-.28-.02-.43,0-.12-.02-.24-.07-.33-.07-.17-.19-.26-.38-.28-.35,0-.71-.02-1.04-.07-.12,0-.21-.02-.33-.05s-.19-.12-.19-.26c-.02-.57-.02-1.14-.02-1.7,0-.05,0-.12.02-.19.07-.38.28-.57.66-.64.12-.02.24-.02.38-.05.59-.05,1.18-.05,1.8-.05.38,0,.76-.02,1.16-.05.35,0,.66.17.95.38.19.17.28.4.28.66v3.29h.05c-.02,1.11-.05,2.2-.05,3.29Z"/>
+  </g>
+</svg>
+    <span class="sub">Operations KPI Dashboard</span>
+  </div>
+  <div class="controls">
+    <div class="tabs" id="tabs">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="settings">Settings</button>
+    </div>
+    <button class="btn primary" id="uploadBtn">⬆ Upload spreadsheet</button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+    <button class="btn" id="fullscreenBtn" title="Toggle full screen">&#9974; Full screen</button>
+    <div class="toggle" id="freqToggle">
+      <button data-freq="week">Week</button>
+      <button data-freq="month" class="active">Month</button>
+      <button data-freq="year">Year</button>
+    </div>
+    <select id="periodSelect"></select>
+  </div>
+</header>
+<div class="filters" id="filters"></div>
+<main id="dashboardView">
+  <div class="summary" id="summary"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">No KPIs to show. Use the Settings tab to switch some on.</div>
+</main>
+<div id="settingsView" style="display:none"></div>
+<div class="modal" id="modal"><div class="modal-body">
+  <button class="modal-close" id="modalClose">×</button>
+  <h2 id="modalTitle"></h2>
+  <div class="desc" id="modalDesc"></div>
+  <canvas id="modalChart"></canvas>
+</div></div>
+<footer id="footer">Data source: Wilsons KPI Input.xlsx · Fiscal year Aug 2025 – Jul 2026 · Drag cards to reorder · Click a card for full trend.</footer>
+<script>
+const KPI_META = [{"group":"Safety","name":"Accidents","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Safety","name":"Riddors","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Safety","name":"Near Miss Incidents","uom":"#","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Quality","name":"Customer Complaints","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Quality","name":"D2C Complaints","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Quality","name":"Trade Complaints","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Cost","name":"Total Labour Spend","uom":"\u00a3","agg":"sum","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Cold Press Labour \u00a3/kg","uom":"\u00a3/kg","agg":"mean","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Fresh/Cooked Labour \u00a3/kg","uom":"\u00a3/kg","agg":"mean","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Despatch Labour \u00a3/kg","uom":"\u00a3/kg","agg":"mean","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Cold Pressed Produced","uom":"kg","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Cost","name":"Fresh/Cooked Produced","uom":"kg","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Cost","name":"Total Despatched","uom":"kg","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Cost","name":"Fresh/Cooked Rejects %","uom":"%","agg":"mean","kind":"value","direction":"lower","calc":"direct"},{"group":"People","name":"Training Hours Completed","uom":"h","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"People","name":"Absenteeism Rate","uom":"%","agg":"mean","kind":"value","direction":"lower","calc":"direct"},{"group":"People","name":"Holiday Usage","uom":"%","agg":"mean","kind":"value","direction":"higher","calc":"direct"},{"group":"Delivery","name":"Orders Late >24hrs (DC2)","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Delivery","name":"Orders Late >48hrs (Trade)","uom":"#","agg":"sum","kind":"value","direction":"lower","calc":"direct"},{"group":"Trade Sales","name":"Trade Sales (Indep/Multis)","uom":"\u00a3","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Trade Sales","name":"New Customers","uom":"#","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Trade Sales","name":"Active Customer Orders","uom":"#","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Trade Sales","name":"Prospects Called","uom":"#","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Trade Sales","name":"Current Customers Called","uom":"#","agg":"sum","kind":"value","direction":"higher","calc":"direct"},{"group":"Cost","name":"Labour Spend Blair","uom":"\u00a3","agg":"sum","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Spend Ayr","uom":"\u00a3","agg":"sum","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Spend Despatch","uom":"\u00a3","agg":"sum","kind":"value","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Variance Total","uom":"\u00a3","agg":"sum","kind":"variance","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Variance Blair","uom":"\u00a3","agg":"sum","kind":"variance","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Variance Ayr","uom":"\u00a3","agg":"sum","kind":"variance","direction":"lower","calc":"computed"},{"group":"Cost","name":"Labour Variance Despatch","uom":"\u00a3","agg":"sum","kind":"variance","direction":"lower","calc":"computed"}];
+const EMBEDDED_RAW = {"dates":["2025-08-01","2025-08-02","2025-08-03","2025-08-04","2025-08-05","2025-08-06","2025-08-07","2025-08-08","2025-08-09","2025-08-10","2025-08-11","2025-08-12","2025-08-13","2025-08-14","2025-08-15","2025-08-16","2025-08-17","2025-08-18","2025-08-19","2025-08-20","2025-08-21","2025-08-22","2025-08-23","2025-08-24","2025-08-25","2025-08-26","2025-08-27","2025-08-28","2025-08-29","2025-08-30","2025-08-31","2025-09-01","2025-09-02","2025-09-03","2025-09-04","2025-09-05","2025-09-06","2025-09-07","2025-09-08","2025-09-09","2025-09-10","2025-09-11","2025-09-12","2025-09-13","2025-09-14","2025-09-15","2025-09-16","2025-09-17","2025-09-18","2025-09-19","2025-09-20","2025-09-21","2025-09-22","2025-09-23","2025-09-24","2025-09-25","2025-09-26","2025-09-27","2025-09-28","2025-09-29","2025-09-30","2025-10-01","2025-10-02","2025-10-03","2025-10-04","2025-10-05","2025-10-06","2025-10-07","2025-10-08","2025-10-09","2025-10-10","2025-10-11","2025-10-12","2025-10-13","2025-10-14","2025-10-15","2025-10-16","2025-10-17","2025-10-18","2025-10-19","2025-10-20","2025-10-21","2025-10-22","2025-10-23","2025-10-24","2025-10-25","2025-10-26","2025-10-27","2025-10-28","2025-10-29","2025-10-30","2025-10-31","2025-11-01","2025-11-02","2025-11-03","2025-11-04","2025-11-05","2025-11-06","2025-11-07","2025-11-08","2025-11-09","2025-11-10","2025-11-11","2025-11-12","2025-11-13","2025-11-14","2025-11-15","2025-11-16","2025-11-17","2025-11-18","2025-11-19","2025-11-20","2025-11-21","2025-11-22","2025-11-23","2025-11-24","2025-11-25","2025-11-26","2025-11-27","2025-11-28","2025-11-29","2025-11-30","2025-12-01","2025-12-02","2025-12-03","2025-12-04","2025-12-05","2025-12-06","2025-12-07","2025-12-08","2025-12-09","2025-12-10","2025-12-11","2025-12-12","2025-12-13","2025-12-14","2025-12-15","2025-12-16","2025-12-17","2025-12-18","2025-12-19","2025-12-20","2025-12-21","2025-12-22","2025-12-23","2025-12-24","2025-12-25","2025-12-26","2025-12-27","2025-12-28","2025-12-29","2025-12-30","2025-12-31","2026-01-01","2026-01-02","2026-01-03","2026-01-04","2026-01-05","2026-01-06","2026-01-07","2026-01-08","2026-01-09","2026-01-10","2026-01-11","2026-01-12","2026-01-13","2026-01-14","2026-01-15","2026-01-16","2026-01-17","2026-01-18","2026-01-19","2026-01-20","2026-01-21","2026-01-22","2026-01-23","2026-01-24","2026-01-25","2026-01-26","2026-01-27","2026-01-28","2026-01-29","2026-01-30","2026-01-31","2026-02-01","2026-02-02","2026-02-03","2026-02-04","2026-02-05","2026-02-06","2026-02-07","2026-02-08","2026-02-09","2026-02-10","2026-02-11","2026-02-12","2026-02-13","2026-02-14","2026-02-15","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-08","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-04","2026-04-05","2026-04-06","2026-04-07","2026-04-08","2026-04-09","2026-04-10","2026-04-11","2026-04-12","2026-04-13","2026-04-14","2026-04-15","2026-04-16","2026-04-17","2026-04-18","2026-04-19","2026-04-20","2026-04-21","2026-04-22","2026-04-23","2026-04-24","2026-04-25","2026-04-26","2026-04-27","2026-04-28","2026-04-29","2026-04-30","2026-05-01","2026-05-02","2026-05-03","2026-05-04","2026-05-05","2026-05-06","2026-05-07","2026-05-08","2026-05-09","2026-05-10","2026-05-11","2026-05-12","2026-05-13","2026-05-14","2026-05-15","2026-05-16","2026-05-17","2026-05-18","2026-05-19","2026-05-20","2026-05-21","2026-05-22","2026-05-23","2026-05-24","2026-05-25","2026-05-26","2026-05-27","2026-05-28","2026-05-29","2026-05-30","2026-05-31","2026-06-01","2026-06-02","2026-06-03","2026-06-04","2026-06-05","2026-06-06","2026-06-07","2026-06-08","2026-06-09","2026-06-10","2026-06-11","2026-06-12","2026-06-13","2026-06-14","2026-06-15","2026-06-16","2026-06-17","2026-06-18","2026-06-19","2026-06-20","2026-06-21","2026-06-22","2026-06-23","2026-06-24","2026-06-25","2026-06-26","2026-06-27","2026-06-28","2026-06-29","2026-06-30","2026-07-01","2026-07-02","2026-07-03","2026-07-04","2026-07-05","2026-07-06","2026-07-07","2026-07-08","2026-07-09","2026-07-10","2026-07-11","2026-07-12","2026-07-13","2026-07-14","2026-07-15","2026-07-16","2026-07-17","2026-07-18","2026-07-19","2026-07-20","2026-07-21","2026-07-22","2026-07-23","2026-07-24","2026-07-25","2026-07-26","2026-07-27","2026-07-28","2026-07-29","2026-07-30","2026-07-31"],"in":{"Accidents":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Riddors":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Near Miss Incidents":[0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,2,0,1,0,2,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,3,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,null,1,0,0,0,1,2,0,1,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,1,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"D2C Complaints":[8,3,0,8,8,2,4,7,1,3,11,8,11,4,5,1,1,5,0,2,1,2,0,3,3,1,4,4,2,0,0,1,1,2,1,0,0,0,2,1,2,4,5,0,0,3,1,1,4,2,0,0,10,0,2,1,2,0,0,0,1,4,1,1,0,0,1,3,1,null,0,0,0,4,2,0,0,2,0,0,5,1,2,0,1,0,0,1,3,1,3,3,0,0,3,2,1,4,3,0,0,1,3,4,1,2,0,0,2,3,1,4,2,0,0,4,3,1,4,0,0,0,6,1,2,2,6,0,0,6,6,1,3,3,0,0,2,0,1,4,1,0,0,6,2,0,0,0,0,0,3,1,3,1,3,0,0,4,6,3,2,2,0,0,6,4,8,5,4,0,0,4,3,6,8,5,0,0,9,6,6,5,2,0,0,5,8,9,4,4,0,0,21,8,4,10,1,0,0,12,10,9,5,4,2,2,3,0,2,2,1,0,0,8,2,1,2,2,0,0,2,2,3,0,0,0,0,6,4,4,3,4,0,0,4,2,4,4,7,0,0,7,3,2,4,9,2,1,2,2,3,6,4,1,2,4,4,6,3,4,0,0,1,5,2,2,3,0,1,2,2,2,5,3,0,1,2,1,1,1,2,0,0,0,0,4,7,4,0,0,7,5,1,1,1,0,0,3,1,0,5,0,0,0,0,2,2,0,0,0,0,1,0,1,2,1,0,0,1,1,2,2,1,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Trade Complaints":[2,0,1,1,2,0,1,3,0,0,0,0,1,0,0,0,0,1,0,0,1,0,0,0,0,3,1,1,1,0,0,1,0,0,1,0,0,0,1,1,1,5,0,0,0,0,1,1,1,0,0,0,2,1,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,2,0,1,2,0,0,0,1,0,0,1,0,0,0,2,2,1,0,0,0,0,1,1,1,1,4,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,0,0,0,0,0,1,2,0,2,1,0,0,4,2,2,0,0,0,0,1,0,1,0,0,0,0,1,2,0,1,1,0,0,0,0,3,2,2,0,0,2,1,3,3,0,0,0,1,0,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,0,0,0,0,1,0,0,1,0,0,0,0,2,0,0,0,0,0,0,1,0,0,1,0,0,0,0,1,1,3,0,0,1,2,1,3,1,0,0,0,1,1,1,0,0,0,0,0,1,1,1,0,0,1,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1,0,0,2,1,0,0,0,0,1,0,0,0,0,1,0,2,0,1,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Labour Hours Blair":[32,0,0,32,32,32,32,24,0,0,32,32,24,24,24,0,0,16,20,22,23,30,0,0,32,32,32,32,31,0,0,32,32,32,32,32,0,0,32,32,32,24,31,0,0,32,32,32,32,31,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,32,32,32,32,0,0,32,24,24,24,24,0,0,32,32,32,32,32,0,0,32,24,24,24,24,0,0,20,24,24,24,24,0,0,24,24,24,24,24,0,0,16,24,24,0,0,0,0,16,16,16,0,0,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,21,19,22,18,0,0,24,24,24,24,23,0,0,24,24,24,24,16,0,0,24,24,24,24,24,0,0,24,22,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,16,16,24,24,22,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,24,24,24,24,24,0,0,16,24,24,16,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Labour Hours Ayr":[48,8,0,48,49,48.5,48,48,0,0,40,40,40,40,39,0,0,47,60,58,59,47.5,0,0,36,46,39,48,48,0,0,48,51,48,52,56,0,0,48,29,43,42,39,0,0,38,41,45,38,40,0,0,40,42,44,44,40,0,0,40,40,44,45,48,0,0,42,42,44,44,48,0,0,48,43,47.9,46.95,48,0,0,42,45,45,44,46,0,0,40,45,45,45,48,0,0,40,36,37,37,38,0,0,32,31,36,36,36,8,0,31,36,36,32,40,0,0,44,47,41,40.5,48,0,0,32,30,34,34,40,0,0,32,36,36,36,36,36,0,36,36,36,36,40,0,0,36,35,0,0,0,0,0,8,8,8,0,0,0,0,52,44,36,40,40,0,0,48,48,44,40,40,0,0,56,56,48,40,52,0,0,48,48,48,41,48,0,0,40,40,46,48,40,0,0,48,48,40,48,48,0,0,40,40,40,40,40,0,0,40,48,40,38,38,0,0,40,42,37,40,40,0,0,48,40,40,48,41,40,0,33,48,48,46,40,0,0,54,54,54,46,46,0,0,48,40,48,56,56,16,0,56,64,56,56,56,0,0,62,56,56,56,56,0,0,48,48,62,56,56,0,0,56,64,64,64,64,0,0,64,64,64,64,64,24,0,72,72,72,72,72,0,0,72,72,72,72,72,0,0,72,72,72,72,72,0,0,72,72,72,72,72,0,0,72,72,56,56,56,0,0,56,56,56,56,56,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Labour Hours Despatch":[16,0,0,24,16,24,24,15,6.5,0,24,24,24,24,16,0,0,16,8,16,14,12,0,0,28,18,25,16,9,0,0,16,13,16,12,0,0,0,16,19,13,11,2,0,0,18,11,11,18,1,0,0,16,14,12,12,0,0,0,16,16,12,11,0,0,0,14,14,12,12,0,0,0,16,13,10,10,0,0,0,14,11,11,12,2,0,0,16,11,11,11,0,0,0,16,12,11,11,2,0,0,16,12,12,14,0,0,0,12,12,12,16,0,0,0,18,10,16,16,0,0,0,8,13,12,12,0,0,0,12,12,12,12,4,4,0,12,12,12,12,0,0,0,12,13,0,0,0,0,0,8,8,0,0,0,0,0,12,12,16,16,8,0,0,8,8,12,16,8,0,0,8,8,16,16,8,0,0,16,16,16,16,8,0,0,16,19,15,10,6,0,0,8,8,8,8,1,0,0,17,17,17,17,16,0,0,16,8,16,18,10,0,0,16,16,16,16,8,0,0,8,16,8,8,0,0,0,16,8,8,16,8,0,0,8,8,8,16,8,0,0,8,16,8,8,0,0,0,8,8,16,16,8,0,0,13,16,16,16,10,0,0,16,16,10,16,8,0,0,16,8,8,8,0,0,0,8,8,8,8,0,0,0,8,16,16,16,8,0,0,8,8,8,8,0,0,0,8,8,8,8,0,0,0,8,8,8,8,0,0,0,8,8,8,8,0,0,0,8,8,8,8,8,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Cold Pressed Produced (kg)":[2955,0,0,3905,3810,3885,3880,3675,0,0,3435,4010,2832.5,2725,0,0,0,2965,3780,3915,3840,3750,0,0,2870,3890,3870,3470,2200,0,0,2670,3900,4010,3982,2491,0,0,3703,4570,3985,3315,3670,0,0,2730,3783,3900,3740,3790,0,0,3297,3090,3915,3795,3872,0,0,3960,3765,3990,3970,3910,0,0,3181,3965,2377,3695,0,0,0,0,788,3110,3780,2655,0,0,3945,3690,3990,4020,3830,0,0,3570,3521,5020,2675,3820,0,0,3575,4020,3775,3605,1802,0,0,3028,2590,4110,4125,3050,0,0,4000,1982,2980,4167,3060,0,0,4115,4082,0,0,1000,0,0,4060,4085,4012,4017,4110,0,0,3060,0,2010,4035,3990,0,0,3045,3888,2940,1870,2690,0,0,3972,3795,1980,0,0,0,0,3813,1917,1902,0,0,0,0,2896,2732,3883,3806,2985,0,0,387,165,583,448,479,0,0,688,793,704,189,309,0,0,378,447,569,258,134,0,0,3855,3855,4020,3705,3435,0,0,2914,2766,2811,2956,2808,0,0,3634,2780,2873,950,2850,0,0,3740,3394,3550,3930,1905,0,0,2948,2860,3405,2871,2680,0,0,3430,3845,3842,3700,1980,0,0,3885,2930,2600,2688,1870,0,0,2940,3656,3855,3810,2910,0,0,3454,3855,3885,2809,2643,0,0,3999,3802,3880,3800,2925,0,0,3915,2855,3910,2870,2870,0,0,3670,2634,2845,3100,2000,0,0,3960,3365,3770,3658,2835,0,0,4170,790,2630,3840,3773,0,0,2880,2841,3735,3845,1890,0,0,2790,3815,3231,2605,1870,0,0,3899,2578,3380,3780,1695,0,0,3475,3780,3566,3690,1760,0,0,2650,3855,3900,3810,2190,0,0,2675,2760,0,3750,2880,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Fresh/Cooked Produced (kg)":[609.3,0,0,1228.5,1562.8,711.02,182.7,852.3,0,0,763.7,711,711,750.4,773.4,0,0,1228.5,1076,1228.5,1424,972,0,0,903,0,0,410,0,0,0,0,0,819,818,818,0,0,1229,710,1239,593,689,0,0,1017,740,910,1005,560,0,0,819,950,711,711,266,0,0,716,819,740,711,711,0,0,819,581,817,798,593,0,0,912,711,711,1637,1797,0,0,1466,1847,1577,2052,1503,0,0,1447,1970,1363,1381,0,0,0,0,0,0,1067,1423,0,0,1257,1908,1575,1639,1321,0,0,1167,1432,1589,0,1423,0,0,1453,1067,1716,1548,1475,0,0,1565,1363,1482,1590,1302,0,0,1567,1509,1330,1401,1622,1349,0,1122,2183,1435,1348,1293,0,0,1613,1566,0,0,0,0,0,0,0,0,0,0,0,0,742,812,1209,1496,1423,0,0,1784,1067,1876,1802,2129,0,0,0,0,1529,2689,2721,0,0,2944,3563,2457,3429,2798,0,0,1490,1524,1223,1423,1402,0,0,0,1056,1652,836,0,0,0,1443,1429,1306,1701,1644,0,0,1390,1183,1540,819,763,0,0,844,700,1447,1451,1444,0,0,938,1552,0,1380,1253,1105,0,1683,228,0,1645,1422,0,0,1382,0,1397,2597,2554,0,0,1487,1136,1423,1423,1423,207,0,1509,1764,1694,1381,1509,0,0,1330,1710,1873,1887,1472,0,0,1481,1852,1692,2018,1598,0,0,1696,1299,1389,1209,1578,0,0,1368,1304,1320,1016,1067,482,0,1423,1851,1514,1904,2333,0,0,1423,1373,1378,1067,1067,0,0,2598,1355,928,2313,1725,0,0,1598,1731,2733,1625,1449,0,0,2074,2249,0,1067,411,0,0,1202,1856,1924,1783,1115,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Fresh/Cooked Rejects (kg)":[7.34,0,0,8.6,8.6,8.6,8.6,8.6,0,0,2.448,2.448,2.448,2.448,2.448,0,0,6.84,0.38,13.68,120,6,0,0,37,41,15,24,5,0,0,0,0,37,0,1.4,0,0,4,0,8.7,0,0,0,0,28,0,38,12,13,0,0,18,0,13,0,0,0,0,16,0,46,0,0,0,0,7.6,0,0,6,8,0,0,0,35,0,0,0,0,0,2.3,0,0,0,26,0,0,20,0,17,7,20,0,0,0,0,0,0,0,0,0,0,null,null,null,null,0,0,0,0,340,6,46,0,0,38,2,13,0,0,0,0,21,0,2,24,1,0,0,14,30,36,7,7,19,0,13,0,58,15,58,0,0,0,96,0,0,0,0,0,0,0,0,0,0,0,0,20,24,130,0,11,0,0,0,11,18,44,0,0,0,0,0,59,0,112,0,0,0,25,0,14,0,0,0,25,11,20,24,6,0,0,0,7,0,9,9,0,0,9,57,21,5,85,0,0,102,29,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,19,0,0,0,0,0,0,0,0,0,68,4.18,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2.4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Despatched Internally (kg)":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1056,848,626,511,437,0,0,0,2624,13031,585,577,0,0,685,2560,1011,340,170,0,0,746,2906,1010,560,100,0,0,898,1336,1368,855,63,0,0,766,2983,12847,332,1473,0,0,814.5,1001,646,325,130,0,0,1010,2205,415,470,89,0,0,941,1398,531,273,158,0,0,922,4173,306,362,13939,0,0,2200,2686,349,357,140,0,0,883,2093,375,245,40,0,0,795,1015,235,600,103,0,0,797,5137,517,1011,174,0,0,1105,298,6520,2535,138,0,0,2072,1787,3380,200,null,0,0,1667,1914,850,1536,1825,1349,0,1583,2246,1542,3656,55,0,0,1721,1689,0,0,0,0,0,350,1173,0,0,0,0,0,703,2093,1279,1886,1686,0,0,445,4234,1444,1643,2209,0,0,280,160,1677,1472,1500,0,0,2468,4803,808,1438,1721,0,0,1969,2094,401,88,1970,0,0,3132,3505,4285,2861,2781,0,0,1826,3105,1334,2061,2677,0,0,1805,2112,3377,972,838,0,0,844,530,2332,1631,1444,0,0,265,3854,235,218,125,0,0,2935,1475,182,1775,1422,0,0,378,2427,210,1507,1636,0,0,485,2873,248,188,0,0,0,0,1263,2235,1476,1599,0,0,967,2302,2451,2040,1560,0,0,1764,1965,192,1899,1598,0,0,1696,2018,35,143,78,0,0,0,312,325,1045,null,0,0,210,1971,1669,2549,2403,0,0,455,902.5,2649,75,null,0,0,1457,3069,158,2536,160,0,0,305,1991,3571,771,1177,0,0,2539,3387,118,1500,null,0,0,1505,1856,1924,1783,6067,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Despatched 3PL (kg)":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,3191,2759,1505,1477,1141,0,0,3630,2074,2388,4360,4174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Training Hours":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,25,4,0,0,0,0,0,0,0,0,0,0,0,12,18,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Holiday Hours":[8,0,0,24,16,0,0,8,0,0,8,8,8,8,16,0,0,8,7.5,16,16,24,0,0,24,24,24,24,48,0,0,24,32,0,0,0,0,0,8,8,0,8,8,0,0,0,0,0,0,0,0,0,8,8,8,8,8,0,0,8,0,0,0,0,0,0,8,8,16,16,16,0,0,0,0,0,8,0,0,0,16,16,16,16,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,24,16,0,0,0,0,0,0,8,0,0,16,24,0,0,0,0,0,0,0,0,0,0,0,0,0,0,48,64,64,0,0,40,40,48,72,64,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,null,0,0,0,0,0,8,0,0,0,0,0,0,0,8,0,0,8,0,0,8,8,0,0,8,8,16,8,0,0,0,8,0,8,8,16,0,0,16,16,16,16,16,0,0,8,8,8,8,8,0,0,16,16,16,8,8,0,0,16,16,16,16,8,0,0,8,8,0,0,0,0,0,16,8,8,8,8,0,0,8,8,8,8,8,0,0,8,8,8,8,16,0,0,0,0,8,0,0,0,0,16,8,8,8,8,0,0,16,16,8,8,8,0,0,8,8,8,8,8,0,0,8,8,8,8,8,0,0,8,8,8,8,8,0,0,8,8,8,8,8,0,0,0,0,0,8,16,0,0,8,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Absence Hours":[0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,16,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,11,16,0,0,0,0,0,0,8,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,0,0,8,13,8,8,8,0,0,8,16,16,16,16,0,0,0,0,0,0,0,0,0,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,0,0,0,0,0,7,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,8,0,0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,8,0,0,0,0,0,0,0,0,0,0,0,8,14,0,0,0,0,0,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,0,0,2,4,0,0,0,0,0,4,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Orders Late >24hrs (DC2)":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,5,0,0,4,0,0,0,19,15,1,1,0,0,0,234,44,20,0,0,0,0,193,15,2,4,0,0,0,201,1,7,9,0,0,0,187,0,0,8,19,0,0,245,12,24,2,1,0,0,215,10,1,0,0,0,0,183,28,1,9,9,0,0,191,12,2,6,2,0,0,176,0,0,0,0,0,0,60,8,2,0,0,0,0,88,7,2,0,0,0,0,96,16,10,0,0,0,0,115,10,10,8,1,0,0,322,22,7,8,4,0,0,221,5,5,14,0,0,0,121,7,1,0,3,0,0,100,0,0,0,0,0,0,212,0,0,0,0,0,0,215,23,0,0,0,0,0,129,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,186,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,146,0,0,0,5,0,0,15,8,14,14,14,0,0,3,0,0,0,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,21,22,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Orders Late >48hrs (Trade)":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,3,0,1,1,0,0,0,6,3,0,0,0,0,0,1,2,3,0,0,0,0,6,5,0,0,0,0,0,7,1,1,1,0,0,0,5,1,0,0,5,0,0,9,1,2,2,7,0,0,3,2,1,0,0,0,0,8,6,0,5,0,0,0,4,4,0,0,0,0,0,7,3,0,0,0,0,0,0,0,0,1,0,0,0,5,4,0,0,0,0,0,5,5,4,0,0,0,0,3,3,3,4,0,0,0,1,1,0,1,1,0,0,4,2,6,7,4,0,0,3,0,0,1,1,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,4,1,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,2,0,0,1,0,0,0,0,0,0,0,1,2,2,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Trade Sales \u00a3 (Indep/Multis)":[1446.45,878.24,983.74,2551.71,4015.52,1412.37,1306.17,3010.91,827.88,517.92,8391.4,2435.12,972.96,96,1209,748.13,2240.47,1940,1599,2268,1037,2924,1485,800,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"New Customers":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,1,1,0,0,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Active Customer Orders":[5,4,2,6,8,7,3,2,4,1,12,9,3,1,3,2,2,5,5,9,5,11,6,1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Prospects Called":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32,33,66,32,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"Current Customers Called":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33,33,30,24,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}};
+const SETTINGS_DEFAULT = {"rates":{"blair":[{"from":"2025-08-01","rate":14.0},{"from":"2026-06-01","rate":16.8}],"ayr":[{"from":"2025-08-01","rate":14.0},{"from":"2026-06-01","rate":16.8}],"despatch":[{"from":"2025-08-01","rate":14.0},{"from":"2026-06-01","rate":16.8}]},"targets":{"Accidents":0,"Riddors":0,"Near Miss Incidents":1,"Customer Complaints":3.5,"D2C Complaints":3,"Trade Complaints":0.5,"Cold Press Labour \u00a3/kg":0.12,"Fresh/Cooked Labour \u00a3/kg":0.46,"Despatch Labour \u00a3/kg":0.12,"Cold Pressed Produced":4000,"Fresh/Cooked Rejects %":0.025,"Training Hours Completed":1,"Absenteeism Rate":0.025,"Holiday Usage":0.14,"Trade Sales (Indep/Multis)":2668.8548,"Prospects Called":10,"Current Customers Called":15,"New Customers":0.3948,"Active Customer Orders":8.9559,"Fresh/Cooked Produced":1361.9106,"Total Despatched":1680.6884,"Orders Late >24hrs (DC2)":52.9762,"Orders Late >48hrs (Trade)":3.2388},"budgets":{"blair":[{"from":"2025-08-01","budget":225}],"ayr":[{"from":"2025-08-01","budget":361}],"despatch":[{"from":"2025-08-01","budget":119}]}};
+
+let RAW = JSON.parse(JSON.stringify(EMBEDDED_RAW));
+let SETTINGS = JSON.parse(JSON.stringify(SETTINGS_DEFAULT));
+let DATA = null, PERIODS = null, lastRefresh = "08 Jun 2026";
+
+function applySettingsObj(o){ if(!o) return;
+  SETTINGS.targets = Object.assign({}, SETTINGS.targets, o.targets||{});
+  if (o.rates) SETTINGS.rates = o.rates;
+  if (o.visible) SETTINGS.visible = Object.assign({}, SETTINGS.visible, o.visible);
+  if (o.order) SETTINGS.order = o.order;
+  if (o.budgets) SETTINGS.budgets = o.budgets;
+}
+if(!KPI_SHARED){
+  try { const r = localStorage.getItem("wilsonsRaw"); if (r) { RAW = JSON.parse(r); } } catch(e){}
+  try { const m = localStorage.getItem("wilsonsRefresh"); if (m) lastRefresh = m; } catch(e){}
+  try { const s = localStorage.getItem("wilsonsSettings"); if (s) applySettingsObj(JSON.parse(s)); } catch(e){}
+}
+function normalizeMeta(){
+  SETTINGS.visible = SETTINGS.visible || {};
+  KPI_META.forEach(m => { if (!(m.name in SETTINGS.visible)) SETTINGS.visible[m.name] = true; });
+  let ord = Array.isArray(SETTINGS.order) ? SETTINGS.order.slice() : [];
+  ord = ord.filter(n => KPI_META.some(m => m.name === n));
+  KPI_META.forEach(m => { if (!ord.includes(m.name)) ord.push(m.name); });
+  SETTINGS.order = ord;
+}
+normalizeMeta();
+
+// ---------- helpers ----------
+const fmt = (v, uom, opts={}) => {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  const sign = opts.signed && v > 0 ? "+" : "";
+  if (uom === "%") return sign + (v*100).toFixed(1) + "%";
+  if (uom === "£") return sign + (v < 0 ? "-£" : "£") + Math.abs(Math.round(v)).toLocaleString();
+  if (uom === "£/kg") return sign + "£" + v.toFixed(2);
+  if (uom === "kg") return Math.round(v).toLocaleString() + " kg";
+  if (uom === "h") return Math.round(v).toLocaleString() + " h";
+  return sign + Math.round(v).toLocaleString();
+};
+const parseDate = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const monthKey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+const monthLabel = d => d.toLocaleString("en-GB",{month:"short",year:"2-digit"});
+function fiscalWeek(d) {
+  const fyStart = new Date(2025,7,1);
+  const days = Math.floor((d - fyStart) / 86400000);
+  if (days < 3) return { wk:1, label:"Wk 1 (Aug 1–3)" };
+  const wk2start = new Date(2025,7,4);
+  const wk = 2 + Math.floor((d - wk2start)/86400000/7);
+  const start = new Date(wk2start.getTime() + (wk-2)*7*86400000);
+  const end = new Date(start.getTime() + 6*86400000);
+  const f = x => x.toLocaleString("en-GB",{day:"numeric",month:"short"});
+  return { wk, label:`Wk ${wk} (${f(start)}–${f(end)})` };
+}
+function buildPeriods() {
+  const dates = DATA.dates.map(parseDate);
+  const months = {}, weeks = {};
+  dates.forEach((d,i) => {
+    const mk = monthKey(d);
+    if(!months[mk]) months[mk]={key:mk,label:monthLabel(d),idx:[]};
+    months[mk].idx.push(i);
+    const fw = fiscalWeek(d); const wk = "W"+fw.wk;
+    if(!weeks[wk]) weeks[wk]={key:wk,label:fw.label,idx:[]};
+    weeks[wk].idx.push(i);
+  });
+  const allIdx = dates.map((_,i)=>i);
+  return {
+    week: Object.values(weeks).sort((a,b)=>parseInt(a.key.slice(1))-parseInt(b.key.slice(1))),
+    month: Object.values(months),
+    year: [{key:"FY26",label:"FY 26 (Aug 25–Jul 26)",idx:allIdx}]
+  };
+}
+function aggregate(values, idx, agg) {
+  const vs = idx.map(i=>values[i]).filter(v => v !== null && v !== undefined && !Number.isNaN(v));
+  if (!vs.length) return null;
+  if (agg === "mean") return vs.reduce((s,v)=>s+v,0)/vs.length;
+  return vs.reduce((s,v)=>s+v,0);
+}
+function rag(actual, target, direction, kind) {
+  if (kind === "variance") {
+    if (actual === null) return "grey";
+    if (actual <= 0) return "green";
+    if (actual < 1000) return "amber";
+    return "red";
+  }
+  if (actual === null || target === null || !target) return "grey";
+  const ratio = actual/target;
+  if (direction === "lower") { if (ratio <= 1.0) return "green"; if (ratio <= 1.15) return "amber"; return "red"; }
+  else { if (ratio >= 1.0) return "green"; if (ratio >= 0.85) return "amber"; return "red"; }
+}
+function deltaPct(actual, target) {
+  if (actual === null || target === null || !target) return null;
+  return (actual - target)/Math.abs(target)*100;
+}
+
+// ---------- data derivation ----------
+function round(v, d=2){ const f=Math.pow(10,d); return Math.round(v*f)/f; }
+function rateFor(site, iso){
+  const list = (SETTINGS.rates[site]||[]).slice().sort((a,b)=> a.from<b.from?-1:1);
+  let r = list.length ? list[0].rate : 0;
+  for (const e of list){ if (iso >= e.from) r = e.rate; }
+  return r;
+}
+function budgetFor(site, iso){
+  const list = (SETTINGS.budgets[site]||[]).slice().sort((a,b)=> a.from<b.from?-1:1);
+  let r = list.length ? list[0].budget : null;
+  for (const e of list){ if (iso >= e.from) r = e.budget; }
+  return r;
+}
+function spendOf(hours, site){ return hours.map((h,i)=> h==null?null: round(h*rateFor(site, RAW.dates[i]))); }
+function sumA(...arrs){ return arrs[0].map((_,i)=>{ const vs=arrs.map(a=>a[i]).filter(v=>v!=null); return vs.length?round(vs.reduce((s,v)=>s+v,0)):null; }); }
+function divA(a,b){ return a.map((v,i)=> (v==null||b[i]==null||b[i]===0)?null: round(v/b[i],4)); }
+function constArr(val){ return RAW.dates.map(()=>val); }
+
+function buildData(){
+  const I = RAW.in;
+  const G = n => I[n] || constArr(null);
+  const hB=G("Labour Hours Blair"), hA=G("Labour Hours Ayr"), hD=G("Labour Hours Despatch");
+  const sB=spendOf(hB,"blair"), sA=spendOf(hA,"ayr"), sD=spendOf(hD,"despatch"), sT=sumA(sB,sA,sD);
+  const budArr = site => RAW.dates.map(iso=> budgetFor(site, iso));
+  const bB=budArr("blair"), bA=budArr("ayr"), bD=budArr("despatch"), bT=sumA(bB,bA,bD);
+  const vOf=(s,b)=> s.map((x,i)=> (x==null||b[i]==null)?null: round(x-b[i]));
+  const vB=vOf(sB,bB), vA=vOf(sA,bA), vD=vOf(sD,bD), vT=sumA(vB,vA,vD);
+  const addA=(a,b)=> a.map((x,i)=>{ const vs=[x,b[i]].filter(z=>z!=null); return vs.length?round(vs.reduce((s,z)=>s+z,0)):null; });
+  const worked = hB.map((b,i)=>{ const vs=[b,hA[i],hD[i]].filter(z=>z!=null); return vs.length?vs.reduce((s,z)=>s+z,0):null; });
+  const denom = i => { const vs=[worked[i],G("Absence Hours")[i],G("Holiday Hours")[i]].filter(z=>z!=null); return vs.length?vs.reduce((s,z)=>s+z,0):null; };
+  const pct=(num,den)=> (num==null||den==null||den===0)?null: round(num/den,4);
+  const absRate = G("Absence Hours").map((ab,i)=> pct(ab, denom(i)));
+  const holUse  = G("Holiday Hours").map((ho,i)=> pct(ho, denom(i)));
+  const rejPct  = G("Fresh/Cooked Rejects (kg)").map((rj,i)=> pct(rj, G("Fresh/Cooked Produced (kg)")[i]));
+  const computed = {
+    "Accidents":G("Accidents"), "Riddors":G("Riddors"), "Near Miss Incidents":G("Near Miss Incidents"),
+    "Customer Complaints":addA(G("D2C Complaints"),G("Trade Complaints")), "D2C Complaints":G("D2C Complaints"), "Trade Complaints":G("Trade Complaints"),
+    "Total Labour Spend":sT, "Cold Press Labour \u00a3/kg":divA(sB,G("Cold Pressed Produced (kg)")),
+    "Fresh/Cooked Labour \u00a3/kg":divA(sA,G("Fresh/Cooked Produced (kg)")), "Despatch Labour \u00a3/kg":divA(sD,G("Despatched Internally (kg)")),
+    "Cold Pressed Produced":G("Cold Pressed Produced (kg)"), "Fresh/Cooked Produced":G("Fresh/Cooked Produced (kg)"),
+    "Total Despatched":addA(G("Despatched Internally (kg)"),G("Despatched 3PL (kg)")), "Fresh/Cooked Rejects %":rejPct,
+    "Training Hours Completed":G("Training Hours"), "Absenteeism Rate":absRate, "Holiday Usage":holUse,
+    "Orders Late >24hrs (DC2)":G("Orders Late >24hrs (DC2)"), "Orders Late >48hrs (Trade)":G("Orders Late >48hrs (Trade)"),
+    "Trade Sales (Indep/Multis)":G("Trade Sales \u00a3 (Indep/Multis)"), "New Customers":G("New Customers"),
+    "Active Customer Orders":G("Active Customer Orders"), "Prospects Called":G("Prospects Called"), "Current Customers Called":G("Current Customers Called"),
+    "Labour Spend Blair":sB, "Labour Spend Ayr":sA, "Labour Spend Despatch":sD,
+    "Labour Variance Blair":vB, "Labour Variance Ayr":vA, "Labour Variance Despatch":vD, "Labour Variance Total":vT
+  };
+  const budgets = {"Labour Spend Blair":bB,"Labour Spend Ayr":bA,"Labour Spend Despatch":bD,"Total Labour Spend":bT};
+  const kpis = KPI_META.map(m => {
+    const actual = computed[m.name] || constArr(null);
+    let target;
+    if (m.kind==="variance") target = constArr(0);
+    else if (budgets[m.name]) target = budgets[m.name];
+    else { target = RAW.dates.map(iso=>{ const tv = targetFor(m.name, iso); return tv==null?0:tv; }); }
+    return {group:m.group,name:m.name,uom:m.uom,agg:m.agg,kind:m.kind,direction:m.direction,actual,target};
+  });
+  DATA = {dates:RAW.dates, kpis};
+  PERIODS = buildPeriods();
+}
+
+// ---------- spreadsheet parsing ----------
+const norm = s => s==null ? "" : String(s).trim().replace(/\s+/g," ").toLowerCase();
+function numv(v){ if(v===null||v===undefined||v==="") return null; const n=Number(v); if(Number.isNaN(n)) return null; return n%1?round(n,4):n; }
+function isoOf(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+const DIRECT_MAP = {
+ "Accidents":"accidents","Riddors":"riddors","Near Miss Incidents":"near miss incidents",
+ "Customer Complaints":"customer complaints","D2C Complaints":"d2c complaints","Trade Complaints":"trade complaints",
+ "Cold Pressed Produced":"cold pressed produced","Fresh/Cooked Produced":"fresh/ cooked produced","Total Despatched":"total despatched kg",
+ "Training Hours Completed":"training hours completed","Absenteeism Rate":"absenteeism rate","Holiday Usage":"holiday usage",
+ "Orders Late >24hrs (DC2)":"number of orders over 24hrs dc2","Orders Late >48hrs (Trade)":"number of orders over 48hrs trade",
+ "Trade Sales (Indep/Multis)":"trade sales independents/ multis(net of vat)","New Customers":"new customers",
+ "Active Customer Orders":"active customers orders","Prospects Called":"number of prospects called",
+ "Current Customers Called":"number of current customers called"
+};
+function parseWorkbook(buf){
+  const wb = XLSX.read(buf, {type:"array", cellDates:true});
+  const ws = wb.Sheets["Daily Input"] || wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error('Sheet "Daily Input" not found in this workbook.');
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
+  const header = rows[0] || [];
+  const colOf = {};
+  header.forEach((hh,c)=>{ if (hh!=null) colOf[String(hh).trim()] = c; });
+  const dateCol = ("Date" in colOf) ? colOf["Date"] : 0;
+  const dates=[], ridx=[];
+  for (let r=1; r<rows.length; r++){ const row=rows[r]; if(!row) continue; const dv=row[dateCol];
+    if (dv instanceof Date){ dates.push(isoOf(dv)); ridx.push(r); } }
+  if (!dates.length) throw new Error("No dated rows found in the Daily Input sheet.");
+  const FIELDS = ["Accidents","Riddors","Near Miss Incidents","D2C Complaints","Trade Complaints",
+    "Labour Hours Blair","Labour Hours Ayr","Labour Hours Despatch",
+    "Cold Pressed Produced (kg)","Fresh/Cooked Produced (kg)","Fresh/Cooked Rejects (kg)",
+    "Despatched Internally (kg)","Despatched 3PL (kg)","Training Hours","Holiday Hours","Absence Hours",
+    "Orders Late >24hrs (DC2)","Orders Late >48hrs (Trade)","Trade Sales \u00a3 (Indep/Multis)",
+    "New Customers","Active Customer Orders","Prospects Called","Current Customers Called"];
+  const inp={};
+  FIELDS.forEach(f=>{ const c=colOf[f]; inp[f]= ridx.map(r=> c==null?null: numv((rows[r]||[])[c])); });
+  return {dates, in:inp};
+}
+
+// ---------- rendering (dashboard) ----------
+const state = { freq: "month", period: null, group: "All" };
+let dragName = null, wasDragged = false, dashStale = false;
+function orderIndex(name){ const i = SETTINGS.order.indexOf(name); return i<0 ? 9999 : i; }
+function displayedKpis(){
+  return DATA.kpis
+    .filter(k => (state.group==="All" || k.group===state.group) && SETTINGS.visible[k.name] !== false)
+    .sort((a,b)=> orderIndex(a.name) - orderIndex(b.name));
+}
+function reorderKpi(from, to){
+  if (!from || from===to) return;
+  const o = SETTINGS.order;
+  const fi = o.indexOf(from); if (fi>-1) o.splice(fi,1);
+  const ti = o.indexOf(to); o.splice(ti<0 ? o.length : ti, 0, from);
+  persistSettings(); render();
+}
+function renderPeriodSelect() {
+  const sel = document.getElementById("periodSelect"); sel.innerHTML = "";
+  PERIODS[state.freq].forEach(p => { const o=document.createElement("option"); o.value=p.key; o.textContent=p.label; sel.appendChild(o); });
+  const periods = PERIODS[state.freq];
+  let defaultIdx = periods.length - 1;
+  for (let i = periods.length-1; i >= 0; i--) {
+    const hasData = DATA.kpis.some(k => periods[i].idx.some(j => { const v=k.actual[j]; return v!==null && v!==0; }));
+    if (hasData) { defaultIdx = i; break; }
+  }
+  if (state.period && periods.find(p=>p.key===state.period)) sel.value = state.period;
+  else { state.period = periods[defaultIdx].key; sel.value = state.period; }
+}
+function renderFilters() {
+  const groups = ["All", ...new Set(DATA.kpis.map(k=>k.group))];
+  const f = document.getElementById("filters"); f.innerHTML = "";
+  groups.forEach(g => {
+    const c = document.createElement("button");
+    c.className = "chip" + (g===state.group?" active":"");
+    c.textContent = g + (g==="All"?"":` (${DATA.kpis.filter(k=>k.group===g).length})`);
+    c.onclick = () => { state.group = g; render(); };
+    f.appendChild(c);
+  });
+}
+function getPeriod() { return PERIODS[state.freq].find(p => p.key === state.period); }
+function renderSummary() {
+  const period = getPeriod();
+  const visible = displayedKpis();
+  const ragCounts = { green:0, amber:0, red:0, grey:0 };
+  visible.forEach(k => { ragCounts[rag(aggregate(k.actual,period.idx,k.agg), aggregate(k.target,period.idx,k.agg), k.direction, k.kind)]++; });
+  document.getElementById("summary").innerHTML = `
+    <div class="card"><div class="label">Period</div><div class="val">${period.label}</div><div class="sub">${period.idx.length} day${period.idx.length===1?"":"s"}</div></div>
+    <div class="card" style="border-color:rgba(34,197,94,.4)"><div class="label">On Track</div><div class="val" style="color:var(--green)">${ragCounts.green}</div><div class="sub">at or beating target</div></div>
+    <div class="card" style="border-color:rgba(245,158,11,.4)"><div class="label">Watch</div><div class="val" style="color:var(--amber)">${ragCounts.amber}</div><div class="sub">slightly off target</div></div>
+    <div class="card" style="border-color:rgba(239,68,68,.4)"><div class="label">Off Track</div><div class="val" style="color:var(--red)">${ragCounts.red}</div><div class="sub">missing target</div></div>
+    <div class="card"><div class="label">No Target / Data</div><div class="val" style="color:var(--grey)">${ragCounts.grey}</div><div class="sub">cannot evaluate</div></div>`;
+}
+function renderGrid() {
+  const period = getPeriod(); const periods = (state.freq==="year" ? PERIODS.month : PERIODS[state.freq]);
+  const grid = document.getElementById("grid"); grid.innerHTML = "";
+  const visible = displayedKpis();
+  document.getElementById("empty").style.display = visible.length ? "none" : "block";
+  visible.forEach((k, idx) => {
+    const a = aggregate(k.actual, period.idx, k.agg), t = aggregate(k.target, period.idx, k.agg);
+    const status = rag(a, t, k.direction, k.kind), dpct = deltaPct(a, t);
+    const card = document.createElement("div"); card.className = "kpi " + status;
+    card.setAttribute("draggable","true"); card.dataset.name = k.name;
+    const isVar = k.kind === "variance";
+    const actualClass = isVar && a !== null ? (a > 0 ? "pos" : a < 0 ? "neg" : "") : "";
+    const actualHtml = isVar
+      ? `<div class="actual ${actualClass}">${fmt(a, k.uom, {signed:true})}</div><div class="target">${a===null?"":(a>0?"over budget":a<0?"under budget":"on budget")}</div>`
+      : `<div class="actual">${fmt(a, k.uom)}</div><div class="target">vs target ${fmt(t, k.uom)}</div>`;
+    card.innerHTML = `
+      <div class="strip"></div>
+      <div class="group"><span>${k.group}</span><span class="gctl">${isVar?'<span class="badge">VARIANCE</span>':''}<span class="grip" title="Drag to reorder">⣿</span><span class="hidebtn" title="Hide this KPI">✕</span></span></div>
+      <div class="name">${k.name}</div>
+      <div class="row"><div>${actualHtml}</div>${(!isVar && dpct !== null) ? `<span class="delta ${status}">${dpct>0?"+":""}${dpct.toFixed(0)}%</span>` : ''}</div>
+      <canvas id="spark-${idx}"></canvas>`;
+    card.onclick = () => { if (wasDragged) return; openDetail(k); };
+    card.querySelector(".hidebtn").onclick = (e) => { e.stopPropagation(); SETTINGS.visible[k.name] = false; persistSettings(); render(); };
+    card.addEventListener("dragstart", (e) => { dragName = k.name; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; });
+    card.addEventListener("dragend", () => { card.classList.remove("dragging"); document.querySelectorAll(".kpi").forEach(c=>c.classList.remove("dragover")); wasDragged = true; setTimeout(()=> wasDragged = false, 60); });
+    card.addEventListener("dragover", (e) => { e.preventDefault(); card.classList.add("dragover"); });
+    card.addEventListener("dragleave", () => card.classList.remove("dragover"));
+    card.addEventListener("drop", (e) => { e.preventDefault(); card.classList.remove("dragover"); reorderKpi(dragName, k.name); });
+    grid.appendChild(card);
+    const trend = periods.map(p => aggregate(k.actual, p.idx, k.agg));
+    new Chart(card.querySelector(`#spark-${idx}`), {
+      type:"line",
+      data:{ labels: periods.map(p=>p.key), datasets:[{ data:trend, borderColor:isVar?"#f59e0b":"#f37d89",
+        backgroundColor:isVar?"rgba(245,158,11,.12)":"rgba(243,125,137,.15)", borderWidth:1.5, pointRadius:0, fill:true, tension:.3, spanGaps:true }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}}, animation:false }
+    });
+  });
+}
+const charts = {};
+function openDetail(k) {
+  const periods = (state.freq==="year" ? PERIODS.month : PERIODS[state.freq]);
+  document.getElementById("modalTitle").textContent = k.name;
+  const isVar = k.kind === "variance";
+  const desc = `${k.group} · UoM: ${k.uom} · ${k.agg==="sum"?"Summed":"Averaged"} from daily data` +
+    (isVar ? " · Variance: positive = over budget, negative = under budget" : ` · Higher is ${k.direction==="higher"?"better":"worse"}`);
+  document.getElementById("modalDesc").textContent = desc;
+  const labels = periods.map(p => p.label);
+  const actuals = periods.map(p => aggregate(k.actual, p.idx, k.agg));
+  const targets = periods.map(p => aggregate(k.target, p.idx, k.agg));
+  if (charts.modal) charts.modal.destroy();
+  const datasets = isVar
+    ? [{ type:"bar", label:"Variance £", data:actuals, backgroundColor: actuals.map(v=> v===null?"#64748b":v>0?"#ef4444":"#22c55e"), borderRadius:4 }]
+    : [{ type:"bar", label:"Actual", data:actuals, backgroundColor:"#f37d89", borderRadius:4 },
+       { type:"line", label:"Target", data:targets, borderColor:"#f59e0b", backgroundColor:"#f59e0b", borderWidth:2, pointRadius:3, tension:.2, fill:false, spanGaps:true }];
+  charts.modal = new Chart(document.getElementById("modalChart"), {
+    type:"bar", data:{ labels, datasets },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:"#143644"}}},
+      scales:{ x:{ticks:{color:"#8a99a8",maxRotation:60,minRotation:0,autoSkip:true,maxTicksLimit:14},grid:{color:"#e2ddcd"}}, y:{ticks:{color:"#8a99a8"},grid:{color:"#e2ddcd"}} } }
+  });
+  document.getElementById("modal").classList.add("open");
+}
+function render() { buildData(); renderPeriodSelect(); renderFilters(); renderSummary(); renderGrid(); updateFooter(); if(KPI_MINI) renderMiniStrip(); }
+/* condensed home-screen strip: same numbers, same RAG, current week */
+function renderMiniStrip(){
+  let host=document.getElementById('miniStrip');
+  if(!host){ host=document.createElement('div'); host.id='miniStrip'; document.body.appendChild(host); }
+  const period=getPeriod(); if(!period||!DATA){ host.innerHTML=''; return; }
+  const picks=(KPI_QS.get('pick')||'').split('||').filter(Boolean);   // URLSearchParams has already decoded the names
+  const list=(picks.length? picks.map(n=>DATA.kpis.find(k=>k.name===n)).filter(Boolean) : DATA.kpis.filter(k=>SETTINGS.visible[k.name]!==false).slice(0,6));
+  host.innerHTML=list.map(k=>{
+    const a=aggregate(k.actual,period.idx,k.agg), t=aggregate(k.target,period.idx,k.agg);
+    const status=rag(a,t,k.direction,k.kind);
+    const isVar=k.kind==='variance';
+    const cls=isVar&&a!==null?(a>0?'pos':a<0?'neg':''):'';
+    const sub=isVar?(a===null?'':(a>0?'over budget':a<0?'under budget':'on budget')):('vs target '+fmt(t,k.uom));
+    return `<div class="minicard ${status}" title="Open the KPI dashboard"><div class="mn">${k.name}</div><div class="mv ${cls}">${fmt(a,k.uom,isVar?{signed:true}:{})}</div><div class="mt">${period.label} · ${sub}</div></div>`;
+  }).join('')||'<div class="minicard"><div class="mn">No KPIs picked</div><div class="mt">choose some with ✎</div></div>';
+  host.querySelectorAll('.minicard').forEach(c=>c.onclick=()=>{ try{ parent.postMessage('wilsons-open-kpi','*'); }catch(e){} });
+}
+function updateFooter(){
+  document.getElementById("footer").innerHTML =
+    `Data: ${RAW.dates[0]} – ${RAW.dates[RAW.dates.length-1]} · ${RAW.dates.length} days · Last refreshed ${lastRefresh} · Drag cards to reorder · Click a card for full trend.`;
+}
+
+// ---------- settings ----------
+const SITES = [["blair","Blair (Cold Press)"],["ayr","Ayr (Fresh/Cooked)"],["despatch","Despatch"]];
+function renderSettings(){
+  const v = document.getElementById("settingsView");
+  let html = `<div class="setbar"><button class="btn primary" id="saveSettings">Save changes</button>
+    <button class="btn" id="resetSettings">Reset to defaults</button>
+    <span class="status" id="setStatus"></span></div>`;
+
+  // labour rates
+  html += `<div class="setblock"><h3>Labour rates (£ per hour)</h3>
+    <p class="help">Spend is calculated as <b>hours × rate</b> per site. Each rate applies from its effective date until the next one. Defaults: £14.00, then £16.80 from 1 Jun 2026.</p>`;
+  SITES.forEach(([k,label])=>{
+    html += `<div class="site-h">${label}</div><div id="rates-${k}">`;
+    (SETTINGS.rates[k]||[]).forEach((e,i)=>{
+      html += rateRowHtml(k,i,e);
+    });
+    html += `</div><button class="linkbtn" data-add="${k}">+ add rate change</button>`;
+  });
+  html += `</div>`;
+
+  html += `<div class="setblock"><h3>Labour budget (\u00a3 per day, per site)</h3>
+    <p class="help">Variance = actual labour spend \u2212 this budget. Set a daily \u00a3 budget per site; each value applies from its effective date. Seeded from your historical average \u2014 edit to your real budget.</p>`;
+  SITES.forEach(([k,label])=>{
+    html += `<div class="site-h">${label}</div><div id="budgets-${k}">`;
+    (SETTINGS.budgets[k]||[]).forEach((e,i)=>{ html += budgetRowHtml(k,i,e); });
+    html += `</div><button class="linkbtn" data-badd="${k}">+ add budget change</button>`;
+  });
+  html += `</div>`;
+
+  // targets grouped by category, excluding variance + labour spend (budget-driven)
+  const skip = new Set(["Labour Spend Blair","Labour Spend Ayr","Labour Spend Despatch","Total Labour Spend"]);
+  html += `<div class="setblock"><h3>KPI targets</h3>
+    <p class="help">Set the <b>per-day</b> target for each KPI (for rates/percentages this is simply the target level). Totals over a week/month scale automatically. Press <b>+ change from a date\u2026</b> to set a new target from a chosen day \u2014 earlier days keep the old target, so the change shows honestly in the trend. Labour spend targets come from the budget columns in the spreadsheet, and variances are measured against £0.</p>
+    <div class="setgrid">`;
+  let lastCat = "";
+  KPI_META.forEach(m=>{
+    if (m.kind==="variance" || skip.has(m.name)) return;
+    if (m.group !== lastCat){ html += `<div class="cat-h">${m.group}</div>`; lastCat = m.group; }
+    const isPct = m.uom==="%";
+    const uomLabel = isPct? "%": m.uom;
+    const entries = targetEntries(m.name);
+    const multi = entries.length>1;
+    html += `<div class="tg-row" data-tgname="${m.name.replace(/"/g,'&quot;')}"><label>${m.name}</label><span class="uom">${uomLabel}</span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">`;
+    entries.forEach((e,i)=>{
+      const val = (e.value==null||e.value==="")?"":(isPct? round(+e.value*100,4): e.value);
+      html += `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">`+
+        (multi?`<span style="font-size:11px;color:var(--muted)">from</span><input type="date" class="tgfrom" value="${e.from}" style="width:135px">`:``)+
+        `<input type="number" step="any" class="tgval" value="${val}" style="width:110px">`+
+        (multi?`<button class="linkbtn" data-tgremove="${i}">remove</button>`:``)+
+      `</span>`;
+    });
+    html += `<button class="linkbtn" data-tgadd="1" title="Set a new target from a chosen date — earlier days keep the old target">+ change from a date…</button></span></div>`;
+  });
+  html += `</div></div>`;
+
+  html += `<div class="setblock"><h3>Show / hide KPIs</h3>
+    <p class="help">Tick the KPIs you want on the dashboard. You can also drag any card on the dashboard to reorder it, or click the ✕ on a card to hide it.</p>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <button class="btn" id="showAll">Show all</button><button class="btn" id="hideAll">Hide all</button></div>
+    <div class="setgrid">`;
+  lastCat = "";
+  KPI_META.forEach(m=>{
+    if (m.group !== lastCat){ html += `<div class="cat-h">${m.group}</div>`; lastCat = m.group; }
+    const ch = SETTINGS.visible[m.name] !== false ? "checked" : "";
+    html += `<label class="vis-row"><input type="checkbox" data-name="${m.name.replace(/"/g,'&quot;')}" ${ch}>${m.name}</label>`;
+  });
+  html += `</div></div>`;
+
+  v.innerHTML = html;
+
+  v.querySelectorAll(".vis-row input").forEach(cb=> cb.onchange = ()=>{
+    SETTINGS.visible[cb.getAttribute("data-name")] = cb.checked; persistSettings(); dashStale = true;
+  });
+  document.getElementById("showAll").onclick = ()=>{ KPI_META.forEach(m=> SETTINGS.visible[m.name]=true); persistSettings(); dashStale=true; renderSettings(); };
+  document.getElementById("hideAll").onclick = ()=>{ KPI_META.forEach(m=> SETTINGS.visible[m.name]=false); persistSettings(); dashStale=true; renderSettings(); };
+
+  v.querySelectorAll("[data-add]").forEach(b=> b.onclick = ()=>{
+    const site=b.getAttribute("data-add");
+    SETTINGS.rates = readRates();           // capture current edits for all sites
+    SETTINGS.rates[site].push({from:"2026-06-01",rate:16.8});
+    renderSettings();
+  });
+  v.querySelectorAll("[data-remove]").forEach(b=> b.onclick = ()=>{
+    const [site,i]=b.getAttribute("data-remove").split("|");
+    SETTINGS.rates = readRates();           // capture current edits for all sites
+    SETTINGS.rates[site].splice(+i,1); renderSettings();
+  });
+  v.querySelectorAll("[data-badd]").forEach(b=> b.onclick = ()=>{
+    const site=b.getAttribute("data-badd");
+    SETTINGS.budgets = readBudgets();
+    SETTINGS.budgets[site].push({from:"2026-06-01",budget:0});
+    renderSettings();
+  });
+  v.querySelectorAll("[data-bremove]").forEach(b=> b.onclick = ()=>{
+    const [site,i]=b.getAttribute("data-bremove").split("|");
+    SETTINGS.budgets = readBudgets();
+    SETTINGS.budgets[site].splice(+i,1); renderSettings();
+  });
+  v.querySelectorAll("[data-tgadd]").forEach(b=> b.onclick = ()=>{
+    SETTINGS.targets = readTargets();
+    const name=b.closest('.tg-row').getAttribute('data-tgname');
+    const es=targetEntries(name); const last=es[es.length-1];
+    es.push({from:new Date().toISOString().slice(0,10), value:(last?last.value:null)});
+    SETTINGS.targets[name]=es;
+    renderSettings();
+  });
+  v.querySelectorAll("[data-tgremove]").forEach(b=> b.onclick = ()=>{
+    SETTINGS.targets = readTargets();
+    const name=b.closest('.tg-row').getAttribute('data-tgname');
+    const i=+b.getAttribute('data-tgremove');
+    const es=targetEntries(name); es.splice(i,1);
+    SETTINGS.targets[name]= es.length===1 ? es[0].value : es;
+    renderSettings();
+  });
+  document.getElementById("saveSettings").onclick = saveSettings;
+  document.getElementById("resetSettings").onclick = ()=>{ SETTINGS=JSON.parse(JSON.stringify(SETTINGS_DEFAULT)); persistSettings(); dashStale=true; renderSettings(); setStatus("Reset to defaults."); };
+}
+function rateRowHtml(site,i,e){
+  return `<div class="rate-row" data-site="${site}" data-i="${i}">
+    <span class="status">from</span>
+    <input type="date" class="from" value="${e.from}">
+    <span class="status">£</span>
+    <input type="number" step="0.01" class="rate" value="${e.rate}">
+    <button class="linkbtn" data-remove="${site}|${i}">remove</button></div>`;
+}
+function budgetRowHtml(site,i,e){
+  return `<div class="budget-row" data-bsite="${site}" data-i="${i}">
+    <span class="status">from</span>
+    <input type="date" class="bfrom" value="${e.from}">
+    <span class="status">\u00a3/day</span>
+    <input type="number" step="1" class="budget" value="${e.budget}">
+    <button class="linkbtn" data-bremove="${site}|${i}">remove</button></div>`;
+}
+function readRates(filterSite){
+  // read all rate rows from DOM into a per-site structure; returns array for filterSite, or sets all
+  const sites={blair:[],ayr:[],despatch:[]};
+  document.querySelectorAll(".rate-row").forEach(row=>{
+    const site=row.getAttribute("data-site");
+    const from=row.querySelector(".from").value;
+    const rate=parseFloat(row.querySelector(".rate").value);
+    if(site && from && !Number.isNaN(rate)) sites[site].push({from,rate});
+  });
+  if(filterSite) return sites[filterSite];
+  return sites;
+}
+function readBudgets(filterSite){
+  const sites={blair:[],ayr:[],despatch:[]};
+  document.querySelectorAll(".budget-row").forEach(row=>{
+    const site=row.getAttribute("data-bsite");
+    const from=row.querySelector(".bfrom").value;
+    const budget=parseFloat(row.querySelector(".budget").value);
+    if(site && from && !Number.isNaN(budget)) sites[site].push({from,budget});
+  });
+  return filterSite ? sites[filterSite] : sites;
+}
+function slug(s){ return s.replace(/[^a-z0-9]+/gi,"_"); }
+function targetEntries(name){
+  const t = SETTINGS.targets[name];
+  if (Array.isArray(t)) return t.slice().sort((a,b)=>String(a.from).localeCompare(String(b.from)));
+  return [{from:(RAW.dates&&RAW.dates[0])||"2025-08-01", value:(t==null?null:t)}];
+}
+function targetFor(name, iso){
+  let v=null;
+  targetEntries(name).forEach(e=>{ if(String(e.from)<=iso && e.value!=null && e.value!=="") v=+e.value; });
+  return v;
+}
+function readTargets(){
+  const out = Object.assign({}, SETTINGS.targets);
+  document.querySelectorAll('.tg-row[data-tgname]').forEach(row=>{
+    const name=row.getAttribute('data-tgname');
+    const m=KPI_META.find(x=>x.name===name); const isPct=m&&m.uom==="%";
+    const vals=row.querySelectorAll('.tgval');
+    const froms=row.querySelectorAll('.tgfrom');
+    const startFrom=(RAW.dates&&RAW.dates[0])||"2025-08-01";
+    if(froms.length===0){
+      let v=parseFloat(vals[0]?vals[0].value:""); if(Number.isNaN(v)) v=0;
+      if(isPct) v=round(v/100,6);
+      out[name]=v;
+    } else {
+      const es=[];
+      vals.forEach((inp,i)=>{
+        let v=parseFloat(inp.value); if(Number.isNaN(v)) v=0;
+        if(isPct) v=round(v/100,6);
+        es.push({from:(froms[i]&&froms[i].value)||startFrom, value:v});
+      });
+      out[name]=es;
+    }
+  });
+  return out;
+}
+function readSettingsFromDom(){
+  const rates=readRates();
+  ["blair","ayr","despatch"].forEach(s=>{ if(rates[s].length) SETTINGS.rates[s]=rates[s]; });
+  const budgets=readBudgets();
+  ["blair","ayr","despatch"].forEach(s=>{ if(budgets[s].length) SETTINGS.budgets[s]=budgets[s]; });
+  SETTINGS.targets = readTargets();
+}
+function settingsObj(){ return {rates:SETTINGS.rates,targets:SETTINGS.targets,visible:SETTINGS.visible,order:SETTINGS.order,budgets:SETTINGS.budgets}; }
+function persistSettings(){
+  if(KPI_SHARED){ kpiPut({settings:settingsObj()}).catch(()=>setStatus("Save failed — check connection and try again.")); return; }
+  try{ localStorage.setItem("wilsonsSettings", JSON.stringify(settingsObj())); }catch(e){}
+}
+async function kpiApi(method,body){
+  const r=await fetch('/api/kpi',{method:method||'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+KPI_TOKEN},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+function kpiPut(body){ return kpiApi('PUT',body); }
+function saveSettings(){ readSettingsFromDom(); persistSettings(); render(); setStatus("Saved. Dashboard updated."); }
+function setStatus(msg){ const s=document.getElementById("setStatus"); if(s){ s.textContent=msg; setTimeout(()=>{ if(s) s.textContent=""; },2500);} }
+
+// ---------- tabs / upload ----------
+function showTab(tab){
+  document.querySelectorAll("#tabs button").forEach(b=> b.classList.toggle("active", b.dataset.tab===tab));
+  const dash = tab==="dashboard";
+  document.getElementById("dashboardView").style.display = dash?"":"none";
+  document.getElementById("filters").style.display = dash?"":"none";
+  document.getElementById("settingsView").style.display = dash?"none":"block";
+  document.getElementById("freqToggle").style.display = dash?"":"none";
+  document.getElementById("periodSelect").style.display = dash?"":"none";
+  if (!dash) renderSettings();
+  else if (dashStale) { dashStale = false; render(); }
+}
+document.getElementById("tabs").addEventListener("click", e=>{ if(e.target.dataset.tab) showTab(e.target.dataset.tab); });
+document.getElementById("uploadBtn").onclick = ()=> document.getElementById("fileInput").click();
+document.getElementById("fileInput").onchange = e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try {
+      const parsed = parseWorkbook(new Uint8Array(ev.target.result));
+      RAW = parsed;
+      lastRefresh = new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+      if(KPI_SHARED){ kpiPut({raw:RAW}).catch(()=>alert("Upload read OK but saving to the server failed — check the connection and try again.")); }
+      else { try { localStorage.setItem("wilsonsRaw", JSON.stringify(RAW)); localStorage.setItem("wilsonsRefresh", lastRefresh); } catch(err){} }
+      state.period = null; showTab("dashboard"); render();
+      alert("Loaded "+file.name+"\\n"+parsed.dates.length+" days ("+parsed.dates[0]+" → "+parsed.dates[parsed.dates.length-1]+").");
+    } catch(err){ alert("Could not read this file:\\n"+err.message+"\\n\\nMake sure it is the Wilsons KPI Input file with a \"Daily Input\" tab."); }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = "";
+};
+document.getElementById("freqToggle").addEventListener("click", e => {
+  if (e.target.dataset.freq) {
+    state.freq = e.target.dataset.freq; state.period = null;
+    document.querySelectorAll("#freqToggle button").forEach(b => b.classList.toggle("active", b.dataset.freq===state.freq));
+    render();
+  }
+});
+document.getElementById("periodSelect").addEventListener("change", e => { state.period = e.target.value; renderSummary(); renderGrid(); });
+document.getElementById("modalClose").onclick = () => document.getElementById("modal").classList.remove("open");
+document.getElementById("modal").onclick = e => { if (e.target.id === "modal") document.getElementById("modal").classList.remove("open"); };
+
+const fsBtn = document.getElementById("fullscreenBtn");
+function fsActive(){ return document.fullscreenElement || document.webkitFullscreenElement; }
+fsBtn.onclick = () => {
+  if (!fsActive()) { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen).call(el); }
+  else { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+};
+document.addEventListener("fullscreenchange", () => { fsBtn.innerHTML = fsActive() ? "&#10005; Exit full screen" : "&#9974; Full screen"; });
+document.addEventListener("keydown", (e) => { if (e.key === "F11" && !fsActive()) { e.preventDefault(); fsBtn.click(); } });
+
+function applyCaps(){
+  if(!KPI_CAPS.settings){
+    const st=document.querySelector('#tabs button[data-tab="settings"]'); if(st) st.style.display='none';
+    const ub=document.getElementById('uploadBtn'); if(ub) ub.style.display='none';
+  }
+}
+let _kpiSnapshot='';
+function kpiSnapshotStr(d){ return JSON.stringify([d.raw,d.settings]); }
+function startKpiPolling(mins){
+  setInterval(async()=>{
+    try{
+      const d=await kpiApi('GET');
+      const snap=kpiSnapshotStr(d);
+      if(snap!==_kpiSnapshot){
+        _kpiSnapshot=snap;
+        if(d.raw) RAW=d.raw;
+        SETTINGS=JSON.parse(JSON.stringify(SETTINGS_DEFAULT)); applySettingsObj(d.settings); normalizeMeta();
+        if(d.refresh) lastRefresh=d.refresh;
+        state.period=null; render();
+      }
+      const n=document.getElementById('kpiSync'); if(n){ n.className='syncnote'; n.textContent='● Live · updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+    }catch(e){ const n=document.getElementById('kpiSync'); if(n){ n.className='syncnote off'; n.textContent='Connection lost — retrying'; } }
+  }, (mins||5)*60*1000);
+}
+function setupDisplay(){
+  const ov=document.createElement('div'); ov.id='displayOverlay';
+  ov.innerHTML='<button>Start display</button><p>Goes full screen and refreshes itself every few minutes.</p>';
+  document.body.appendChild(ov);
+  ov.querySelector('button').onclick=async()=>{
+    ov.remove();
+    try{ const el=document.documentElement; await (el.requestFullscreen||el.webkitRequestFullscreen).call(el); }catch(e){}
+    try{ if(navigator.wakeLock){ let wl=await navigator.wakeLock.request('screen'); document.addEventListener('visibilitychange',async()=>{ if(document.visibilityState==='visible'){ try{ wl=await navigator.wakeLock.request('screen'); }catch(e){} } }); } }catch(e){}
+  };
+  const ctr=document.querySelector('.controls');
+  if(ctr){ const n=document.createElement('span'); n.id='kpiSync'; n.className='syncnote'; n.textContent='● Live'; ctr.appendChild(n); }
+}
+async function kpiBoot(){
+  if(KPI_SHARED){
+    try{
+      const d=await kpiApi('GET');
+      _kpiSnapshot=kpiSnapshotStr(d);
+      if(d.raw) RAW=d.raw;
+      applySettingsObj(d.settings); normalizeMeta();
+      if(d.refresh) lastRefresh=d.refresh;
+      KPI_CAPS=d.caps||KPI_CAPS;
+    }catch(e){
+      document.getElementById('dashboardView').innerHTML='<div class="empty">Could not load the shared KPI data — check the connection and reload.</div>';
+      return;
+    }
+    applyCaps();
+    startKpiPolling(KPI_DISPLAY?5:3);
+  }
+  if(KPI_DISPLAY) setupDisplay();
+  if(KPI_MINI) state.freq='week';
+  render();
+}
+kpiBoot();
+</script>
+</body>
+</html>
