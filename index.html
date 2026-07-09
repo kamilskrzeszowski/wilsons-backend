@@ -316,6 +316,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="complaints">Complaints</button>
     <button data-view="kpi">KPI Dashboard</button>
     <button data-view="kpiinput">KPI Daily Input</button>
+    <button data-view="specs">Product Specs</button>
     <button data-view="users" style="display:none">Users</button>
     <button data-view="fmrecipes" style="display:none">Recipe Management</button>
     <button data-view="fminventory" style="display:none">Inventory &amp; Traceability</button>
@@ -335,8 +336,10 @@ tr.prDrag:hover{background:#faf3ee}
 <aside id="sidebar">
   <div class="sb-top">
     <a href="https://www.wilsonspetfood.co.uk" target="_blank" rel="noopener" title="Open the Wilsons website"><img class="sb-logo" src="/assets/logo-grapefruit.svg" alt="Wilsons" style="cursor:pointer"></a>
+    <div id="sbFactory"></div>
     <div class="sb-toggle" id="sbToggle">
       <button type="button" data-mode="production">Production</button>
+      <button type="button" data-mode="technical">Technical</button>
       <button type="button" data-mode="office">Office</button>
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
@@ -394,6 +397,10 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-item.active .ico{color:var(--coral);opacity:1}
   .sb-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:#5f7482;font-weight:700;padding:14px 12px 4px}
   .sb-item .sb-soon{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.1);color:#8fa2ad;border-radius:8px;padding:2px 7px;flex:none}
+  .sb-facpill{margin:0 0 10px}
+  .sb-custom{opacity:.55;margin-top:14px}
+  .sb-custom:hover{opacity:1}
+  .sb-faclock{margin:0 0 12px;background:rgba(255,255,255,.08);color:#c8d2d8;border-radius:10px;padding:8px 10px;font-size:12px}
   .sb-pup{margin-top:auto;position:relative;height:150px;flex:none}
   .sb-pup img{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);width:130px;opacity:.95}
   /* slim light top bar in the content column */
@@ -472,7 +479,7 @@ tr.prDrag:hover{background:#faf3ee}
   <!-- ============ LIBRARY ============ -->
   <section class="view" id="view-library">
     <h2 class="viewtitle">Recipe Library</h2>
-    <p class="sub">All recipes across every brand. Click any recipe to see its full ingredient list. Plan production on the <b>Production Planner</b> tab; print batch sheets on <b>Mixing Sheets</b>.</p>
+    <p class="sub">Every recipe for the factory you're viewing. Recipes are <b>created and changed in Recipe Costing</b> and appear here automatically. Click any recipe for its full ingredient list; plan production on the <b>Production Planner</b> tab; print batch sheets on <b>Mixing Sheets</b>.</p>
     <div id="libraryBody"></div>
   </section>
 
@@ -654,6 +661,12 @@ tr.prDrag:hover{background:#faf3ee}
     <p class="sub">The customer-service complaints log. Everything saves online instantly and carries on the spreadsheet's case numbering.</p>
     <div id="rootComplaints"></div>
   </section>
+  <!-- ============ PRODUCT SPECS (merged module — the Bowlprint spec builder) ============ -->
+  <section class="view" id="view-specs">
+    <h2 class="viewtitle">Product Specs</h2>
+    <p class="sub">Customer-facing product specification sheets. Shared — everyone with specs access sees the same sheets, saved automatically. Compositions can be filled straight from the recipes.</p>
+    <div class="costing-shell"><iframe id="specsFrame" title="Product Specs"></iframe></div>
+  </section>
   <!-- ============ KPI DASHBOARD (merged module) ============ -->
   <section class="view" id="view-kpi">
     <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
@@ -722,6 +735,8 @@ tr.prDrag:hover{background:#faf3ee}
 const SEED_RECIPES = [{"id": "wilsons-chicken-puppy", "brand": "Wilsons", "name": "Chicken Puppy", "packs": ["380g"], "ingredients": [{"name": "Chicken Trim", "kg": 27.3349}, {"name": "Cod", "kg": 15.346}, {"name": "Sweet Potato", "kg": 11.5095}, {"name": "Chicken Liver", "kg": 9.5913}, {"name": "Chicken Hearts", "kg": 9.5913}, {"name": "Carrot", "kg": 5.7548}, {"name": "Quinoa", "kg": 3.8365}, {"name": "Peas", "kg": 6.7139}, {"name": "Salmon Oil", "kg": 1.9183}, {"name": "Spinach", "kg": 1.9087}, {"name": "Egg Shell Powder", "kg": 0.9591}, {"name": "Wilsons Propath Premix", "kg": 0.5083}, {"name": "Seaweed", "kg": 0.4796}, {"name": "Citric Acid", "kg": 0.2398}, {"name": "Monocalcium phosphate", "kg": 0.2302}, {"name": "Potassium Chloride", "kg": 0.1918}, {"name": "Choline Chloride", "kg": 0.048}, {"name": "Brocacel Yeast", "kg": 0.0014}, {"name": "Sweet Potato Powder", "kg": 1.9183}, {"name": "Potato Starch", "kg": 1.9183}], "baseKg": 100.0}, {"id": "wilsons-fish-and-beef", "brand": "Wilsons", "name": "Fish & Beef", "packs": ["380g"], "ingredients": [{"name": "Cod", "kg": 29.3398}, {"name": "Sweet Potato", "kg": 17.9071}, {"name": "Salmon Trim", "kg": 12.7139}, {"name": "Beef Hearts", "kg": 17.6039}, {"name": "Peas", "kg": 9.78}, {"name": "Quinoa", "kg": 5.868}, {"name": "Egg shell powder", "kg": 1.6626}, {"name": "Sunflower oil", "kg": 0.978}, {"name": "Seaweed", "kg": 0.489}, {"name": "Potassium Chloride", "kg": 0.489}, {"name": "Wilsons Propath Premix", "kg": 0.3912}, {"name": "Sodium Chloride", "kg": 0.2934}, {"name": "Citric Acid", "kg": 0.2445}, {"name": "Monocalcium phosphate", "kg": 0.1858}, {"name": "Choline Chloride", "kg": 0.0978}, {"name": "Sweet Potato Powder", "kg": 0.978}, {"name": "Potato Starch", "kg": 0.978}], "baseKg": 100.0}, {"id": "wilsons-venison-and-duck", "brand": "Wilsons", "name": "Venison & Duck", "packs": ["380g"], "ingredients": [{"name": "Venison Trim", "kg": 40.4395}, {"name": "Venison MDM", "kg": 17.3312}, {"name": "Sweet Potato", "kg": 10.8908}, {"name": "Quinoa", "kg": 3.9603}, {"name": "Peas", "kg": 8.9106}, {"name": "Duck MDM", "kg": 4.9503}, {"name": "Duck Liver", "kg": 4.9503}, {"name": "Spinach", "kg": 3.9603}, {"name": "Egg Shell Powder", "kg": 0.9901}, {"name": "Sunflower Oil", "kg": 0.9901}, {"name": "Potassium Chloride", "kg": 0.495}, {"name": "Seaweed", "kg": 0.495}, {"name": "Wilsons Propath Premix", "kg": 0.297}, {"name": "Sodium Chloride", "kg": 0.297}, {"name": "Choline Chloride", "kg": 0.0495}, {"name": "Brocacel Yeast", "kg": 0.003}, {"name": "Sweet Potato Powder", "kg": 0.495}, {"name": "Potato Starch", "kg": 0.495}], "baseKg": 100.0}, {"id": "wilsons-beef-and-quinoa", "brand": "Wilsons", "name": "Beef & Quinoa", "packs": ["380g"], "ingredients": [{"name": "Beef Hearts", "kg": 36.9571}, {"name": "Beef Kidney", "kg": 14.7044}, {"name": "Beef Liver", "kg": 9.803}, {"name": "Carrots", "kg": 9.803}, {"name": "Sweet Potato", "kg": 9.803}, {"name": "Green Beans", "kg": 9.803}, {"name": "Quinoa", "kg": 3.9212}, {"name": "Monocalcium phosphate", "kg": 0.7842}, {"name": "Sunflower oil", "kg": 0.696}, {"name": "Egg shell powder", "kg": 0.6862}, {"name": "Seaweed", "kg": 0.4901}, {"name": "Wilsons Propath Premix", "kg": 0.3921}, {"name": "Potassium Chloride", "kg": 0.1961}, {"name": "Sweet Potato Powder", "kg": 0.9803}, {"name": "Potato Starch", "kg": 0.9803}], "baseKg": 100.0}, {"id": "wilsons-turkey-puppy", "brand": "Wilsons", "name": "Turkey Puppy", "packs": ["380g"], "ingredients": [{"name": "Turkey Trim", "kg": 24.4411}, {"name": "Turkey MDM", "kg": 23.5294}, {"name": "Sweet Potato", "kg": 11.7647}, {"name": "Turkey Hearts", "kg": 9.8039}, {"name": "Turkey Liver", "kg": 9.8039}, {"name": "Carrot", "kg": 6.8627}, {"name": "Peas", "kg": 4.902}, {"name": "Quinoa", "kg": 1.9608}, {"name": "Salmon Oil", "kg": 1.9608}, {"name": "Monocalcium phosphate", "kg": 0.9804}, {"name": "Egg Shell Powder", "kg": 0.7353}, {"name": "Wilsons Propath Premix", "kg": 0.4902}, {"name": "Seaweed", "kg": 0.4902}, {"name": "Potassium Chloride", "kg": 0.2941}, {"name": "Choline Chloride", "kg": 0.0196}, {"name": "Brocacel Yeast", "kg": 0.0001}, {"name": "Sweet Potato Powder", "kg": 0.9804}, {"name": "Potato Starch", "kg": 0.9804}], "baseKg": 100.0}, {"id": "wilsons-lamb-and-rice", "brand": "Wilsons", "name": "Lamb & Rice", "packs": ["380g"], "ingredients": [{"name": "Lamb Trim", "kg": 55.86}, {"name": "Carrot", "kg": 11.0}, {"name": "Green Beans", "kg": 11.0}, {"name": "Lamb Lungs", "kg": 10.0}, {"name": "Rice", "kg": 3.0}, {"name": "Lamb Liver", "kg": 5.0}, {"name": "Egg Shell Powder", "kg": 0.7}, {"name": "Monocalcium phosphate", "kg": 0.5}, {"name": "Seaweed", "kg": 0.5}, {"name": "Wilsons Propath Premix", "kg": 0.4}, {"name": "Potassium Chloride", "kg": 0.04}, {"name": "Rice Flour", "kg": 2.0}], "baseKg": 100.0}, {"id": "wilsons-turkey-and-quinoa", "brand": "Wilsons", "name": "Turkey & Quinoa", "packs": ["380g"], "ingredients": [{"name": "Turkey Trim", "kg": 25.0}, {"name": "Turkey MDM", "kg": 23.5294}, {"name": "Turkey Hearts", "kg": 9.8039}, {"name": "Turkey Liver", "kg": 9.8039}, {"name": "Sweet Potato", "kg": 9.8039}, {"name": "Peas", "kg": 6.8627}, {"name": "Carrot", "kg": 6.8627}, {"name": "Quinoa", "kg": 3.9216}, {"name": "Egg Shell Powder", "kg": 0.9804}, {"name": "Seaweed", "kg": 0.4902}, {"name": "Wilsons Propath Premix", "kg": 0.3922}, {"name": "Monocalcium phosphate", "kg": 0.3922}, {"name": "Potassium Chloride", "kg": 0.1961}, {"name": "Sweet Potato Powder", "kg": 0.9804}, {"name": "Potato Starch", "kg": 0.9804}], "baseKg": 100.0}, {"id": "wilsons-chicken-and-quinoa", "brand": "Wilsons", "name": "Chicken & Quinoa", "packs": ["380g"], "ingredients": [{"name": "Chicken Trim", "kg": 52.9699}, {"name": "Sweet Potato", "kg": 9.9009}, {"name": "Chicken liver", "kg": 9.9009}, {"name": "Chicken hearts", "kg": 8.9108}, {"name": "Peas", "kg": 8.9108}, {"name": "Quinoa", "kg": 3.9604}, {"name": "Egg shell powder", "kg": 0.9901}, {"name": "Spinach", "kg": 1.9802}, {"name": "Monocalcium phosphate", "kg": 0.495}, {"name": "Seaweed", "kg": 0.495}, {"name": "Wilsons Propath Premix", "kg": 0.396}, {"name": "Potassium Chloride", "kg": 0.0495}, {"name": "Choline Chloride", "kg": 0.0495}, {"name": "Yeast", "kg": 0.001}, {"name": "Sweet Potato Powder", "kg": 0.495}, {"name": "Potato Starch", "kg": 0.495}], "baseKg": 100.0}, {"id": "tuggs-turkey", "brand": "TUGGS", "name": "Turkey", "packs": ["300g", "500g", "700g"], "ingredients": [{"name": "Turkey Baader", "kg": 39.9204}, {"name": "Turkey Heart", "kg": 2.994}, {"name": "Turkey Liver", "kg": 11.976}, {"name": "Insect", "kg": 4.99}, {"name": "Carrot", "kg": 12.0758}, {"name": "Sweet Potato", "kg": 10.479}, {"name": "Kale", "kg": 10.479}, {"name": "Quinoa", "kg": 3.992}, {"name": "Yeast Products", "kg": 0.998}, {"name": "Mineral Mix", "kg": 0.998}, {"name": "Salmon Oil", "kg": 0.1996}, {"name": "Sunflower Oil", "kg": 0.1996}, {"name": "Coriander", "kg": 0.6986}], "baseKg": 100.0}, {"id": "tuggs-chicken", "brand": "TUGGS", "name": "Chicken", "packs": ["300g", "500g", "700g"], "ingredients": [{"name": "Chicken Baader", "kg": 10.5}, {"name": "Chicken Trim", "kg": 10.5}, {"name": "Chicken Heart", "kg": 15.75}, {"name": "Chicken Liver", "kg": 10.5}, {"name": "Insect", "kg": 15.0}, {"name": "Carrot", "kg": 12.6}, {"name": "Sweet Potato", "kg": 11.72}, {"name": "Broccoli", "kg": 4.73}, {"name": "Quinoa", "kg": 4.0}, {"name": "Yeast Products", "kg": 1.0}, {"name": "Mineral Mix", "kg": 1.0}, {"name": "Salmon Oil", "kg": 0.2}, {"name": "Sunflower Oil", "kg": 2.5}], "baseKg": 100.0}, {"id": "tuggs-beef", "brand": "TUGGS", "name": "Beef", "packs": ["300g", "500g", "700g"], "ingredients": [{"name": "Beef Heart", "kg": 31.5}, {"name": "Beef Lungs", "kg": 10.5}, {"name": "Beef Liver", "kg": 8.4}, {"name": "Insect", "kg": 15.0}, {"name": "Carrot", "kg": 11.55}, {"name": "Sweet potato", "kg": 5.65}, {"name": "Salmon Oil", "kg": 0.15}, {"name": "Broccoli", "kg": 8.4}, {"name": "Mineral Mix", "kg": 1.0}, {"name": "Sunflower Oil", "kg": 2.85}, {"name": "Yeast Products", "kg": 1.0}, {"name": "Quinoa", "kg": 4.0}], "baseKg": 100.0}, {"id": "tuggs-pork", "brand": "TUGGS", "name": "Pork", "packs": ["300g", "500g", "700g"], "ingredients": [{"name": "Pork Trimming", "kg": 15.75}, {"name": "Pork Heart", "kg": 21.0}, {"name": "Pork Liver", "kg": 7.88}, {"name": "Insect", "kg": 15.0}, {"name": "Carrot", "kg": 10.53}, {"name": "Sweet Potato", "kg": 12.6}, {"name": "Broccoli", "kg": 8.49}, {"name": "Mineral Mix", "kg": 1.0}, {"name": "Salmon Oil", "kg": 0.25}, {"name": "Sunflower Oil", "kg": 2.5}, {"name": "Quinoa", "kg": 4.0}, {"name": "Yeast Products", "kg": 1.0}], "baseKg": 100.0}, {"id": "tuggs-fish", "brand": "TUGGS", "name": "Fish", "packs": ["300g", "500g", "700g"], "ingredients": [{"name": "Cod", "kg": 42.0}, {"name": "Insect", "kg": 15.0}, {"name": "Sweet Potato", "kg": 10.0}, {"name": "Broccoli", "kg": 9.0}, {"name": "Carrot", "kg": 12.5}, {"name": "Sunflower Oil", "kg": 2.0}, {"name": "Mineral Mix", "kg": 1.0}, {"name": "Yeast Products", "kg": 1.0}, {"name": "Potato Flakes", "kg": 1.0}, {"name": "Quinoa", "kg": 5.0}, {"name": "Citric Acid", "kg": 0.5}, {"name": "Corriander", "kg": 1.0}], "baseKg": 100.0}, {"id": "wild-fish", "brand": "Wild", "name": "Fish", "packs": ["400g"], "ingredients": [{"name": "Cod", "kg": 79.4444}, {"name": "Pumpkin Powder", "kg": 0.993}, {"name": "Carrot", "kg": 4.9652}, {"name": "Sweet Potato", "kg": 2.9791}, {"name": "Salmon Oil", "kg": 0.1986}, {"name": "Broccoli", "kg": 1.9861}, {"name": "Wilsons Propath Premix", "kg": 0.993}, {"name": "Apple", "kg": 0.993}, {"name": "Blackcurrent", "kg": 0.993}, {"name": "Spinach", "kg": 0.4965}, {"name": "Kelp Powder", "kg": 0.4965}, {"name": "Chia Seeds", "kg": 2.9791}, {"name": "Whole egg powder", "kg": 0.993}, {"name": "Citric Acid", "kg": 0.4965}, {"name": "Corriander", "kg": 0.993}], "baseKg": 100.0}, {"id": "wild-duck", "brand": "Wild", "name": "Duck", "packs": ["400g"], "ingredients": [{"name": "Duck mdm", "kg": 65.5241}, {"name": "Duck Liver", "kg": 15.121}, {"name": "Pumpkin Powder", "kg": 1.0081}, {"name": "Carrot", "kg": 5.0403}, {"name": "Sweet Potato", "kg": 3.0242}, {"name": "Salmon Oil", "kg": 0.2016}, {"name": "Broccoli", "kg": 2.0161}, {"name": "Wilsons Propath Premix", "kg": 1.0081}, {"name": "Apple", "kg": 1.0081}, {"name": "Blackcurrent", "kg": 1.0081}, {"name": "Spinach", "kg": 0.504}, {"name": "Kelp Powder", "kg": 0.504}, {"name": "Chia Seeds", "kg": 3.0242}, {"name": "Whole egg powder", "kg": 1.0081}], "baseKg": 100.0}, {"id": "wild-surf-and-turf", "brand": "Wild", "name": "Surf & Turf", "packs": ["400g"], "ingredients": [{"name": "Cod", "kg": 40.0}, {"name": "Beef Heart", "kg": 20.0}, {"name": "Beef Lung", "kg": 10.0}, {"name": "Beef Liver", "kg": 10.0}, {"name": "Pumpkin Powder", "kg": 0.7}, {"name": "Carrot", "kg": 5.0}, {"name": "Sweet Potato", "kg": 2.0}, {"name": "Salmon Oil", "kg": 0.2}, {"name": "Broccoli", "kg": 4.1}, {"name": "Wilsons Propath Premix", "kg": 1.0}, {"name": "Apple", "kg": 1.0}, {"name": "Blackcurrent", "kg": 1.0}, {"name": "Spinach", "kg": 0.5}, {"name": "Kelp Powder", "kg": 0.5}, {"name": "Chia Seeds", "kg": 3.0}, {"name": "Whole egg powder", "kg": 1.0}], "baseKg": 100.0}, {"id": "wild-beef", "brand": "Wild", "name": "Beef", "packs": ["400g"], "ingredients": [{"name": "Beef Kidney", "kg": 20.1613}, {"name": "Beef Heart", "kg": 25.2015}, {"name": "Beef Lung", "kg": 20.1613}, {"name": "Beef Liver", "kg": 15.121}, {"name": "Pumpkin Powder", "kg": 1.0081}, {"name": "Carrot", "kg": 5.0403}, {"name": "Sweet Potato", "kg": 3.0242}, {"name": "Salmon Oil", "kg": 0.2016}, {"name": "Broccoli", "kg": 2.0161}, {"name": "Wilsons Propath Premix", "kg": 1.0081}, {"name": "Apple", "kg": 1.0081}, {"name": "Blackcurrent", "kg": 1.0081}, {"name": "Spinach", "kg": 0.504}, {"name": "Kelp Powder", "kg": 0.504}, {"name": "Chia Seeds", "kg": 3.0242}, {"name": "Whole egg powder", "kg": 1.0081}], "baseKg": 100.0}, {"id": "wild-chicken", "brand": "Wild", "name": "Chicken", "packs": ["400g"], "ingredients": [{"name": "Chicken MDM", "kg": 50.4033}, {"name": "Chicken Trim", "kg": 10.0806}, {"name": "Chicken Heart", "kg": 10.0806}, {"name": "Chicken Liver", "kg": 10.0806}, {"name": "Pumpkin Powder", "kg": 1.0081}, {"name": "Carrot", "kg": 5.0403}, {"name": "Sweet Potato", "kg": 3.0242}, {"name": "Salmon Oil", "kg": 0.2016}, {"name": "Broccoli", "kg": 2.0161}, {"name": "Wilsons Propath Premix", "kg": 1.0081}, {"name": "Apple", "kg": 1.0081}, {"name": "Blackcurrent", "kg": 1.0081}, {"name": "Spinach", "kg": 0.504}, {"name": "Kelp Powder", "kg": 0.504}, {"name": "Chia Seeds", "kg": 3.0242}, {"name": "Whole egg powder", "kg": 1.0081}], "baseKg": 100.0}, {"id": "nutriment-beef-with-vegetables", "brand": "Nutriment", "name": "Beef with Vegetables", "packs": ["250g", "400g"], "ingredients": [{"name": "Beef Trim", "kg": 20.0}, {"name": "Beef Heart", "kg": 15.0}, {"name": "Beef Lungs", "kg": 15.0}, {"name": "Beef Liver", "kg": 10.0}, {"name": "Beef Kidney", "kg": 10.0}, {"name": "Carrot", "kg": 8.1}, {"name": "Green Bean", "kg": 6.3}, {"name": "Beef Tripe", "kg": 5.0}, {"name": "Sweet Potato", "kg": 3.0}, {"name": "Sweet Potato Powder", "kg": 3.0}, {"name": "Sweet Potato Starch", "kg": 1.5}, {"name": "Apple", "kg": 1.0}, {"name": "Egg Shell", "kg": 0.7}, {"name": "Salmon Oil", "kg": 0.5}, {"name": "Hemp Oil", "kg": 0.5}, {"name": "Premix (Vitamins & Minerals)", "kg": 0.4}], "baseKg": 100.0}, {"id": "nutriment-chicken-with-vegetables", "brand": "Nutriment", "name": "Chicken with Vegetables", "packs": ["250g", "400g"], "ingredients": [{"name": "Chicken Trim", "kg": 60.0}, {"name": "Carrot", "kg": 8.0}, {"name": "Chicken Heart", "kg": 7.5}, {"name": "Chicken Liver", "kg": 7.5}, {"name": "Green Beans", "kg": 7.2}, {"name": "Sweet Potato Powder", "kg": 3.0}, {"name": "Sweet Potato", "kg": 3.0}, {"name": "Sweet Potato Starch", "kg": 1.5}, {"name": "Egg Shell", "kg": 0.7}, {"name": "Hemp Oil", "kg": 0.4}, {"name": "Salmon Oil", "kg": 0.4}, {"name": "Blackberry", "kg": 0.4}, {"name": "Premix (Vitamins & Minerals)", "kg": 0.4}], "baseKg": 100.0}, {"id": "nutriment-fish-with-vegetables", "brand": "Nutriment", "name": "Fish with Vegetables", "packs": ["250g", "400g"], "ingredients": [{"name": "White Fish (Cod)", "kg": 37.5}, {"name": "Salmon Trim", "kg": 37.5}, {"name": "Carrot", "kg": 9.0}, {"name": "Peas", "kg": 5.0}, {"name": "Sweet Potato Powder", "kg": 4.0}, {"name": "Sweet Potato", "kg": 2.0}, {"name": "Sweet Potato Starch", "kg": 2.0}, {"name": "Coriander", "kg": 1.0}, {"name": "Egg Shell", "kg": 0.7}, {"name": "Hemp Oil", "kg": 0.45}, {"name": "Salmon Oil", "kg": 0.45}, {"name": "Premix (Vitamins & Minerals)", "kg": 0.4}], "baseKg": 100.0}, {"id": "nutriment-lamb-with-vegetables", "brand": "Nutriment", "name": "Lamb with Vegetables", "packs": ["250g", "400g"], "ingredients": [{"name": "Lamb Trim", "kg": 52.0}, {"name": "Lamb Lung", "kg": 8.0}, {"name": "Lamb Tripe", "kg": 8.0}, {"name": "Carrot", "kg": 8.0}, {"name": "Sweet Potato", "kg": 6.0}, {"name": "Lamb Liver", "kg": 5.0}, {"name": "Green Bean", "kg": 4.0}, {"name": "Sweet Potato Powder", "kg": 3.0}, {"name": "Lamb Heart", "kg": 2.0}, {"name": "Sweet Potato Starch", "kg": 1.0}, {"name": "Egg Shell", "kg": 0.7}, {"name": "Blueberry (Currant)", "kg": 0.5}, {"name": "Seaweed", "kg": 0.5}, {"name": "Hemp Oil", "kg": 0.45}, {"name": "Salmon Oil", "kg": 0.45}, {"name": "Premix (Vitamins & Minerals)", "kg": 0.4}], "baseKg": 100.0}, {"id": "green-pantry-digestion", "brand": "Green Pantry", "name": "Digestion", "packs": ["380g"], "ingredients": [{"name": "Turkey MDM", "kg": 50.0}, {"name": "Turkey Liver", "kg": 10.0}, {"name": "Carrots Fresh", "kg": 14.0}, {"name": "Pumpkin Fresh", "kg": 10.0}, {"name": "Sweet Potato Fresh", "kg": 8.2}, {"name": "Cellulose Powder", "kg": 2.0}, {"name": "Beet Pulp", "kg": 2.0}, {"name": "Green Pantry Wet Range Vit & Min", "kg": 1.0}, {"name": "Monocalcium Phosphate", "kg": 1.0}, {"name": "Dried Blood Plasma", "kg": 0.9}, {"name": "Top Up Digestion", "kg": 0.5}, {"name": "Psyllium Husk", "kg": 0.3}, {"name": "Aurnta AuraGuard", "kg": 0.1}], "baseKg": 100.0}, {"id": "green-pantry-weight-loss", "brand": "Green Pantry", "name": "Weight Loss", "packs": ["380g"], "ingredients": [{"name": "Cod", "kg": 70.0}, {"name": "Brown Rice", "kg": 10.82}, {"name": "Carrots Fresh", "kg": 8.0}, {"name": "Sunflower Oil", "kg": 3.0}, {"name": "Chia Seed", "kg": 2.63}, {"name": "Cellulose Powder", "kg": 1.0}, {"name": "Green Pantry Wet Range Vit & Min", "kg": 1.0}, {"name": "Salmon Pro", "kg": 1.0}, {"name": "Dried Blood Plasma", "kg": 0.8}, {"name": "Beet Pulp", "kg": 0.55}, {"name": "Top Up - Weight loss", "kg": 0.5}, {"name": "Monocalcium Phosphate", "kg": 0.4}, {"name": "Psyllium Husk", "kg": 0.2}, {"name": "Aurnta AuraGuard", "kg": 0.1}], "baseKg": 100.0}, {"id": "green-pantry-skin-and-coat", "brand": "Green Pantry", "name": "Skin & Coat", "packs": ["380g"], "ingredients": [{"name": "Duck MDM", "kg": 51.0}, {"name": "Brown Oats", "kg": 22.6}, {"name": "Carrots Fresh", "kg": 12.0}, {"name": "Duck Liver", "kg": 7.0}, {"name": "Duck Heart", "kg": 2.0}, {"name": "Cellulose Powder", "kg": 1.2}, {"name": "Green Pantry Wet Range Vit & Min", "kg": 1.0}, {"name": "Beet Pulp", "kg": 1.0}, {"name": "Dried Blood Plasma", "kg": 0.7}, {"name": "Salmon oil", "kg": 0.5}, {"name": "Top Up - Skin and Coat", "kg": 0.5}, {"name": "Monocalcium Phosphate", "kg": 0.4}, {"name": "Aurnta AuraGuard", "kg": 0.1}], "baseKg": 100.0}, {"id": "green-pantry-senior", "brand": "Green Pantry", "name": "Senior", "packs": ["380g"], "ingredients": [{"name": "Salmon Trim", "kg": 28.13}, {"name": "Salmon Pro", "kg": 0.87}, {"name": "Cod", "kg": 19.0}, {"name": "Carrots Fresh", "kg": 15.7}, {"name": "Trout", "kg": 12.0}, {"name": "Broccoli Fresh", "kg": 10.65}, {"name": "Sweet Potato Fresh", "kg": 6.0}, {"name": "Beet Pulp", "kg": 2.0}, {"name": "Green Pantry Wet Range Vit & Min", "kg": 1.0}, {"name": "Sunflower Oil", "kg": 1.56}, {"name": "Dried Blood Plasma", "kg": 1.0}, {"name": "Psyllium Husk", "kg": 0.5}, {"name": "Coconut Oil", "kg": 0.24}, {"name": "Aurnta AuraGuard", "kg": 0.1}, {"name": "Monocalcium Phosphate", "kg": 0.75}, {"name": "Top Up - Senior", "kg": 0.5}], "baseKg": 100.0}];
 const PROCESS = {Wilsons:"Sterilised","TUGGS":"Pasteurised",Wild:"Pasteurised",Nutriment:"Sterilised","Green Pantry":"Sterilised"};
 const BRAND_COLORS = {Wilsons:"var(--wilsons)","TUGGS":"var(--tuggs)",Wild:"var(--wild)",Nutriment:"var(--nutriment)","Green Pantry":"var(--greenpantry)"};
+/* one colour per recipe everywhere: the tile colour chosen in Recipe Costing, else the brand colour */
+function recipeColorOf(r){ return (r&&r.color)||(r&&BRAND_COLORS[r.brand])||'#8895a3'; }
 const STORE_KEY = "wmf_state_v1";
 
 let state = null; // initialised at the bottom, after migration helpers are defined
@@ -1038,18 +1053,18 @@ document.getElementById('tabs').addEventListener('click',e=>{
 /* ---------------- Library ---------------- */
 function renderLibrary(){
   const host=document.getElementById('libraryBody'); host.innerHTML='';
-  const brands=[...new Set(state.recipes.map(r=>r.brand))];
+  const brands=[...new Set(VREC().map(r=>r.brand))];
   brands.forEach(br=>{
-    const list=state.recipes.filter(r=>r.brand===br);
+    const list=VREC().filter(r=>r.brand===br);
     const head=document.createElement('div'); head.className='brand-head';
     const proc=PROCESS[br]||'';
-    head.innerHTML=`<span class="dot" style="background:${BRAND_COLORS[br]}"></span>
+    head.innerHTML=`<span class="dot" style="background:${BRAND_COLORS[br]||recipeColorOf(list[0])}"></span>
       <h3>${br}</h3><span class="count">${list.length} recipes · ${proc} · ${[...new Set(list.flatMap(r=>r.packs))].join(", ")}</span>`;
     host.appendChild(head);
     const grid=document.createElement('div'); grid.className='grid';
     list.forEach(r=>{
       const c=document.createElement('div'); c.className='recipe-card';
-      c.style.borderLeftColor=BRAND_COLORS[br];
+      c.style.borderLeftColor=recipeColorOf(r);
       const past = (PROCESS[br]==='Pasteurised');
       c.innerHTML=`<h4>${r.name}</h4>
         <div class="meta">${r.ingredients.length} ingredients · base ${fmt(baseKg(r))} kg</div>
@@ -1073,7 +1088,7 @@ function showRecipe(id){
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn sm" onclick="closeModal();gotoMix('${r.id}')">Open mixing sheet</button>
       <button class="btn ghost sm" onclick="recipeDetails('${r.id}')">Set details</button>
-      <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit recipe</button>
+      <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit in Recipe Costing</button>
     </div>`;
   document.getElementById('modalBg').classList.add('open');
 }
@@ -1162,13 +1177,13 @@ function renderPlanner(){
 function renderPalette(){
   const q=(document.getElementById('paletteSearch').value||'').toLowerCase().trim();
   const host=document.getElementById('paletteList'); host.innerHTML='';
-  [...new Set(state.recipes.map(r=>r.brand))].forEach(br=>{
-    const list=state.recipes.filter(r=>r.brand===br && (!q || r.name.toLowerCase().includes(q) || br.toLowerCase().includes(q)));
+  [...new Set(VREC().map(r=>r.brand))].forEach(br=>{
+    const list=VREC().filter(r=>r.brand===br && (!q || r.name.toLowerCase().includes(q) || br.toLowerCase().includes(q)));
     if(!list.length) return;
     const h=document.createElement('h5'); h.textContent=br; host.appendChild(h);
     list.forEach(r=>{
       const it=document.createElement('div'); it.className='pal-item'; it.draggable=true;
-      it.style.borderLeftColor=BRAND_COLORS[r.brand]||'#8895a3';
+      it.style.borderLeftColor=recipeColorOf(r);
       it.textContent=r.name;
       it.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',JSON.stringify({t:'new',recipeId:r.id})); });
       host.appendChild(it);
@@ -1177,8 +1192,8 @@ function renderPalette(){
 }
 function renderBoard(){
   const board=document.getElementById('weekBoard'); board.innerHTML='';
-  const recipeOpts='<option value="">+ add…</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>
-    '<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join('');
+  const recipeOpts='<option value="">+ add…</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>
+    '<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join('');
   for(let idx=0;idx<5;idx++){
     const date=addDays(planWeek,idx);
     const jobs=dayJobs(idx);
@@ -1211,7 +1226,7 @@ function renderBoard(){
 function jobCard(idx,job){
   const r=byId(job.recipeId);
   const el=document.createElement('div'); el.className='jobcard'; el.draggable=true;
-  el.style.borderLeftColor=r?(BRAND_COLORS[r.brand]||'#8895a3'):'#8895a3';
+  el.style.borderLeftColor=r?recipeColorOf(r):'#8895a3';
   if(!r){ el.innerHTML=`<div class="jt"><span>(deleted recipe)</span><button class="jx" title="remove">✕</button></div>`;
     el.querySelector('.jx').addEventListener('click',()=>removeJob(idx,job.id)); return el; }
   const packs = r.packs.length?r.packs:['(no size)'];
@@ -1411,9 +1426,9 @@ function showIngUsage(id){
   const recs=state.recipes.filter(r=>r.ingredients.some(li=>li.ingId===id));
   const rows=recs.map(r=>{
     const li=r.ingredients.find(x=>x.ingId===id);
-    return `<tr><td><span class="pill" style="background:${BRAND_COLORS[r.brand]||'#8895a3'};color:#fff">${escapeHtml(r.brand)}</span> ${escapeHtml(r.name)}</td>
+    return `<tr><td><span class="pill" style="background:${recipeColorOf(r)};color:#fff">${escapeHtml(r.brand)}</span> ${escapeHtml(r.name)}</td>
       <td class="num">${fmt(li.kg)}</td>
-      <td style="white-space:nowrap"><button class="btn sm" onclick="closeModal();gotoMix('${r.id}')">Mixing sheet</button> <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit</button></td></tr>`;
+      <td style="white-space:nowrap"><button class="btn sm" onclick="closeModal();gotoMix('${r.id}')">Mixing sheet</button> <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit in Costing</button></td></tr>`;
   }).join('');
   document.getElementById('modalInner').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
@@ -1502,9 +1517,9 @@ document.getElementById('ingSaveBtn').addEventListener('click',()=>{
 /* ---------------- Editor ---------------- */
 function fillRecipeSelect(sel){
   sel.innerHTML='';
-  [...new Set(state.recipes.map(r=>r.brand))].forEach(br=>{
+  [...new Set(VREC().map(r=>r.brand))].forEach(br=>{
     const og=document.createElement('optgroup'); og.label=br;
-    state.recipes.filter(r=>r.brand===br).forEach(r=>{ const o=document.createElement('option'); o.value=r.id; o.textContent=r.name; og.appendChild(o); });
+    VREC().filter(r=>r.brand===br).forEach(r=>{ const o=document.createElement('option'); o.value=r.id; o.textContent=r.name; og.appendChild(o); });
     sel.appendChild(og);
   });
 }
@@ -1567,7 +1582,7 @@ function readEditorInto(r){
 /* --- New recipe --- */
 document.getElementById('newRecipeBtn').addEventListener('click',()=>{ if(!ensureUnlocked()) return; openNewRecipe(); });
 function openNewRecipe(){
-  const brands=[...new Set(state.recipes.map(r=>r.brand))];
+  const brands=[...new Set(VREC().map(r=>r.brand))];
   const brandOpts=brands.map(b=>`<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   // default packs per brand (from first existing recipe of that brand)
   document.getElementById('modalInner').innerHTML=`
@@ -1620,7 +1635,7 @@ function createRecipe(){
   let base=(brand+'-'+name).toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   let id=base, n=2; while(byId(id)){ id=base+'-'+(n++); }
   if(!(brand in BRAND_COLORS)) BRAND_COLORS[brand]='#8895a3';
-  if(!(brand in PROCESS)) PROCESS[brand]='';
+  if(!(brand in PROCESS)) PROCESS[brand]=/cold pressed/i.test(brand)?'Cold Pressed':'';
   const rec={id,brand,name,packs:packs.length?packs:['380g'],ingredients:[]};
   state.recipes.push(rec);
   state.log.unshift({ts:new Date().toISOString(),recipeId:id,brand,recipe:name,type:'add',field:'Recipe created',old:'',new:brand+' — '+name+(packs.length?(' ('+packs.join(', ')+')'):''),by});
@@ -1699,7 +1714,7 @@ function drawMix(){
   const packRows=r.packs.map(p=>`<tr><td><b>${p}</b></td><td style="height:26px"></td><td></td></tr>`).join('');
   document.getElementById('mixBody').innerHTML=`<div class="mixsheet" id="mixPrintable">
     <div class="hd">
-      <div><div class="t">${r.brand} — ${r.name}</div><div class="b">${PROCESS[r.brand]} · Pack formats: <b>${r.packs.join(' · ')}</b></div></div>
+      <div><div class="t">${r.brand} — ${r.name}</div><div class="b">${PROCESS[r.brand]} · Pack formats: <b>${r.packs.length?r.packs.join(' · '):'—'}</b></div></div>
       <div style="text-align:right">
         <div class="b"><b>Batch size (kg):</b> ${fmt(batch)}</div>
         <div class="b"><b>Date:</b> __________  <b>Julian code:</b> __________</div>
@@ -1763,7 +1778,7 @@ function printMixSheet(node){
 function renderLog(){
   const sel=document.getElementById('logFilter'); const cur=sel.value;
   sel.innerHTML='<option value="">All recipes</option>';
-  [...new Set(state.recipes.map(r=>r.brand+' — '+r.name+'||'+r.id))].forEach(s=>{const [lbl,id]=s.split('||');const o=document.createElement('option');o.value=id;o.textContent=lbl;sel.appendChild(o);});
+  [...new Set(VREC().map(r=>r.brand+' — '+r.name+'||'+r.id))].forEach(s=>{const [lbl,id]=s.split('||');const o=document.createElement('option');o.value=id;o.textContent=lbl;sel.appendChild(o);});
   if(cur)sel.value=cur;
   drawLog();
 }
@@ -1888,11 +1903,28 @@ function csv(v){ v=(v===null||v===undefined)?'':(''+v); return /[",\n]/.test(v)?
 function stamp(){ return new Date().toISOString().slice(0,19).replace(/[:T]/g,'-'); }
 function download(name,content,type){ const b=new Blob([content],{type}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
 function gotoMix(id){ document.querySelector('[data-view="mixing"]').click(); document.getElementById('mixSelect').value=id; const r=byId(id); document.getElementById('mixBatch').value=fmt(baseKg(r)); drawMix(); }
-function gotoEdit(id){ document.querySelector('[data-view="editor"]').click(); document.getElementById('editSelect').value=id; drawEditorBody(); }
+/* recipes are created and changed in ONE place: Recipe Costing — open the RIGHT recipe there */
+let _costingOpenTimer=null;
+window.addEventListener('message',e=>{ if(e.data && e.data.openedRecipe){ clearInterval(_costingOpenTimer); _costingOpenTimer=null; } });
+function gotoEdit(id){
+  if(!canView('costing')){ alert('Recipes are managed in Recipe Costing — ask an admin for costing access if you need to change one.'); return; }
+  const r=byId(id);
+  navTo('costing');
+  if(!r) return;
+  /* fresh/cooked recipes live in costing as "Brand — Name"; cold-pressed ones by their own name */
+  const costingName=factoryOf(r.brand)==='blair' ? r.name : (r.brand+' — '+r.name);
+  const f=document.getElementById('costingFrame');
+  clearInterval(_costingOpenTimer); let tries=0;
+  _costingOpenTimer=setInterval(()=>{
+    tries++;
+    try{ f.contentWindow.postMessage({openRecipe:costingName},'*'); }catch(e){}
+    if(tries>25){ clearInterval(_costingOpenTimer); _costingOpenTimer=null; }
+  },400);
+}
 
 function refreshAll(){
   // ensure any brand present has a colour/process entry (covers user-added brands after reload)
-  [...new Set(state.recipes.map(r=>r.brand))].forEach(b=>{ if(!(b in BRAND_COLORS)) BRAND_COLORS[b]='#8895a3'; if(!(b in PROCESS)) PROCESS[b]=''; });
+  [...new Set(state.recipes.map(r=>r.brand))].forEach(b=>{ if(!(b in BRAND_COLORS)) BRAND_COLORS[b]='#8895a3'; if(!(b in PROCESS)) PROCESS[b]=/cold pressed/i.test(b)?'Cold Pressed':''; });
   renderLibrary(); renderPlanner(); renderIngredients(true); renderEditor(); renderMixingControls(); renderLog();
 }
 
@@ -2008,6 +2040,7 @@ async function startApp(){
   FILL_TARGETS=normalizeFillTargets(d.fillTargets);
   HOME_CONFIG=d.homeConfig||null;
   try{ const pr=await api('/api/myprefs'); MYPREFS=pr.prefs||null; }catch(e){ MYPREFS=null; }
+  await loadMenuLayout();
   _srvPlan=JSON.stringify(state.weekPlans||{});
   document.getElementById('whoName').textContent=d.user.username+(d.user.role==='admin'?' (admin)':'');
   document.getElementById('whoWrap').style.display='';
@@ -2027,9 +2060,10 @@ async function startApp(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
 /* KPI dashboard module (same pattern as costing: served by the app, shown in a frame) */
 function renderKpi(){ const f=document.getElementById('kpiFrame'); if(!f) return; const want='/kpi?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
+function renderSpecs(){ const f=document.getElementById('specsFrame'); if(!f) return; const want='/specs?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
 function openKpiDisplay(){ window.open('/kpi?token='+encodeURIComponent(TOKEN)+'&display=1','_blank'); }
 window.openKpiDisplay=openKpiDisplay;
 /* Costing module: loads the merged Costing App into its frame on first open (session token proves sign-in) */
@@ -2088,12 +2122,19 @@ const SB_SECTIONS={
     ['mixing','Mixing Sheets','printer'],
     ['optimings','Operations timings','sliders']
   ],
+  technical:[
+    ['home','Today','home'],
+    ['library','Recipe Library','book'],
+    ['costing','Recipe Costing','coins'],
+    ['specs','Product Specs','clipboardText'],
+    ['complaints','Complaints','alert'],
+    ['mixing','Mixing Sheets','printer']
+  ],
   office:[
     ['home','Today','home'],
     ['kpi','KPI Dashboard','dashboard'],
     ['kpiinput','KPI Daily Input','clipboardText'],
     ['library','Recipe Library','book'],
-    ['editor','Edit Recipes','pencil'],
     ['ingredients','Ingredients','basket'],
     ['planner','Production Planner','calendar'],
     ['stock','Stock','box'],
@@ -2102,6 +2143,7 @@ const SB_SECTIONS={
     ['packaging','Packaging','package'],
     ['suppliers','Suppliers','users'],
     ['costing','Recipe Costing','coins'],
+    ['specs','Product Specs','clipboardText'],
     ['complaints','Complaints','alert'],
     ['log','Change Log','history'],
     ['users','Users','user']
@@ -2118,31 +2160,84 @@ const SB_FUTURE=[
 ];
 let SB_MODE=localStorage.getItem('wpm_sbmode')||'';
 let SB_ACTIVE='home';
+/* every screen that can be placed in a workspace: key → [key,label,icon] */
+const SB_ITEMS={}; Object.values(SB_SECTIONS).flat().forEach(it=>{ if(!SB_ITEMS[it[0]]) SB_ITEMS[it[0]]=it; });
+/* admin-chosen layout (shared, stored on the server); null = the standard layout above */
+let MENU_LAYOUT=null;
+async function loadMenuLayout(){ try{ const d=await api('/api/menu-layout'); MENU_LAYOUT=(d.layout&&d.layout.v===1)?d.layout:null; }catch(e){ MENU_LAYOUT=null; } }
+function sbSection(mode){
+  if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])) return [SB_ITEMS.home, ...MENU_LAYOUT[mode].filter(k=>k!=='home').map(k=>SB_ITEMS[k]).filter(Boolean)];
+  return SB_SECTIONS[mode]||[];
+}
 function sbAllowed(list){ return list.filter(it=>it[0]==='home'||canView(it[0])); }
+function sbModeOk(m){ return sbAllowed(sbSection(m)).length>1; }
 function sbPickMode(){
-  const prodOk=sbAllowed(SB_SECTIONS.production).length>1, offOk=sbAllowed(SB_SECTIONS.office).length>1;
-  if(SB_MODE==='production'&&prodOk) return 'production';
-  if(SB_MODE==='office'&&offOk) return 'office';
-  return prodOk&&!offOk?'production':(offOk&&!prodOk?'office':(SB_MODE||'production'));
+  if(SB_MODE && SB_SECTIONS[SB_MODE] && sbModeOk(SB_MODE)) return SB_MODE;
+  return ['production','technical','office'].find(sbModeOk)||'production';
 }
 function renderSidebar(){
   if(!CURRENT_USER) return;
   const mode=sbPickMode();
-  const prodOk=sbAllowed(SB_SECTIONS.production).length>1, offOk=sbAllowed(SB_SECTIONS.office).length>1;
+  const okModes=['production','technical','office'].filter(sbModeOk);
   const tg=document.getElementById('sbToggle');
-  if(tg){ tg.style.display=(prodOk&&offOk)?'':'none';
-    tg.querySelectorAll('button').forEach(b=>{ b.classList.toggle('on',b.dataset.mode===mode);
+  if(tg){ tg.style.display=okModes.length>1?'':'none';
+    tg.querySelectorAll('button').forEach(b=>{ b.style.display=okModes.includes(b.dataset.mode)?'':'none';
+      b.classList.toggle('on',b.dataset.mode===mode);
       b.onclick=()=>{ SB_MODE=b.dataset.mode; try{localStorage.setItem('wpm_sbmode',SB_MODE);}catch(e){} renderSidebar(); }; });
   }
-  const items=sbAllowed(SB_SECTIONS[mode]||SB_SECTIONS.production);
+  const fh=document.getElementById('sbFactory');
+  if(fh){
+    const f=currentFactory();
+    if(isAdmin()){
+      /* same pill as the Production/Technical/Office slider — Ayr or Blair */
+      fh.innerHTML=`<div class="sb-toggle sb-facpill">
+        <button type="button" class="${f==='ayr'?'on':''}" title="${escapeHtml(FACTORY_LABEL.ayr)}" onclick="setFactory('ayr')">Ayr</button>
+        <button type="button" class="${f==='blair'?'on':''}" title="${escapeHtml(FACTORY_LABEL.blair)}" onclick="setFactory('blair')">Blair</button></div>`;
+    } else if(CURRENT_USER && CURRENT_USER.factory){
+      fh.innerHTML=`<div class="sb-faclock">${escapeHtml(FACTORY_LABEL[CURRENT_USER.factory]||CURRENT_USER.factory)}</div>`;
+    } else fh.innerHTML='';
+  }
+  const items=sbAllowed(sbSection(mode));
   let html=items.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span></button>`).join('');
   if(mode==='office'&&isAdmin()){
     html+='<div class="sb-head">Coming soon</div>'+SB_FUTURE.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span><span class="sb-soon">Soon</span></button>`).join('');
   }
+  if(isAdmin()) html+=`<button type="button" class="sb-item sb-custom" onclick="openMenuLayout()">${svg('sliders')}<span>Customise menu…</span></button>`;
   const nav=document.getElementById('sbNav'); if(nav) nav.innerHTML=html;
 }
 function sbGo(v){ sbClose(); navTo(v); }
 window.sbGo=sbGo;
+/* ===== admin: choose which screens sit in which workspace (applies to everyone) ===== */
+function openMenuLayout(){
+  const modes=['production','technical','office'];
+  const eff={}; modes.forEach(m=>eff[m]=new Set(sbSection(m).map(it=>it[0])));
+  const keys=[...new Set([...SB_SECTIONS.production,...SB_SECTIONS.technical,...SB_SECTIONS.office].map(it=>it[0]))].filter(k=>k!=='home');
+  const rows=keys.map(k=>`<tr><td style="text-align:left">${escapeHtml(SB_ITEMS[k][1])}</td>${modes.map(m=>
+    `<td style="text-align:center"><input type="checkbox" class="mlk" data-k="${k}" data-m="${m}"${eff[m].has(k)?' checked':''}></td>`).join('')}</tr>`).join('');
+  pop(`<div style="max-width:560px">
+    <h3 style="margin-top:0">Customise the menu</h3>
+    <p class="sub" style="margin:4px 0 10px">Tick where each screen should appear. This changes the menu for <b>everyone</b> — people still only see screens their account is allowed to view. <b>Today</b> is always first in every workspace.</p>
+    <div style="max-height:52vh;overflow:auto"><table style="width:100%">
+      <thead><tr><th style="text-align:left">Screen</th><th>Production</th><th>Technical</th><th>Office</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost sm" onclick="saveMenuLayout(null)">Reset to standard</button>
+      <button class="btn ghost sm" onclick="closeModal()">Cancel</button>
+      <button class="btn sm" onclick="saveMenuLayout(collectMenuLayout())">Save for everyone</button>
+    </div></div>`);
+}
+function collectMenuLayout(){
+  const out={v:1,production:[],technical:[],office:[]};
+  document.querySelectorAll('#modalInner .mlk').forEach(c=>{ if(c.checked) out[c.dataset.m].push(c.dataset.k); });
+  return out;
+}
+async function saveMenuLayout(layout){
+  try{
+    await api('/api/menu-layout','PUT',{layout});
+    MENU_LAYOUT=layout; closeModal(); renderSidebar();
+  }catch(e){ alert('Could not save the menu layout: '+e.message); }
+}
+window.openMenuLayout=openMenuLayout; window.saveMenuLayout=saveMenuLayout; window.collectMenuLayout=collectMenuLayout;
 function sbSetActive(v){ SB_ACTIVE=v; document.querySelectorAll('#sbNav .sb-item').forEach(b=>b.classList.toggle('active',b.dataset.sv===v)); }
 function sbOpen(){ document.body.classList.add('sbopen'); }
 function sbClose(){ document.body.classList.remove('sbopen'); }
@@ -2152,11 +2247,11 @@ document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.c
 document.querySelectorAll('.fm-ic[data-icon]').forEach(el=>{ el.innerHTML=svg(el.dataset.icon); });
 
 const HOME_GROUPS=[
-  {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, editing, mixing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Edit Recipes','pencil','editor'],['Mixing Sheets','printer','mixing']]},
+  {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, mixing — recipes are made in Recipe Costing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Mixing Sheets','printer','mixing']]},
   {k:'prod',t:'Production',icon:'factory',sub:'Pick & mix, filling, cooking, records',items:[['Pick & Mix','flask','pickmix'],['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Summary','chartBar','prodsum'],['Production Planner','calendar','planner']]},
   {k:'goodsin',t:'Deliveries',icon:'truck',sub:'Goods in & suppliers',items:[['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
   {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
-  {k:'costing',t:'Costing',icon:'coins',sub:'Recipe costs, prices & margins',items:[['Recipe Costing','coins','costing']]},
+  {k:'costing',t:'Costing',icon:'coins',sub:'Recipe costs, prices & margins',items:[['Recipe Costing','coins','costing'],['Product Specs','clipboardText','specs']]},
   {k:'cs',t:'Customer Service',icon:'alert',sub:'Complaints log & investigation',items:[['Complaints','alert','complaints']]},
   {k:'kpis',t:'KPIs',icon:'dashboard',sub:'Ops dashboard & daily numbers',items:[['KPI Dashboard','dashboard','kpi'],['KPI Daily Input','clipboardText','kpiinput']]},
   {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
@@ -2164,7 +2259,7 @@ const HOME_GROUPS=[
 /* ---- per-account permissions ---- */
 const AREAS=[
   {k:'library',label:'Recipe Library',edit:false},{k:'ingredients',label:'Ingredients',edit:true},
-  {k:'editor',label:'Edit Recipes',edit:true},{k:'mixing',label:'Mixing Sheets',edit:false},
+  {k:'mixing',label:'Mixing Sheets',edit:false},
   {k:'filling',label:'Filling Sheet',edit:true},{k:'production',label:'Record Production',edit:true},
   {k:'cooking',label:'Cooking',edit:true},
   {k:'filldash',label:'Filling Dashboard',edit:false},
@@ -2178,6 +2273,7 @@ const AREAS=[
   {k:'complaints',label:'Complaints (customer service)',edit:true},
   {k:'kpi',label:'KPI Dashboard (edit = change targets & settings)',edit:true},
   {k:'kpiinput',label:'KPI daily input',edit:true},
+  {k:'specs',label:'Product Specs (edit = change spec sheets)',edit:true},
   {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true}
 ];
 const PRESETS={
@@ -2188,6 +2284,20 @@ const PRESETS={
   display:{view:{kpi:1},edit:{},display:1}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
+/* ===== two factories: Ayr (fresh/cooked) and Blair (cold pressed) =====
+   Admins switch between them (or see both); staff with a factory on their account are locked to it.
+   The factory of a recipe comes from its brand: 'Cold Pressed' brands = Blair, everything else = Ayr. */
+const FACTORY_LABEL={ayr:'Ayr — Fresh / Cooked', blair:'Blair — Cold Pressed', all:'Both factories'};
+function factoryOf(brand){ return /cold pressed/i.test(brand||'') ? 'blair' : 'ayr'; }
+function currentFactory(){
+  if(CURRENT_USER && CURRENT_USER.factory) return CURRENT_USER.factory;               // staff: locked
+  if(isAdmin()){ try{ const f=localStorage.getItem('wpm_factory'); return (f==='ayr'||f==='blair')?f:'ayr'; }catch(e){ return 'ayr'; } }
+  return 'all';
+}
+function setFactory(f){ try{ localStorage.setItem('wpm_factory',f); }catch(e){} renderSidebar(); refreshAll(); renderForTab(SB_ACTIVE||'home'); }
+window.setFactory=setFactory;
+function inFactory(r){ const f=currentFactory(); return f==='all' || factoryOf(r.brand)===f; }
+function VREC(){ return state.recipes.filter(inFactory); }
 function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
 function canEdit(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 
@@ -2342,9 +2452,9 @@ document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.c
 
 function reloadStock(){ return api('/api/stock').then(s=>{ state.stock=s; }); }
 function deductionsFor(r,bags,pack){ const mix=bags*packSizeKg(pack); const base=baseKg(r)||100; return (r.ingredients||[]).map(li=>({ing_id:li.ingId,kg:+( mix*(+li.kg||0)/base ).toFixed(4)})); }
-function recSelectOptions(sel){ return '<option value="">— choose —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join(''); }
+function recSelectOptions(sel){ return '<option value="">— choose —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join(''); }
 function ingSelectOptions(){ return [...state.ingredients].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}">${escapeHtml(i.name)}</option>`).join(''); }
-function prodSelectOptions(sel){ return '<option value="">— choose product —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join(''); }
+function prodSelectOptions(sel){ return '<option value="">— choose product —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join(''); }
 
 /* ===== numeric keypad ===== */
 let _kpTarget=null,_kpBuf='';
@@ -2391,12 +2501,12 @@ function reportLiveFill(){ try{ const b=fillBasket; const prods=[...new Set((b.l
 function clearLiveFill(){ try{ api('/api/live-fill','DELETE').catch(()=>{}); }catch(e){} }
 /* large-button product picker: Product -> brand -> recipe -> bag weight */
 function pickProduct(i){ pickBrand(i); }
-function pickBrand(i){ const brands=[...new Set(state.recipes.map(r=>r.brand))];
+function pickBrand(i){ const brands=[...new Set(VREC().map(r=>r.brand))];
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Choose product</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <div class="pickgrid">${brands.map(b=>`<button class="pickbtn" data-brand="${escapeHtml(b)}"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${(typeof BRAND_COLORS!=='undefined'&&BRAND_COLORS[b])||'#8895a3'};margin-right:10px"></span>${escapeHtml(b)}</button>`).join('')}</div>`);
   document.querySelectorAll('[data-brand]').forEach(btn=>btn.onclick=()=>pickRecipe(i,btn.dataset.brand));
 }
-function pickRecipe(i,brand){ const recs=state.recipes.filter(r=>r.brand===brand).sort((a,b)=>a.name.localeCompare(b.name));
+function pickRecipe(i,brand){ const recs=VREC().filter(r=>r.brand===brand).sort((a,b)=>a.name.localeCompare(b.name));
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${escapeHtml(brand)}</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <button class="btn ghost sm" id="pkBack" style="margin-top:6px">← All brands</button>
    <div class="pickgrid" style="margin-top:10px">${recs.map(r=>`<button class="pickbtn" data-rid="${r.id}">${escapeHtml(r.name)}</button>`).join('')}</div>`);
@@ -3200,7 +3310,7 @@ async function reorderProd(ids){ ids.forEach((id,i)=>{ const row=allProd.find(p=
 window.reorderProd=reorderProd;
 function editProd(id){
   const p=allProd.find(x=>x.id===id); if(!p) return;
-  const recOpts='<option value="">— none (free text) —</option>'+[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===p.recipe_id?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join('');
+  const recOpts='<option value="">— none (free text) —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===p.recipe_id?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join('');
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit production entry</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px">
      <label class="fld">Date<input type="date" id="epDate" value="${escapeHtml(p.date||'')}"></label>
@@ -3376,7 +3486,7 @@ function editPkg(id){ const p=id?state.packaging.find(x=>x.id===id):{id:null,nam
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${id?'Edit':'New'} packaging item</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px"><label class="fld" style="flex:2">Name<input id="pkName" value="${escapeHtml(p.name)}"></label><label class="fld">Type<select id="pkType">${PKG_TYPES.map(t=>`<option${t===p.type?' selected':''}>${escapeHtml(t)}</option>`).join('')}</select></label></div>
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld">Quantity<input id="pkQty" type="number" value="${p.qty}"></label><label class="fld">Re-order point<input id="pkRe" type="number" value="${p.reorder}"></label></div>
-   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld" style="flex:2">Bag used for product (optional)<select id="pkMapRec"><option value="">— none —</option>${[...new Set(state.recipes.map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+state.recipes.filter(r=>r.brand===br).map(r=>'<option value="'+r.id+'"'+(r.id===(p.map_recipe||'')?' selected':'')+'>'+escapeHtml(r.name)+'</option>').join('')+'</optgroup>').join('')}</select></label><label class="fld">Size<select id="pkMapPack"><option value="">—</option></select></label></div>
+   <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld" style="flex:2">Bag used for product (optional)<select id="pkMapRec"><option value="">— none —</option>${[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>'<option value="'+r.id+'"'+(r.id===(p.map_recipe||'')?' selected':'')+'>'+escapeHtml(r.name)+'</option>').join('')+'</optgroup>').join('')}</select></label><label class="fld">Size<select id="pkMapPack"><option value="">—</option></select></label></div>
    <p class="hint">If set, filling a basket of this product + size takes that many bags off this item.</p>
    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" id="pkSave">Save</button>${id?'<button class="btn danger" id="pkDel">Delete</button>':''}</div>`);
   (function(){ const rs=document.getElementById('pkMapRec'), pks=document.getElementById('pkMapPack'); function fillPacks(sel){ const r=byId(rs.value); const packs=r?(r.packs||[]):[]; pks.innerHTML='<option value="">—</option>'+packs.map(pk=>'<option'+(pk===sel?' selected':'')+'>'+escapeHtml(pk)+'</option>').join(''); } fillPacks(p.map_pack||''); rs.onchange=()=>fillPacks(''); })();
@@ -3808,7 +3918,7 @@ async function renderUsers(){
   document.getElementById('usAdd').onclick=()=>userModal(null);
   document.getElementById('usInvite').onclick=()=>inviteModal();
   try{ const rows=await api('/api/users'); window._users=rows;
-    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
+    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
   catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="5" class="muted">${escapeHtml(e.message)}</td></tr>`; }
   renderInvites();
 }
@@ -3886,6 +3996,7 @@ function userModal(id){
      ${u?'':'<label class="fld">Username<input id="uUser" autocapitalize="none"></label>'}
      <label class="fld">${u?'Reset password (optional)':'Password'}<input id="uPass" type="text" placeholder="${u?'leave blank to keep':''}"></label>
      <label class="fld">Role<select id="uRole"><option value="staff">staff</option><option value="admin"${u&&u.role==='admin'?' selected':''}>admin (full access)</option></select></label>
+     <label class="fld">Factory<select id="uFactory"><option value="">Both / not set</option><option value="ayr"${u&&u.factory==='ayr'?' selected':''}>Ayr — Fresh / Cooked</option><option value="blair"${u&&u.factory==='blair'?' selected':''}>Blair — Cold Pressed</option></select></label>
    </div>
    <div id="permWrap" style="margin-top:12px">
      <div class="row-flex" style="gap:8px;align-items:center"><b>Access</b><span class="spacer"></span><span class="hint">presets:</span>
@@ -3902,9 +4013,10 @@ function userModal(id){
   roleSel.onchange=togglePerm; togglePerm();
   document.getElementById('uSave').onclick=async()=>{
     const role=roleSel.value; const perms=role==='admin'?null:collectPerms(); const pass=document.getElementById('uPass').value;
+    const factory=(document.getElementById('uFactory')||{}).value||'';
     try{
-      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,password:pass||undefined}); }
-      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms}); }
+      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,factory,password:pass||undefined}); }
+      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms,factory}); }
       closeModal(); renderUsers();
     }catch(e){ document.getElementById('uMsg').textContent=e.message; }
   };

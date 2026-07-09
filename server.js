@@ -71,6 +71,10 @@ db.exec("CREATE TABLE IF NOT EXISTS complaints(id TEXT PRIMARY KEY, ref TEXT, da
 db.exec("CREATE INDEX IF NOT EXISTS idx_complaints_ref ON complaints(ref)");
 db.exec("CREATE TABLE IF NOT EXISTS invites(token TEXT PRIMARY KEY, label TEXT, role TEXT, perms TEXT, created TEXT, expires INTEGER, used_by TEXT, used_at TEXT)");
 db.exec("CREATE TABLE IF NOT EXISTS kpi_kv(key TEXT PRIMARY KEY, value TEXT, updated TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS specs_kv(key TEXT PRIMARY KEY, value TEXT, updated TEXT)");
+try { db.exec("ALTER TABLE users ADD COLUMN factory TEXT DEFAULT ''"); } catch (e) {}          // '', 'ayr' or 'blair'
+try { db.exec("ALTER TABLE recipes ADD COLUMN source TEXT DEFAULT ''"); } catch (e) {}         // 'costing' = created/synced from Recipe Costing
+try { db.exec("ALTER TABLE recipes ADD COLUMN color TEXT DEFAULT ''"); } catch (e) {}          // recipe tile colour, set in Recipe Costing
 db.exec("CREATE TABLE IF NOT EXISTS mixes(id TEXT PRIMARY KEY, date TEXT, recipe_id TEXT, batch TEXT, kg REAL, by TEXT, created TEXT)");
 db.exec("CREATE TABLE IF NOT EXISTS mix_items(mix_id TEXT, ing_id TEXT, batch_code TEXT, qty REAL)");
 try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
@@ -160,6 +164,22 @@ function importComplaintsSeed() {
     } catch (e) { db.exec('ROLLBACK'); console.log('complaints import failed:', e.message); }
   } catch (e) { console.log('complaints seed read failed:', e.message); }
 }
+// One-time import of the product specifications (the boss's exported fresh-specs data, 20 products).
+function importSpecsSeed() {
+  try {
+    const f = path.join(__dirname, 'specs-seed.json');
+    if (!fs.existsSync(f)) return;
+    const seed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = +(seed.version || 1);
+    const row = db.prepare("SELECT value FROM meta WHERE key='specsSeedV'").get();
+    if (row && +row.value >= want) return;
+    if (!db.prepare("SELECT key FROM specs_kv WHERE key='data'").get()) {
+      db.prepare('INSERT INTO specs_kv(key,value,updated) VALUES(?,?,?)').run('data', JSON.stringify(seed.data || { products: [] }), now());
+      console.log('Imported ' + ((seed.data || {}).products || []).length + ' product specifications.');
+    }
+    db.prepare("INSERT INTO meta(key,value) VALUES('specsSeedV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+  } catch (e) { console.log('specs seed failed:', e.message); }
+}
 // One-time import of the KPI dashboard's data + settings (full daily history from Aug 2025).
 function importKpiSeed() {
   try {
@@ -197,7 +217,7 @@ function authUser(req) {
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
   const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
   if (!s || s.expires < Date.now()) return null;
-  const u = db.prepare('SELECT id,username,role,perms FROM users WHERE id=?').get(s.user_id);
+  const u = db.prepare('SELECT id,username,role,perms,factory FROM users WHERE id=?').get(s.user_id);
   if (u) { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } }
   return u;
 }
@@ -270,6 +290,11 @@ function buildBackupXlsx() {
     }
     const kset = db.prepare("SELECT value FROM kpi_kv WHERE key='settings'").get();
     if (kset) { const v = kset.value || ''; const rows = [['Part', 'KPI settings (JSON)']]; for (let i = 0, p = 1; i < v.length || p === 1; i += 30000, p++) rows.push([p, v.slice(i, i + 30000)]); sheets.push({ name: 'KPI settings', rows }); }
+  } catch (e) {}
+  // product specifications — raw restorable copy
+  try {
+    const sp = db.prepare("SELECT value FROM specs_kv WHERE key='data'").get();
+    if (sp) { const v = sp.value || ''; const rows = [['Part', 'Product specs (JSON)']]; for (let i = 0, pn = 1; i < v.length || pn === 1; i += 30000, pn++) rows.push([pn, v.slice(i, i + 30000)]); sheets.push({ name: 'Product specs raw', rows }); }
   } catch (e) {}
   sheets.push({ name: 'Users', rows: [['Username', 'Role', 'Created', 'Permissions'],
     ...db.prepare('SELECT username, role, created, perms FROM users ORDER BY username').all().map(u => [u.username, u.role, u.created || '', u.perms || '(preset by role)'])] });
@@ -374,7 +399,7 @@ const server = http.createServer(async (req, res) => {
       const token = crypto.randomBytes(32).toString('hex'); const expires = Date.now() + (isDisplay ? 365 : 30) * 24 * 3600 * 1000;
       db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, expires);
       let perms = null; try { perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) {}
-      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms } });
+      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '' } });
     }
     // --- invite links: the invited person checks the invite and creates their own account (no sign-in yet) ---
     if (url === '/api/invite-info' && m === 'GET') {
@@ -403,7 +428,7 @@ const server = http.createServer(async (req, res) => {
       db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, expires);
       let perms = null; try { perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) {}
       console.log('Invite accepted: ' + uname + ' (' + (inv.label || 'no label') + ')');
-      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms } });
+      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '' } });
     }
     // FULL backup (zip: Excel + exact database) — admins, or ?key=BACKUP_KEY for the automated daily download
     if (url === '/api/backup.zip' && m === 'GET') {
@@ -442,7 +467,7 @@ const server = http.createServer(async (req, res) => {
       const tok = q.get('token') || '';
       const s = tok ? db.prepare('SELECT * FROM sessions WHERE token=?').get(tok) : null;
       let u = null;
-      if (s && s.expires > Date.now()) u = db.prepare('SELECT id,username,role,perms FROM users WHERE id=?').get(s.user_id);
+      if (s && s.expires > Date.now()) u = db.prepare('SELECT id,username,role,perms,factory FROM users WHERE id=?').get(s.user_id);
       let allowed = false;
       if (u) {
         if (u.role === 'admin') allowed = true;
@@ -456,13 +481,33 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+    // --- Product Specs page: signed-in users with the specs permission ---
+    if (url === '/specs' && m === 'GET') {
+      const q = new URLSearchParams((req.url.split('?')[1] || ''));
+      const tok = q.get('token') || '';
+      const s = tok ? db.prepare('SELECT * FROM sessions WHERE token=?').get(tok) : null;
+      let u = null;
+      if (s && s.expires > Date.now()) u = db.prepare('SELECT id,username,role,perms,factory FROM users WHERE id=?').get(s.user_id);
+      let allowed = false;
+      if (u) {
+        if (u.role === 'admin') allowed = true;
+        else { try { const p = u.perms ? JSON.parse(u.perms) : null; allowed = !!(p && p.view && p.view.specs); } catch (e) {} }
+      }
+      if (!allowed) { res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end('<p style="font-family:sans-serif;padding:30px">Please sign in to Wilsons HQ first, then open Product Specs from the menu.</p>'); }
+      fs.readFile(path.join(__dirname, 'specs.html'), (e, data) => {
+        if (e) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Specs module not installed.'); }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(data);
+      });
+      return;
+    }
     // --- Costing module page: only for signed-in users who are admins or have the costing permission ---
     if (url === '/costing' && m === 'GET') {
       const q = new URLSearchParams((req.url.split('?')[1] || ''));
       const tok = q.get('token') || '';
       const s = tok ? db.prepare('SELECT * FROM sessions WHERE token=?').get(tok) : null;
       let u = null;
-      if (s && s.expires > Date.now()) u = db.prepare('SELECT id,username,role,perms FROM users WHERE id=?').get(s.user_id);
+      if (s && s.expires > Date.now()) u = db.prepare('SELECT id,username,role,perms,factory FROM users WHERE id=?').get(s.user_id);
       let allowed = false;
       if (u) {
         if (u.role === 'admin') allowed = true;
@@ -564,6 +609,93 @@ const server = http.createServer(async (req, res) => {
           kpiSet('raw', raw); kpiSet('refresh', stamp);
         }
         return json(res, 200, { ok: true });
+      }
+
+      // ---- product specifications: shared data (admins + users with the specs permission) ----
+      const specsView = user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.specs);
+      const specsEdit = user.role === 'admin' || !!(user.perms && user.perms.edit && user.perms.edit.specs);
+      if (url === '/api/specs' && m === 'GET') {
+        if (!specsView) return json(res, 403, { error: 'no specs access' });
+        const r = db.prepare("SELECT value FROM specs_kv WHERE key='data'").get();
+        let data = { products: [] }; try { data = r ? JSON.parse(r.value) : data; } catch (e) {}
+        return json(res, 200, { data, caps: { edit: specsEdit } });
+      }
+      if (url === '/api/specs' && m === 'PUT') {
+        if (!specsEdit) return json(res, 403, { error: 'no permission to edit specs' });
+        const b = await readBody(req);
+        db.prepare("INSERT INTO specs_kv(key,value,updated) VALUES('data',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated").run(JSON.stringify((b && b.data) || { products: [] }), now());
+        return json(res, 200, { ok: true });
+      }
+
+      // ---- recipe sync: Recipe Costing is the source of truth for recipes ----
+      // Costing pushes its full recipe list; we upsert into the app's recipes so the
+      // Recipe Library, Editor, Mixing Sheets and Planner all see the same recipes.
+      // Only recipes tagged source='costing' are ever updated — hand-made app recipes are never touched.
+      if (url === '/api/costing-recipe-sync' && m === 'POST') {
+        const canCost = user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.costing);
+        if (!canCost) return json(res, 403, { error: 'no costing access' });
+        const b = await readBody(req); const list = (b && b.recipes) || [];
+        const adopt = !!(b && b.adopt);   // one-time takeover of app-made recipes (Recipe Costing becomes the single place recipes are managed)
+        const ingByName = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingByName[i.name.trim().toLowerCase()] = i.id);
+        // recipes are matched by name + brand together — several brands have a "Chicken"
+        const keyOfRec = (name, brand) => String(name || '').trim().toLowerCase() + '|' + String(brand || '').trim().toLowerCase();
+        let created = 0, updated = 0, adopted = 0; const skipped = [];
+        db.exec('BEGIN');
+        try {
+          const byKey = {}; db.prepare('SELECT id, name, brand, source FROM recipes').all().forEach(r => byKey[keyOfRec(r.name, r.brand)] = r);
+          list.forEach(rc => {
+            const name = String(rc.name || '').trim(); if (!name) return;
+            const ings = (rc.ingredients || []).map(g => {
+              const key = String(g.name || '').trim(); if (!key) return null;
+              let iid = ingByName[key.toLowerCase()];
+              if (!iid) { iid = uid('i'); db.prepare('INSERT INTO ingredients(id,name,category,supplier,notes) VALUES(?,?,?,?,?)').run(iid, key, '', '', 'added by Recipe Costing sync'); ingByName[key.toLowerCase()] = iid; }
+              return { ingId: iid, kg: +g.kg || 0 };
+            }).filter(Boolean);
+            const packs = (rc.packs || []).map(k => (String(k).match(/kg|g$/i) ? String(k) : (+k >= 1 ? k + 'kg' : Math.round(k * 1000) + 'g')));
+            const ex = byKey[keyOfRec(name, rc.brand)];
+            if (ex && ex.source !== 'costing' && !adopt) { skipped.push(name); return; }   // never clobber a hand-made app recipe unless adopting
+            if (ex) {
+              db.prepare("UPDATE recipes SET brand=?, packs=?, ingredients=?, updated=?, color=?, source='costing' WHERE id=?")
+                .run(rc.brand || '', JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''), ex.id);
+              if (ex.source !== 'costing') adopted++; else updated++;
+            } else {
+              db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color) VALUES(?,?,?,?,?,?,'costing',?)")
+                .run(uid('r'), rc.brand || '', name, JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''));
+              created++;
+            }
+          });
+          // costing is authoritative for its own recipes: remove synced copies it no longer has
+          const pushed = new Set(list.map(rc => keyOfRec(rc.name, rc.brand)));
+          db.prepare("SELECT id,name,brand FROM recipes WHERE source='costing'").all().forEach(r => { if (!pushed.has(keyOfRec(r.name, r.brand))) db.prepare('DELETE FROM recipes WHERE id=?').run(r.id); });
+          db.exec('COMMIT');
+        } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'sync failed: ' + e.message }); }
+        return json(res, 200, { ok: true, created, updated, adopted, skipped });
+      }
+      // ---- sidebar menu layout: admins choose which screens sit in Production / Technical / Office ----
+      if (url === '/api/menu-layout' && m === 'GET') {
+        const row = db.prepare("SELECT value FROM meta WHERE key='menuLayout'").get();
+        let v = null; try { v = row ? JSON.parse(row.value) : null; } catch (e) {}
+        return json(res, 200, { layout: v });
+      }
+      if (url === '/api/menu-layout' && m === 'PUT') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        const b = await readBody(req);
+        if (b && b.layout) db.prepare("INSERT INTO meta(key,value) VALUES('menuLayout',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(b.layout));
+        else db.prepare("DELETE FROM meta WHERE key='menuLayout'").run();
+        return json(res, 200, { ok: true });
+      }
+      // recipe composition as percentages (for Product Specs — "fill composition from recipe")
+      if (url === '/api/recipe-composition' && m === 'GET') {
+        const q = new URLSearchParams((req.url.split('?')[1] || ''));
+        const name = (q.get('name') || '').trim().toLowerCase();
+        const r = db.prepare('SELECT * FROM recipes WHERE lower(name)=?').get(name) || db.prepare("SELECT * FROM recipes WHERE lower(brand || ' ' || name)=?").get(name);
+        if (!r) return json(res, 404, { error: 'recipe not found' });
+        let ings = []; try { ings = JSON.parse(r.ingredients || '[]'); } catch (e) {}
+        const total = ings.reduce((a, g) => a + (+g.kg || 0), 0) || 1;
+        const names = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => names[i.id] = i.name);
+        const parts = ings.slice().sort((a, b) => (+b.kg || 0) - (+a.kg || 0))
+          .map(g => { const pct = (+g.kg || 0) / total * 100; const p = pct >= 1 ? Math.round(pct * 10) / 10 : Math.round(pct * 1000) / 1000; return (names[g.ingId] || g.ingId) + ' (' + p + '%)'; });
+        return json(res, 200, { name: r.name, brand: r.brand, composition: parts.join(', ') + '.' });
       }
 
       // ---- complaints log (customer service) ----
@@ -851,9 +983,9 @@ const server = http.createServer(async (req, res) => {
       if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
-      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
-      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms) VALUES(?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
-      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
+      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
+      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory) VALUES(?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || ''); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
       if (url.startsWith('/api/users/') && m === 'DELETE') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); if (+id === user.id) return json(res, 400, { error: 'cannot delete yourself' }); db.prepare('DELETE FROM users WHERE id=?').run(id); return json(res, 200, { ok: true }); }
 
       return json(res, 404, { error: 'not found' });
@@ -865,7 +997,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); importSpecsSeed();
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

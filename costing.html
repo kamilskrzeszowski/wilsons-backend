@@ -197,7 +197,17 @@ function bandColor(name){
 function setTileColor(name, c){
   const o = store.tileColors;
   if(o[name]===c) delete o[name]; else o[name]=c;
-  store.tileColors = o; refresh();
+  store.tileColors = o; scheduleRecipeSync(); refresh();
+}
+/* fresh/cooked brands keep their Recipe Library colours — same hexes as the app's brand colours */
+const BRANDHEX={'Wilsons':'#143644','TUGGS':'#e2606c','Wild':'#007985','Nutriment':'#7a3b8f','Green Pantry':'#3f7d3f'};
+/* ONE colour per recipe, used here and in the app's Recipe Library/Planner:
+   fresh brands → their brand colour; everything else → the tile colour chosen here */
+function recipeColor(r){
+  if(!r) return BAND[0];
+  const o=store.tileColors; if(o[r.name]) return o[r.name];
+  if(r.brand && BRANDHEX[r.brand]) return BRANDHEX[r.brand];
+  return bandColor(r.name);
 }
 
 /* ---------- persistence ----------
@@ -872,7 +882,107 @@ let recFilter='';
 function allRecipes(){
   const edits = store.recipeEdits;
   const base = DATA.recipes.map(r=> edits[r.name] ? {...edits[r.name], name:r.name, edited:true} : r);
-  return [...base, ...store.customRecipes];
+  const own = [...base, ...store.customRecipes];
+  const ownNames = new Set(own.map(r=>r.name.toLowerCase()));
+  const app = (window.APP_RECIPES||[]).filter(r=>!ownNames.has(r.name.toLowerCase()));
+  return [...own, ...app];
+}
+/* ===== recipes are shared with the whole app =====
+   PUSH: every costing recipe (incl. pack sizes) is synced to the app's recipe store, so the
+   Recipe Library, Edit Recipes, Mixing Sheets and Planner all see them. Costing is the source
+   of truth for these — recipes created here appear everywhere.
+   PULL: recipes made in the app (the fresh/cooked Ayr brands) appear here too, so they can be costed. */
+function costingBrandOf(name){
+  if(/^working dog/i.test(name)) return 'Working Dog Cold Pressed';
+  if(/^wilsons/i.test(name)) return 'Premium Cold Pressed';
+  const m=/^(Naked|Run|WILD)\b/i.exec(name);
+  if(m) return m[1]+' (Cold Pressed)';
+  return 'Cold Pressed';
+}
+let _rsT=null;
+function scheduleRecipeSync(){ if(!SHARED) return; clearTimeout(_rsT); _rsT=setTimeout(()=>syncRecipesToApp(false),1500); }
+async function syncRecipesToApp(adopt){
+  if(!SHARED) return;
+  try{
+    const own=[...DATA.recipes.map(r=>findRecipe(r.name)||r), ...store.customRecipes];
+    const recipes=own.map(r=>({
+      /* migrated app recipes carry their real app name + brand (e.g. appName "Chicken", brand "TUGGS")
+         so they update the SAME recipe rows the app already had — plans and history stay linked */
+      name:r.appName||r.name, brand:r.brand||costingBrandOf(r.name), batchSize:r.batchSize||1000,
+      color:recipeColor(r),
+      packs:(rcState(r.name).packs||[]).map(p=>+p.kg).filter(Boolean),
+      ingredients:(r.ingredients||[]).map(i=>({name:dispName(i.name), kg:+i.kg||0})).filter(i=>i.name&&i.kg>0)
+    }));
+    const r=await fetch('/api/costing-recipe-sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},body:JSON.stringify(adopt?{recipes,adopt:true}:{recipes})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+  }catch(e){ console.warn('recipe sync to app failed:', e.message); }
+}
+/* ===== one-time migration: Recipe Costing becomes the ONLY place recipes are made =====
+   Every recipe that was created by hand in the app (the fresh/cooked Ayr brands) is copied in here
+   as an editable costing recipe named "Brand — Name" (brands share names like "Chicken", so the
+   brand is part of the costing name). The app rows are then ADOPTED in place — same recipe, same
+   history — and from then on this screen is their single home. No prices are invented: migrated
+   ingredients arrive unpriced until someone enters real figures. */
+async function migrateAppRecipes(){
+  if(!SHARED || kvGet('wpf_appmigrated')) return;
+  try{
+    const [recipes,ings]=await Promise.all([
+      fetch('/api/recipes',{headers:{Authorization:'Bearer '+API_TOKEN}}).then(r=>r.json()),
+      fetch('/api/ingredients',{headers:{Authorization:'Bearer '+API_TOKEN}}).then(r=>r.json())
+    ]);
+    const iname={}; ings.forEach(i=>iname[i.id]=i.name);
+    const incoming=recipes.filter(r=>r.source!=='costing');
+    if(incoming.length){
+      const customs=store.customRecipes, myIngs=store.customIngs, rc=store.recipeCosting;
+      const haveIng=new Set(allIngs().map(o=>o.name.toLowerCase()));
+      const haveDisp={}; allIngs().forEach(o=>{ haveDisp[dispName(o.name).toLowerCase()]=o.name; haveDisp[o.name.toLowerCase()]=o.name; });
+      const haveRec=new Set(allRecipes().map(r=>r.name.toLowerCase()));
+      incoming.forEach(r=>{
+        const cname=((r.brand?r.brand+' — ':'')+r.name).trim();
+        if(haveRec.has(cname.toLowerCase())) return;
+        const lines=(r.ingredients||[]).map(g=>{
+          const n=(iname[g.ingId]||String(g.ingId)).trim(); if(!n||!(+g.kg>0)) return null;
+          const key=haveDisp[n.toLowerCase()];
+          if(!key && !haveIng.has(n.toLowerCase())){
+            /* unknown here — add it to the ingredient list UNPRICED so real prices can be entered */
+            myIngs.push({name:n, supplier:'', custom:true, selPerTonne:null, selTransPerKg:null, djlPerTonne:null, djlPerKg:null, djlTransPerKg:null, monthlyUsageKg:null, spendMonth:null});
+            haveIng.add(n.toLowerCase()); haveDisp[n.toLowerCase()]=n;
+          }
+          return {name:key||n, kg:+g.kg, perKg:0};
+        }).filter(Boolean);
+        if(!lines.length) return;
+        const batch=lines.reduce((a,i)=>a+i.kg,0);
+        customs.push({name:cname, appName:r.name, brand:r.brand||'', custom:{perKg:0}, batchSize:batch, wastePct:0.05, ingredients:lines});
+        /* keep the pack sizes the app already had (e.g. "2kg", "380g") */
+        let packs=[]; try{ packs=JSON.parse(JSON.stringify(r.packs||[])); }catch(e){}
+        if(typeof packs==='string'){ try{ packs=JSON.parse(packs); }catch(e){ packs=[]; } }
+        const pk=(Array.isArray(packs)?packs:[]).map((s,ix)=>{
+          const m=/^([\d.]+)\s*(kg|g)$/i.exec(String(s).trim()); if(!m) return null;
+          return {id:'mig'+ix+'_'+cname.replace(/\W+/g,'').slice(0,12), kg:m[2].toLowerCase()==='g'?+m[1]/1000:+m[1], items:[], sell:null};
+        }).filter(Boolean);
+        if(pk.length) rc[cname]={wastePct:0.05, packs:pk};
+        haveRec.add(cname.toLowerCase());
+      });
+      store.customRecipes=customs; store.customIngs=myIngs; store.recipeCosting=rc;
+    }
+    kvSet('wpf_appmigrated','1');
+    await syncRecipesToApp(true);   // take ownership of the app rows (in place — ids unchanged)
+  }catch(e){ console.warn('recipe migration failed (will retry next open):', e.message); }
+}
+async function pullAppRecipes(){
+  if(!SHARED) return;
+  try{
+    const [recipes,ings]=await Promise.all([
+      fetch('/api/recipes',{headers:{Authorization:'Bearer '+API_TOKEN}}).then(r=>r.json()),
+      fetch('/api/ingredients',{headers:{Authorization:'Bearer '+API_TOKEN}}).then(r=>r.json())
+    ]);
+    const iname={}; ings.forEach(i=>iname[i.id]=i.name);
+    window.APP_RECIPES=recipes.filter(r=>r.source!=='costing').map(r=>({
+      name:(r.brand?r.brand+' — ':'')+r.name, appSourced:true,
+      batchSize:(r.ingredients||[]).reduce((a,g)=>a+(+g.kg||0),0)||100,
+      ingredients:(r.ingredients||[]).map(g=>({name:iname[g.ingId]||g.ingId, kg:+g.kg||0}))
+    }));
+  }catch(e){ window.APP_RECIPES=[]; }
 }
 function recipesView(){
   const rows = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()));
@@ -883,7 +993,7 @@ function recipesView(){
     <span class="count">${rows.length} recipes</span>
   </div>
   <div class="grid">${rows.map(r=>{
-    const c = bandColor(r.name);
+    const c = recipeColor(r);
     const std = recipeCost(r,'std'), act = recipeCost(r,'act');
     const hasAct = r.ingredients.some(i=>actualPrice(i.name)!=null);
     return `<button class="tile" onclick="show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">
@@ -903,7 +1013,7 @@ let recMode = 'std';
 function recipeDetailView(name){
   const r = findRecipe(name);
   if(!r) return '<p>Recipe not found.</p>';
-  const c = bandColor(r.name);
+  const c = recipeColor(r);
   const isCustom = !!r.custom;
   const priced = r.ingredients.map(i=>{
     const fb = isCustom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? 0);
@@ -971,7 +1081,7 @@ function rcState(name){
   };
 }
 function rcSave(name, st){
-  const all = store.recipeCosting; all[name]=st; store.recipeCosting=all; refresh();
+  const all = store.recipeCosting; all[name]=st; store.recipeCosting=all; scheduleRecipeSync(); refresh();
 }
 function rcAddPack(){
   const st = rcState(lastArg);
@@ -1233,7 +1343,7 @@ function deleteRecipe(name){
   store.customRecipes = store.customRecipes.filter(r=>r.name!==name);
   const all = store.recipeCosting; delete all[name]; store.recipeCosting = all;
   show('recipes');
-}
+ scheduleRecipeSync(); }
 function exportRecipe(name){
   const r = findRecipe(name);
   const priced = r.ingredients.map(i=>{
@@ -1259,11 +1369,12 @@ function openBuilder(fromName, dup){
     draft = {
       name: dup ? src.name + ' (copy)' : src.name,
       editing: dup ? null : src.name,
+      brand: src.brand||'', appName: dup ? null : src.appName,
       batchSize: src.batchSize||1000, wastePct: src.wastePct??0.05,
       ingredients: src.ingredients.map(i=>({name:i.name, kg:i.kg, perKg: src.custom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? ingPrice(i.name) ?? 0)}))
     };
   } else {
-    draft = {name:'', editing:null, batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
+    draft = {name:'', editing:null, brand:'', appName:null, batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
   }
   view='builder';
   document.getElementById('main').innerHTML = builderView();
@@ -1273,7 +1384,7 @@ function revertRecipe(name){
   if(!confirm('Revert "'+name+'" to the original spreadsheet recipe? Your edits will be lost.')) return;
   const e = store.recipeEdits; delete e[name]; store.recipeEdits = e;
   show('recipeDetail', name);
-}
+ scheduleRecipeSync(); }
 function builderView(){
   if(!draft) return '';
   const opts = allIngs().map(i=>`<option value="${esc(dispName(i.name))}">`).join('');
@@ -1298,6 +1409,8 @@ function builderView(){
   </div>
   <div class="toolbar">
     <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value">
+    <label class="muted">Brand <input type="text" list="brandList" placeholder="e.g. TUGGS" value="${esc(draft.brand||'')}" style="width:180px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.brand=this.value.trim()" title="Which brand (and so which factory) this recipe belongs to — cold-pressed brands go to Blair, everything else to Ayr"></label>
+    <datalist id="brandList">${[...new Set([...Object.keys(BRANDHEX),...allRecipes().map(r=>r.brand||costingBrandOf(r.name))])].filter(Boolean).map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
     <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" onchange="draft.batchSize=parseFloat(this.value)||1000;refresh()"></label>
     <select onchange="if(this.value){openBuilder(this.value)}" class="no-print">
       <option value="">Start from existing recipe…</option>
@@ -1341,6 +1454,7 @@ function saveDraft(){
   if(!ings.length){alert('Add at least one ingredient with a weight.');return;}
   const sub = ings.reduce((a,i)=>a+i.kg*i.perKg,0);
   const rec = {name:newName, custom:{perKg: sub/(draft.batchSize||1000)},
+    brand:(draft.brand||'').trim(), appName:draft.appName||undefined,
     batchSize:draft.batchSize||1000, wastePct:draft.wastePct??0.05,
     ingredients:ings.map(i=>({name:keyOf(i.name),kg:i.kg,perKg:i.perKg}))};
   if(wasStock && newName===draft.editing){
@@ -1356,6 +1470,7 @@ function saveDraft(){
     }
   }
   draft=null;
+  scheduleRecipeSync();
   show('recipeDetail', newName);
 }
 
@@ -1378,7 +1493,19 @@ function refresh(){
     try{ const r=await kvApi('GET'); KV=r.data||{}; }
     catch(e){ document.getElementById('main').innerHTML='<div style="padding:40px;text-align:center;color:#4b5f6d"><h2 style="color:#143644">Could not load the shared costing data</h2><p>Check the connection and reload this page. Nothing has been lost.</p></div>'; return; }
     startPolling(); setSyncState('saved','● Shared');
+    await migrateAppRecipes();   // one-time: app-made recipes move in here for good
+    await pullAppRecipes();      // safety net for any recipe rows costing doesn't own
+    scheduleRecipeSync();        // costing recipes appear everywhere in the app
   }
+  /* the app's Recipe Library can ask us to open a specific recipe ("Edit in Recipe Costing") */
+  window.addEventListener('message',e=>{
+    const d=e.data;
+    if(d && d.openRecipe){
+      const n=findRecipe(d.openRecipe)?d.openRecipe:(allRecipes().find(r=>r.name.toLowerCase()===String(d.openRecipe).toLowerCase())||{}).name;
+      if(n) show('recipeDetail', n); else show('recipes');
+      try{ parent.postMessage({openedRecipe:d.openRecipe},'*'); }catch(err){}
+    }
+  });
   show('products');
 })();
 </script>
