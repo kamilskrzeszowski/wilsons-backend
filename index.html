@@ -344,7 +344,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" title="The version of Wilsons HQ you're running. If this doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v15</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v16</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -402,8 +402,17 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-custom{opacity:.55;margin-top:14px}
   .sb-custom:hover{opacity:1}
   .sb-faclock{margin:0 0 12px;background:rgba(255,255,255,.08);color:#c8d2d8;border-radius:10px;padding:8px 10px;font-size:12px}
-  .sb-ver{font-size:11px;color:#8ea0aa;text-align:center;padding:6px 8px 2px;letter-spacing:.02em}
+  .sb-ver{font-size:11px;color:#8ea0aa;text-align:center;padding:6px 8px 2px;letter-spacing:.02em;cursor:pointer;text-decoration:underline;text-decoration-color:rgba(142,160,170,.4);text-underline-offset:2px}
+  .sb-ver:hover{color:#cfd9de}
   .sb-ver.mismatch{color:#f5b301;font-weight:600}
+  .verlog{max-width:600px;max-height:75vh;overflow:auto}
+  .verlog h3{margin:0 0 4px}
+  .verlog .vitem{padding:14px 0;border-top:1px solid var(--line)}
+  .verlog .vitem:first-of-type{border-top:none}
+  .verlog .vtag{display:inline-block;background:var(--coral);color:#fff;font-weight:700;font-size:12px;border-radius:20px;padding:2px 10px;margin-right:8px}
+  .verlog .vdate{color:var(--muted,#8895a3);font-size:12px}
+  .verlog ul{margin:8px 0 0;padding-left:20px}
+  .verlog li{margin:3px 0;font-size:13.5px}
   .sb-pup{margin-top:auto;position:relative;height:150px;flex:none}
   .sb-pup img{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);width:130px;opacity:.95}
   /* slim light top bar in the content column */
@@ -2074,9 +2083,45 @@ async function startApp(){
   setSync('● Shared');
   checkVersion();
 }
-/* Version check: the page says v15; ask the server what version IT is running.
+/* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
+const VERSION_HISTORY=[
+  {v:'v16', date:'13 Jul 2026', notes:[
+    'Complaints search now lets you type a whole word — it used to accept only one letter at a time.',
+    'This version history: click the version number any time to see what changed.']},
+  {v:'v14', date:'10 Jul 2026', notes:[
+    'Recipe Costing: product categories (Cold Press, Fresh Frozen, Fresh Ambient) — rename them or add your own.',
+    'Costing tables now show a “% of mix” column and a total-weight / total-cost row.',
+    'Save works on the first click (no more pressing twice).',
+    'Recipe changes appear instantly in Mixing Sheets & the Recipe Library — no browser refresh needed.']},
+  {v:'v13', date:'10 Jul 2026', notes:[
+    'Every recipe now has a Delete button (not just ones you created).',
+    'Deleted recipes go to a “Deleted recipes” bin and can be restored with one click.']},
+  {v:'v12', date:'9 Jul 2026', notes:[
+    'The Ayr / Blair factory switch moved above the Production / Technical / Office switch.',
+    'One colour per recipe everywhere; “Edit in Recipe Costing” now opens the exact recipe.']},
+  {v:'v11', date:'9 Jul 2026', notes:[
+    'Admins can “Customise menu” — choose which screens appear under Production, Technical and Office.',
+    'Cold-pressed recipes verified end-to-end in the mixing sheets.']},
+  {v:'v10', date:'9 Jul 2026', notes:[
+    'Recipes are created in one place (Recipe Costing) and flow to the rest of the app.',
+    'New Technical workspace; Ayr / Blair factory switch added.']},
+  {v:'v9', date:'9 Jul 2026', notes:[
+    'Product Specs module added; recipes unified across the whole app; two-factory setup.']},
+  {v:'earlier', date:'Jun–Jul 2026', notes:[
+    'Foundations: KPI Dashboard, Complaints module, one-zip Backup & Restore, D2C/Trade pricing, a personal home page, and invite links for accounts.']}
+];
+function showVersionHistory(){
+  const items=VERSION_HISTORY.map(e=>`<div class="vitem"><div><span class="vtag">${escapeHtml(e.v)}</span><span class="vdate">${escapeHtml(e.date)}</span></div>
+    <ul>${e.notes.map(n=>`<li>${escapeHtml(n)}</li>`).join('')}</ul></div>`).join('');
+  pop(`<div class="verlog"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <h3>What's new in Wilsons HQ</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+    <p class="muted" style="margin:0 0 6px">You're running <b>${escapeHtml(APP_VERSION)}</b>. Newest changes first.</p>
+    ${items}</div>`);
+}
+window.showVersionHistory=showVersionHistory;
+/* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v15';
+const APP_VERSION='v16';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -3791,6 +3836,26 @@ function cplIn(id,label,val,type,extra){ return `<label class="fld">${label}<inp
 async function renderComplaints(){
   const root=document.getElementById('rootComplaints'); if(!root) return;
   if(!COMPLAINTS){ root.innerHTML='<p class="muted">Loading complaints…</p>'; try{ COMPLAINTS=await api('/api/complaints'); }catch(e){ root.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; } }
+  const f=cplFilter;
+  /* The toolbar (incl. the search box) is drawn ONCE. Typing only refreshes the results below,
+     so the search field never gets rebuilt and keeps focus — you can type a whole word. */
+  root.innerHTML=`
+    <div id="cplKpis"></div>
+    <div class="toolbar">
+      ${canEdit('complaints')?'<button class="btn coral" id="cplAdd">＋ Log complaint</button>':''}
+      <input type="text" id="cplSearch" placeholder="Search ref, customer, order, product…" value="${escapeHtml(f.q)}" oninput="cplFilter.q=this.value;cplPage=0;cplUpdateResults()" style="min-width:230px">
+      <select onchange="cplFilter.status=this.value;cplPage=0;cplUpdateResults()"><option value="">All CS statuses</option>${CPL_STATUSES.map(s=>`<option${f.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <select onchange="cplFilter.ctype=this.value;cplPage=0;cplUpdateResults()"><option value="">All types</option>${CPL_TYPES.map(s=>`<option${f.ctype===s?' selected':''}>${s}</option>`).join('')}</select>
+      <select onchange="cplFilter.cust=this.value;cplPage=0;cplUpdateResults()"><option value="">All customers</option>${CPL_CUST_TYPES.map(s=>`<option${f.cust===s?' selected':''}>${s}</option>`).join('')}</select>
+      <button class="btn ghost sm" onclick="cplExport()">⤓ CSV</button>
+      <span class="count" id="cplCount"></span>
+    </div>
+    <div id="cplResults"></div>`;
+  const ab=document.getElementById('cplAdd'); if(ab) ab.onclick=()=>cplModal(null);
+  cplUpdateResults();
+}
+function cplUpdateResults(){
+  if(!COMPLAINTS) return;
   const all=COMPLAINTS.slice().sort((a,b)=>{ const d=String(b.cdate||'').localeCompare(String(a.cdate||'')); if(d) return d; const na=+((/^C(\d+)$/.exec(a.ref||'')||[])[1]||0), nb=+((/^C(\d+)$/.exec(b.ref||'')||[])[1]||0); return nb-na; });
   const f=cplFilter;
   const list=all.filter(c=>
@@ -3802,21 +3867,14 @@ async function renderComplaints(){
   const pages=Math.max(1,Math.ceil(list.length/CPL_PAGE_SIZE)); if(cplPage>=pages) cplPage=pages-1;
   const pageRows=list.slice(cplPage*CPL_PAGE_SIZE,(cplPage+1)*CPL_PAGE_SIZE);
   const statusPill=s=>s==='Resolved'?'<span class="pill ok">Resolved</span>':(s?'<span class="pill low">'+escapeHtml(s)+'</span>':'—');
-  root.innerHTML=`
-    <div class="kpis">
+  const kp=document.getElementById('cplKpis'); if(kp) kp.innerHTML=`<div class="kpis">
       <div class="kpi ${open?'warnk':''}"><div class="n">${open}</div><div class="l">Open tickets</div></div>
       <div class="kpi"><div class="n">${thisMonth}</div><div class="l">This month</div></div>
       <div class="kpi"><div class="n">${all.length}</div><div class="l">All time</div></div>
-    </div>
-    <div class="toolbar">
-      ${canEdit('complaints')?'<button class="btn coral" id="cplAdd">＋ Log complaint</button>':''}
-      <input type="text" placeholder="Search ref, customer, order, product…" value="${escapeHtml(f.q)}" oninput="cplFilter.q=this.value;cplPage=0;renderComplaints()" style="min-width:230px">
-      <select onchange="cplFilter.status=this.value;cplPage=0;renderComplaints()"><option value="">All CS statuses</option>${CPL_STATUSES.map(s=>`<option${f.status===s?' selected':''}>${s}</option>`).join('')}</select>
-      <select onchange="cplFilter.ctype=this.value;cplPage=0;renderComplaints()"><option value="">All types</option>${CPL_TYPES.map(s=>`<option${f.ctype===s?' selected':''}>${s}</option>`).join('')}</select>
-      <select onchange="cplFilter.cust=this.value;cplPage=0;renderComplaints()"><option value="">All customers</option>${CPL_CUST_TYPES.map(s=>`<option${f.cust===s?' selected':''}>${s}</option>`).join('')}</select>
-      <button class="btn ghost sm" onclick="cplExport()">⤓ CSV</button>
-      <span class="count">${list.length} of ${all.length}</span>
-    </div>
+    </div>`;
+  const cnt=document.getElementById('cplCount'); if(cnt) cnt.textContent=`${list.length} of ${all.length}`;
+  const res=document.getElementById('cplResults'); if(!res) return;
+  res.innerHTML=`
     <div class="card" style="padding:0;overflow:auto"><table>
       <thead><tr><th>Ref</th><th>Date</th><th>Customer</th><th>Type</th><th>Complaint</th><th>Product</th><th>CS status</th><th>Ops</th><th>Owner</th></tr></thead>
       <tbody>${pageRows.map(c=>`<tr style="cursor:pointer" onclick="cplModal('${c.id}')">
@@ -3826,13 +3884,12 @@ async function renderComplaints(){
         <td>${statusPill(c.csStatus)}</td><td class="small">${escapeHtml(c.opsStatus||'')}</td><td class="small">${escapeHtml((c.csOwner||'').split(' - ')[0])}</td></tr>`).join('')||'<tr><td colspan="9" class="muted" style="text-align:center;padding:22px">No complaints match.</td></tr>'}</tbody>
     </table></div>
     <div class="toolbar" style="margin-top:10px">
-      <button class="btn ghost sm" ${cplPage<=0?'disabled':''} onclick="cplPage--;renderComplaints()">← Newer</button>
+      <button class="btn ghost sm" ${cplPage<=0?'disabled':''} onclick="cplPage--;cplUpdateResults()">← Newer</button>
       <span class="muted">page ${cplPage+1} of ${pages}</span>
-      <button class="btn ghost sm" ${cplPage>=pages-1?'disabled':''} onclick="cplPage++;renderComplaints()">Older →</button>
+      <button class="btn ghost sm" ${cplPage>=pages-1?'disabled':''} onclick="cplPage++;cplUpdateResults()">Older →</button>
     </div>`;
-  const ab=document.getElementById('cplAdd'); if(ab) ab.onclick=()=>cplModal(null);
 }
-window.renderComplaints=renderComplaints;
+window.renderComplaints=renderComplaints; window.cplUpdateResults=cplUpdateResults;
 function cplModal(id){
   const c=id?(COMPLAINTS||[]).find(x=>x.id===id):{};
   if(!c) return;
