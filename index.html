@@ -1906,6 +1906,18 @@ function gotoMix(id){ document.querySelector('[data-view="mixing"]').click(); do
 /* recipes are created and changed in ONE place: Recipe Costing — open the RIGHT recipe there */
 let _costingOpenTimer=null;
 window.addEventListener('message',e=>{ if(e.data && e.data.openedRecipe){ clearInterval(_costingOpenTimer); _costingOpenTimer=null; } });
+/* when Recipe Costing syncs a change, pull the new recipes in and redraw — no browser refresh needed */
+let _recSyncT=null;
+window.addEventListener('message',e=>{ if(e.data && e.data.recipesSynced){ clearTimeout(_recSyncT); _recSyncT=setTimeout(reloadRecipesLive,400); } });
+async function reloadRecipesLive(){
+  try{
+    const rows=await api('/api/recipes');
+    if(Array.isArray(rows)){
+      state.recipes=rows.map(r=>Object.assign({},r,{packs:r.packs||[],ingredients:r.ingredients||[]}));
+      refreshAll(); renderForTab(SB_ACTIVE||'home');
+    }
+  }catch(err){ /* stay on current data if the fetch fails */ }
+}
 function gotoEdit(id){
   if(!canView('costing')){ alert('Recipes are managed in Recipe Costing — ask an admin for costing access if you need to change one.'); return; }
   const r=byId(id);

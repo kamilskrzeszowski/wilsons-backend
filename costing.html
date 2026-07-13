@@ -96,6 +96,10 @@ td input{width:90px;padding:4px 6px;border:1px solid var(--line);border-radius:6
 .builder-table td{padding:5px 8px}
 .builder-table input.wide{width:100%;min-width:220px;text-align:left}
 .builder-table select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;max-width:260px}
+.builder-table tfoot .totrow td{border-top:2px solid var(--ink,#143644);padding-top:8px}
+table .totrow td{border-top:2px solid var(--line);font-weight:700;background:rgba(20,54,68,.03)}
+td.pctcell,th.num{white-space:nowrap}
+.catlabel{display:inline-block;font-size:11px;font-weight:600;color:var(--capp);background:rgba(20,54,68,.06);border-radius:20px;padding:2px 10px;margin-bottom:8px}
 .muted{color:var(--channel);font-size:12px}
 .footer-note{margin:26px 0 8px;color:var(--channel);font-size:12px;text-align:center}
 dialog{border:none;border-radius:16px;padding:26px;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
@@ -199,6 +203,17 @@ function setTileColor(name, c){
   if(o[name]===c) delete o[name]; else o[name]=c;
   store.tileColors = o; scheduleRecipeSync(); refresh();
 }
+/* ===== product categories (Cold Press / Fresh Frozen / Fresh Ambient — editable, extensible) ===== */
+function catList(){ return store.categories; }
+function catName(id){ const c=catList().find(x=>x.id===id); return c?c.name:''; }
+function defaultCatFor(r){ const brand=(r&&r.brand)||(r&&costingBrandOf(r.name))||''; return /cold pressed/i.test(brand) ? 'coldpress' : 'freshfrozen'; }
+function catOf(name){                       // category id for a recipe (by name), falling back to a sensible default
+  const m=store.recipeCategory; if(m[name]) return m[name];
+  const r=findRecipe(name); const id=defaultCatFor(r);
+  return catList().some(c=>c.id===id)?id:(catList()[0]&&catList()[0].id||'');
+}
+function setRecipeCategory(name, catId){ const m=store.recipeCategory; if(catId) m[name]=catId; else delete m[name]; store.recipeCategory=m; scheduleRecipeSync(); refresh(); }
+window.setRecipeCategory=setRecipeCategory;
 /* fresh/cooked brands keep their Recipe Library colours — same hexes as the app's brand colours */
 const BRANDHEX={'Wilsons':'#143644','TUGGS':'#e2606c','Wild':'#007985','Nutriment':'#7a3b8f','Green Pantry':'#3f7d3f'};
 /* ONE colour per recipe, used here and in the app's Recipe Library/Planner:
@@ -275,6 +290,13 @@ const store = {
   set tileColors(v){ kvSet('wpf_tilecolors', JSON.stringify(v)) },
   get recipeEdits(){ try{return JSON.parse(kvGet('wpf_recedits')||'{}')}catch(e){return{}} },
   set recipeEdits(v){ kvSet('wpf_recedits', JSON.stringify(v)) },
+  /* product categories — editable names, add more any time. id stays stable so renames don't break links. */
+  get categories(){ try{const v=JSON.parse(kvGet('wpf_categories')); if(Array.isArray(v)&&v.length) return v;}catch(e){} return [{id:'coldpress',name:'Cold Press'},{id:'freshfrozen',name:'Fresh Frozen'},{id:'freshambient',name:'Fresh Ambient'}]; },
+  set categories(v){ kvSet('wpf_categories', JSON.stringify(v)) },
+  get recipeCategory(){ try{return JSON.parse(kvGet('wpf_reccat')||'{}')}catch(e){return{}} },   // recipe name -> category id
+  set recipeCategory(v){ kvSet('wpf_reccat', JSON.stringify(v)) },
+  get deletedRecipes(){ try{return JSON.parse(kvGet('wpf_deleted')||'[]')}catch(e){return[]} },   // recycle bin: deleted recipes can be restored
+  set deletedRecipes(v){ kvSet('wpf_deleted', JSON.stringify(v)) },
   get recipeCosting(){ try{return JSON.parse(kvGet('wpf_reccost')||'{}')}catch(e){return{}} },
   set recipeCosting(v){ kvSet('wpf_reccost', JSON.stringify(v)) },
   get renames(){ try{return JSON.parse(kvGet('wpf_renames')||'{}')}catch(e){return{}} },
@@ -879,12 +901,14 @@ function exportPurchases(){
 
 /* ================= RECIPES ================= */
 let recFilter='';
+function deletedSet(){ return new Set(store.deletedRecipes.map(d=>String(d.name).toLowerCase())); }
 function allRecipes(){
+  const del = deletedSet();
   const edits = store.recipeEdits;
   const base = DATA.recipes.map(r=> edits[r.name] ? {...edits[r.name], name:r.name, edited:true} : r);
-  const own = [...base, ...store.customRecipes];
+  const own = [...base, ...store.customRecipes].filter(r=>!del.has(String(r.name).toLowerCase()));
   const ownNames = new Set(own.map(r=>r.name.toLowerCase()));
-  const app = (window.APP_RECIPES||[]).filter(r=>!ownNames.has(r.name.toLowerCase()));
+  const app = (window.APP_RECIPES||[]).filter(r=>!ownNames.has(r.name.toLowerCase()) && !del.has(r.name.toLowerCase()));
   return [...own, ...app];
 }
 /* ===== recipes are shared with the whole app =====
@@ -904,7 +928,8 @@ function scheduleRecipeSync(){ if(!SHARED) return; clearTimeout(_rsT); _rsT=setT
 async function syncRecipesToApp(adopt){
   if(!SHARED) return;
   try{
-    const own=[...DATA.recipes.map(r=>findRecipe(r.name)||r), ...store.customRecipes];
+    const del=deletedSet();
+    const own=[...DATA.recipes.map(r=>findRecipe(r.name)||r), ...store.customRecipes].filter(r=>!del.has(String(r.name).toLowerCase()));
     const recipes=own.map(r=>({
       /* migrated app recipes carry their real app name + brand (e.g. appName "Chicken", brand "TUGGS")
          so they update the SAME recipe rows the app already had — plans and history stay linked */
@@ -915,6 +940,8 @@ async function syncRecipesToApp(adopt){
     }));
     const r=await fetch('/api/costing-recipe-sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},body:JSON.stringify(adopt?{recipes,adopt:true}:{recipes})});
     if(!r.ok) throw new Error('HTTP '+r.status);
+    /* tell the main app to refresh its Recipe Library / Mixing Sheets straight away (no browser reload) */
+    try{ parent.postMessage({recipesSynced:true},'*'); }catch(err){}
   }catch(e){ console.warn('recipe sync to app failed:', e.message); }
 }
 /* ===== one-time migration: Recipe Costing becomes the ONLY place recipes are made =====
@@ -984,11 +1011,19 @@ async function pullAppRecipes(){
     }));
   }catch(e){ window.APP_RECIPES=[]; }
 }
+let recCatFilter='';
 function recipesView(){
-  const rows = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()));
+  const rows = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()))
+    .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter);
+  const cats=catList();
   return `
   <div class="toolbar">
     <input type="text" id="recSearch" placeholder="Search recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;refresh()">
+    <select onchange="recCatFilter=this.value;refresh()" title="Filter by category">
+      <option value="">All categories</option>
+      ${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
+    </select>
+    <button class="btn ghost" onclick="openCategoryManager()">⚙ Categories</button>
     <button class="btn accent" onclick="openBuilder()">+ New recipe</button>
     <span class="count">${rows.length} recipes</span>
   </div>
@@ -997,14 +1032,73 @@ function recipesView(){
     const std = recipeCost(r,'std'), act = recipeCost(r,'act');
     const hasAct = r.ingredients.some(i=>actualPrice(i.name)!=null);
     return `<button class="tile" onclick="show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">
-      <div class="band" style="background:${c}"><h3>${esc(r.name)}${r.edited?'<span class="tag-custom">edited</span>':(r.custom?'<span class="tag-custom">custom</span>':'')}</h3></div>
+      <div class="band" style="background:${c}"><h3>${esc(r.name)}</h3></div>
       <div class="body">
+        <div class="catlabel">${esc(catName(catOf(r.name))||'—')}</div>
         <div class="big">${GBP(std)}<span> / kg standard</span></div>
         <div class="kv"><span>Actual (purchases)</span><b>${hasAct?GBP(act):'—'}</b></div>
         <div class="kv"><span>Ingredients</span><b>${r.ingredients.length}</b></div>
         <div class="kv"><span>Batch size</span><b>${NUM(r.batchSize)} kg</b></div>
       </div></button>`;
-  }).join('')}</div>`;
+  }).join('')}</div>${deletedRecipesView()}`;
+}
+/* ===== category manager: rename existing, add new, remove unused ===== */
+function openCategoryManager(){
+  const cats=catList();
+  const used={}; allRecipes().forEach(r=>{ const id=catOf(r.name); used[id]=(used[id]||0)+1; });
+  const body=cats.map(c=>`<div class="catrow" data-id="${esc(c.id)}" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input type="text" value="${esc(c.name)}" data-catname="${esc(c.id)}" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:8px">
+      <span class="muted" style="min-width:90px">${used[c.id]||0} recipe${(used[c.id]||0)===1?'':'s'}</span>
+      <button class="btn small danger" onclick="removeCategory('${esc(c.id).replace(/'/g,"\\'")}')" title="Remove (only if unused)">✕</button>
+    </div>`).join('');
+  const dlg=document.getElementById('catDlg')||(()=>{ const d=document.createElement('dialog'); d.id='catDlg'; d.style.cssText='border:none;border-radius:14px;padding:0;max-width:520px;width:92%'; document.body.appendChild(d); return d; })();
+  dlg.innerHTML=`<div style="padding:20px 22px">
+    <h2 style="margin:0 0 4px">Product categories</h2>
+    <p class="muted" style="margin:0 0 14px">Rename any category, or add your own. Changing a name updates it everywhere automatically. A category can only be removed once no recipes use it.</p>
+    <div id="catRows">${body}</div>
+    <button class="btn" style="margin-top:6px" onclick="addCategoryRow()">+ Add category</button>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost" onclick="document.getElementById('catDlg').close()">Cancel</button>
+      <button class="btn accent" onclick="saveCategoryManager()">Save</button>
+    </div></div>`;
+  if(!dlg.open) dlg.showModal();
+}
+function addCategoryRow(){
+  const wrap=document.getElementById('catRows'); if(!wrap) return;
+  const id='cat'+Math.random().toString(36).slice(2,7);
+  const div=document.createElement('div'); div.className='catrow'; div.dataset.id=id; div.dataset.new='1';
+  div.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:8px';
+  div.innerHTML=`<input type="text" value="" placeholder="New category name…" data-catname="${id}" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:8px">
+    <span class="muted" style="min-width:90px">new</span>
+    <button class="btn small danger" onclick="this.parentElement.remove()">✕</button>`;
+  wrap.appendChild(div); div.querySelector('input').focus();
+}
+function removeCategory(id){
+  const used=allRecipes().some(r=>catOf(r.name)===id);
+  if(used){ alert('This category is still used by some recipes. Move them to another category first, then remove it.'); return; }
+  const row=document.querySelector(`#catRows .catrow[data-id="${id}"]`); if(row) row.remove();
+}
+function saveCategoryManager(){
+  const rows=[...document.querySelectorAll('#catRows .catrow')];
+  const list=rows.map(row=>({ id:row.dataset.id, name:(row.querySelector('input').value||'').trim() })).filter(c=>c.name);
+  if(!list.length){ alert('Please keep at least one category.'); return; }
+  store.categories=list;
+  document.getElementById('catDlg').close();
+  scheduleRecipeSync(); refresh();
+}
+window.openCategoryManager=openCategoryManager; window.addCategoryRow=addCategoryRow; window.removeCategory=removeCategory; window.saveCategoryManager=saveCategoryManager;
+function deletedRecipesView(){
+  const bin = store.deletedRecipes;
+  if(!bin.length) return '';
+  return `<details class="recbin" style="margin-top:24px;border-top:1px solid var(--line);padding-top:14px">
+    <summary style="cursor:pointer;font-weight:600;color:var(--capp)">Deleted recipes (${bin.length}) — click to restore</summary>
+    <p class="muted" style="margin:8px 0 12px">These recipes have been removed from the app. Press <b>Restore</b> to bring one back exactly as it was.</p>
+    <div class="grid">${bin.map(d=>`<div class="tile" style="opacity:.75">
+      <div class="band" style="background:#8895a3"><h3>${esc(d.name)}</h3></div>
+      <div class="body">
+        <div class="kv"><span>Removed</span><b>${(function(){try{return new Date(d.at).toLocaleDateString('en-GB')}catch(e){return '—'}})()}</b></div>
+        <button class="btn accent" style="margin-top:10px;width:100%" onclick="event.stopPropagation();restoreRecipe('${esc(d.name).replace(/'/g,"\\'")}')">Restore</button>
+      </div></div>`).join('')}</div></details>`;
 }
 
 /* ---------- recipe detail ---------- */
@@ -1021,12 +1115,15 @@ function recipeDetailView(name){
     return {...i, perKg: lp.p, src: lp.src, batch: lp.p!=null ? i.kg*lp.p : null};
   });
   const anyFallback = recMode==='act' && priced.some(i=>i.src!=='actual');
-  const rowsH = priced.map(i=>`<tr><td class="pname">${esc(dispName(i.name))}</td><td class="num">${NUM(i.kg)}</td>
-    <td class="num">${GBP(i.perKg)}${recMode==='act'?(i.src==='actual'?'':' <span class="muted">*</span>'):''}</td>
-    <td class="num">${GBP2(i.batch)}</td></tr>`).join('');
-  const table = `<div class="card"><table><thead><tr><th>Ingredient</th><th class="num">Weight (kg)</th><th class="num">£ / kg delivered</th><th class="num">£ / batch</th></tr></thead><tbody>${rowsH}</tbody></table></div>`;
+  const totKg = priced.reduce((a,i)=>a+(i.kg||0),0);
   const sub = priced.reduce((a,i)=>a+(i.batch||0),0);
   const per = sub/r.batchSize;
+  const rowsH = priced.map(i=>`<tr><td class="pname">${esc(dispName(i.name))}</td><td class="num">${NUM(i.kg)}</td>
+    <td class="num">${totKg>0?fmtPct((i.kg||0)/totKg*100):'—'}</td>
+    <td class="num">${GBP(i.perKg)}${recMode==='act'?(i.src==='actual'?'':' <span class="muted">*</span>'):''}</td>
+    <td class="num">${GBP2(i.batch)}</td></tr>`).join('');
+  const table = `<div class="card"><table><thead><tr><th>Ingredient</th><th class="num">Weight (kg)</th><th class="num">% of mix</th><th class="num">£ / kg delivered</th><th class="num">£ / batch</th></tr></thead><tbody>${rowsH}</tbody>
+    <tfoot><tr class="totrow"><td><b>Total</b></td><td class="num"><b>${NUM(totKg)} kg</b></td><td class="num"><b>${totKg>0?'100%':'—'}</b></td><td></td><td class="num"><b>${GBP2(sub)}</b></td></tr></tfoot></table></div>`;
   const otherPer = recipeCost(r, recMode==='std'?'act':'std');
   const summary = summaryBox(r, [
     ['Costing basis', recMode==='std'?'Standard (target)':'Actual (purchases)'],
@@ -1038,19 +1135,23 @@ function recipeDetailView(name){
   <div class="detail-head">
     <button class="btn ghost no-print" onclick="show('recipes')">&larr; All recipes</button>
     <h2 style="color:${c}">${esc(r.name)}</h2>
-    ${r.edited?'<span class="tag-custom" style="font-size:12px">edited</span>':(isCustom?'<span class="tag-custom" style="font-size:12px">custom</span>':'')}
+    ${r.edited?'<span class="tag-custom" style="font-size:12px" title="This is one of the original recipes and has been changed from its first figures. Use “Revert to original” to undo those changes.">changed from original</span>':''}
     <span class="no-print" style="display:inline-flex;gap:0;border:2px solid var(--sea);border-radius:20px;overflow:hidden">
       <button class="btn small" style="border-radius:0;${recMode==='std'?'':'background:#fff;color:var(--sea)'}" onclick="recMode='std';refresh()">Standard costs</button>
       <button class="btn small" style="border-radius:0;${recMode==='act'?'':'background:#fff;color:var(--sea)'}" onclick="recMode='act';refresh()">Actual purchase costs</button>
     </span>
+    <label class="no-print muted" style="margin-left:4px;display:inline-flex;align-items:center;gap:6px">Category
+      <select onchange="setRecipeCategory('${esc(r.name).replace(/'/g,"\\'")}',this.value)" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px">
+        ${catList().map(x=>`<option value="${esc(x.id)}"${catOf(r.name)===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}
+      </select></label>
     <span class="no-print" title="Tile colour" style="display:inline-flex;gap:5px;align-items:center;margin-left:4px">
       ${BRAND_PALETTE.map(x=>`<button title="${x.n}" onclick="setTileColor('${esc(r.name).replace(/'/g,"\\'")}','${x.c}')" style="width:20px;height:20px;border-radius:50%;background:${x.c};cursor:pointer;border:${c===x.c?'3px solid var(--sea)':'1px solid rgba(20,54,68,.3)'};padding:0"></button>`).join('')}
     </span>
     <span style="margin-left:auto" class="no-print">
       <button class="btn" onclick="openBuilder('${esc(r.name).replace(/'/g,"\\'")}')">Edit</button>
       <button class="btn ghost" onclick="openBuilder('${esc(r.name).replace(/'/g,"\\'")}',true)">Duplicate</button>
-      ${r.edited?`<button class="btn danger" onclick="revertRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Revert to original</button>`:''}
-      ${(isCustom&&!r.edited)?`<button class="btn danger" onclick="deleteRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Delete</button>`:''}
+      ${r.edited?`<button class="btn ghost" onclick="revertRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Revert to original</button>`:''}
+      <button class="btn danger" onclick="deleteRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Delete</button>
       <button class="btn ghost" onclick="exportRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Export CSV</button>
       <button class="btn ghost" onclick="window.print()">Print</button>
     </span>
@@ -1338,11 +1439,35 @@ function exportSuppliers(){
   downloadCSV('wilsons-suppliers.csv',[['Supplier','Ingredient','£/kg ex delivery','Delivery £/kg','£/kg delivered'],
     ...store.supplierDB.map(e=>[e.supplier,dispName(e.ing),e.perKg,e.del||0,(e.perKg+(e.del||0)).toFixed(4)])]);
 }
+/* Delete works the same for every recipe. It's reversible — the recipe drops into
+   "Deleted recipes" at the bottom of the list and can be restored. */
 function deleteRecipe(name){
-  if(!confirm('Delete custom recipe "'+name+'"?')) return;
-  store.customRecipes = store.customRecipes.filter(r=>r.name!==name);
-  const all = store.recipeCosting; delete all[name]; store.recipeCosting = all;
+  const r = findRecipe(name); if(!r) return;
+  if(!confirm('Delete recipe "'+name+'"?\n\nIt will be removed from Recipe Costing and from the Recipe Library, Mixing Sheets and Production Planner everywhere in the app.\n\nYou can bring it back any time from "Deleted recipes" at the bottom of the recipe list.')) return;
+  const isBuiltin = DATA.recipes.some(x=>x.name===name);
+  const bin = store.deletedRecipes;
+  bin.unshift({ name, kind:isBuiltin?'builtin':'custom', at:new Date().toISOString(),
+    data: isBuiltin ? null : (store.customRecipes.find(x=>x.name===name)||null),
+    edit: store.recipeEdits[name]||null,
+    packs: store.recipeCosting[name]||null,
+    color: store.tileColors[name]||null });
+  store.deletedRecipes = bin;
+  if(!isBuiltin) store.customRecipes = store.customRecipes.filter(x=>x.name!==name);
+  const e=store.recipeEdits; if(e[name]!==undefined){ delete e[name]; store.recipeEdits=e; }
+  const rc=store.recipeCosting; if(rc[name]!==undefined){ delete rc[name]; store.recipeCosting=rc; }
+  const tc=store.tileColors; if(tc[name]!==undefined){ delete tc[name]; store.tileColors=tc; }
   show('recipes');
+ scheduleRecipeSync(); }
+function restoreRecipe(name){
+  const bin = store.deletedRecipes;
+  const ix = bin.findIndex(d=>d.name===name); if(ix<0) return;
+  const d = bin[ix];
+  if(d.kind==='custom' && d.data){ const list=store.customRecipes.filter(x=>x.name!==name); list.push(d.data); store.customRecipes=list; }
+  if(d.edit){ const e=store.recipeEdits; e[name]=d.edit; store.recipeEdits=e; }
+  if(d.packs){ const rc=store.recipeCosting; rc[name]=d.packs; store.recipeCosting=rc; }
+  if(d.color){ const tc=store.tileColors; tc[name]=d.color; store.tileColors=tc; }
+  bin.splice(ix,1); store.deletedRecipes = bin;
+  show('recipeDetail', name);
  scheduleRecipeSync(); }
 function exportRecipe(name){
   const r = findRecipe(name);
@@ -1370,11 +1495,12 @@ function openBuilder(fromName, dup){
       name: dup ? src.name + ' (copy)' : src.name,
       editing: dup ? null : src.name,
       brand: src.brand||'', appName: dup ? null : src.appName,
+      categoryId: catOf(src.name),
       batchSize: src.batchSize||1000, wastePct: src.wastePct??0.05,
       ingredients: src.ingredients.map(i=>({name:i.name, kg:i.kg, perKg: src.custom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? ingPrice(i.name) ?? 0)}))
     };
   } else {
-    draft = {name:'', editing:null, brand:'', appName:null, batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
+    draft = {name:'', editing:null, brand:'', appName:null, categoryId:(catList()[0]&&catList()[0].id)||'', batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
   }
   view='builder';
   document.getElementById('main').innerHTML = builderView();
@@ -1388,15 +1514,17 @@ function revertRecipe(name){
 function builderView(){
   if(!draft) return '';
   const opts = allIngs().map(i=>`<option value="${esc(dispName(i.name))}">`).join('');
-  const rows = draft.ingredients.map((i,idx)=>`<tr>
-    <td><input class="wide" list="inglist" value="${esc(dispName(i.name))}" placeholder="Type or pick an ingredient…" onchange="draftIng(${idx},'name',this.value)"></td>
-    <td class="num"><input type="number" step="0.1" value="${i.kg||''}" placeholder="kg" onchange="draftIng(${idx},'kg',this.value)"></td>
-    <td class="num"><input type="number" step="0.001" value="${i.perKg!=null&&i.perKg!==0?(+i.perKg).toFixed(3):''}" placeholder="£/kg" onchange="draftIng(${idx},'perKg',this.value)"></td>
-    <td class="num"><b>${GBP2((i.kg||0)*(i.perKg||0))}</b></td>
-    <td class="no-print"><button class="btn small danger" onclick="draft.ingredients.splice(${idx},1);refresh()">✕</button></td>
+  const totKg0 = draft.ingredients.reduce((a,i)=>a+(i.kg||0),0);
+  const rows = draft.ingredients.map((i,idx)=>`<tr data-r="${idx}">
+    <td><input class="wide" list="inglist" value="${esc(dispName(i.name))}" placeholder="Type or pick an ingredient…" oninput="draftIngName(${idx},this.value)" onchange="draftIngName(${idx},this.value,true)"></td>
+    <td class="num"><input type="number" step="0.1" value="${i.kg||''}" placeholder="kg" oninput="draftIng(${idx},'kg',this.value)"></td>
+    <td class="num pctcell" data-pct="${idx}">${totKg0>0?fmtPct((i.kg||0)/totKg0*100):'—'}</td>
+    <td class="num"><input type="number" step="0.001" value="${i.perKg!=null&&i.perKg!==0?(+i.perKg).toFixed(3):''}" placeholder="£/kg" oninput="draftIng(${idx},'perKg',this.value)"></td>
+    <td class="num btcell" data-bt="${idx}"><b>${GBP2((i.kg||0)*(i.perKg||0))}</b></td>
+    <td class="no-print"><button class="btn small danger" onclick="delDraftRow(${idx})">✕</button></td>
   </tr>`).join('');
   const sub = draft.ingredients.reduce((a,i)=>a+(i.kg||0)*(i.perKg||0),0);
-  const totKg = draft.ingredients.reduce((a,i)=>a+(i.kg||0),0);
+  const totKg = totKg0;
   const per = draft.batchSize>0 ? sub/draft.batchSize : 0;
   return `
   <datalist id="inglist">${opts}</datalist>
@@ -1411,7 +1539,10 @@ function builderView(){
     <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value">
     <label class="muted">Brand <input type="text" list="brandList" placeholder="e.g. TUGGS" value="${esc(draft.brand||'')}" style="width:180px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.brand=this.value.trim()" title="Which brand (and so which factory) this recipe belongs to — cold-pressed brands go to Blair, everything else to Ayr"></label>
     <datalist id="brandList">${[...new Set([...Object.keys(BRANDHEX),...allRecipes().map(r=>r.brand||costingBrandOf(r.name))])].filter(Boolean).map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
-    <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" onchange="draft.batchSize=parseFloat(this.value)||1000;refresh()"></label>
+    <label class="muted">Category <select onchange="draft.categoryId=this.value" style="padding:8px;border:1px solid var(--line);border-radius:8px" title="Which product category this recipe is">
+      ${catList().map(c=>`<option value="${esc(c.id)}"${draft.categoryId===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
+    </select></label>
+    <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" oninput="draft.batchSize=parseFloat(this.value)||1000;recalcBuilder()"></label>
     <select onchange="if(this.value){openBuilder(this.value)}" class="no-print">
       <option value="">Start from existing recipe…</option>
       ${allRecipes().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
@@ -1420,29 +1551,56 @@ function builderView(){
   <div class="two-col">
     <div>
       <div class="card"><table class="builder-table">
-        <thead><tr><th>Ingredient</th><th class="num">Weight (kg)</th><th class="num">£ / kg</th><th class="num">£ / batch</th><th class="no-print"></th></tr></thead>
+        <thead><tr><th>Ingredient</th><th class="num">Weight (kg)</th><th class="num">% of mix</th><th class="num">£ / kg</th><th class="num">£ / batch</th><th class="no-print"></th></tr></thead>
         <tbody>${rows}</tbody>
+        <tfoot><tr class="totrow"><td><b>Total</b></td><td class="num"><b id="bTotKg">${NUM(totKg)} kg</b></td><td class="num"><b>${totKg>0?'100%':'—'}</b></td><td></td><td class="num"><b id="bTotBatch">${GBP2(sub)}</b></td><td class="no-print"></td></tr></tfoot>
       </table></div>
       <button class="btn" style="margin-top:10px" onclick="draft.ingredients.push({name:'',kg:0,perKg:0});refresh()">+ Add ingredient</button>
-      <p class="muted" style="margin-top:8px">Pick an ingredient to auto-fill its price — the actual (average of logged purchases) where available, otherwise the target cost (editable per line). Ingredient weights total <b>${NUM(totKg)} kg</b> vs batch size ${NUM(draft.batchSize)} kg${Math.abs(totKg-draft.batchSize)>0.01?' <span style="color:var(--warn)">⚠ mismatch</span>':' ✓'}.</p>
+      <p class="muted" style="margin-top:8px" id="bMismatch">Pick an ingredient to auto-fill its price — the actual (average of logged purchases) where available, otherwise the target cost (editable per line). Ingredient weights total <b>${NUM(totKg)} kg</b> vs batch size ${NUM(draft.batchSize)} kg${Math.abs(totKg-draft.batchSize)>0.01?' <span style="color:var(--warn)">⚠ mismatch</span>':' ✓'}.</p>
     </div>
     <div class="summary-box">
       <h3>Live costing</h3>
-      <div class="row"><span>Materials / batch</span><b>${GBP2(sub)}</b></div>
-      <div class="row"><span>Ingredient weight</span><b>${NUM(totKg)} kg</b></div>
-      <div class="row total"><span>Materials / kg</span><b>${GBP(per)}</b></div>
+      <div class="row"><span>Materials / batch</span><b id="bSumBatch">${GBP2(sub)}</b></div>
+      <div class="row"><span>Ingredient weight</span><b id="bSumWeight">${NUM(totKg)} kg</b></div>
+      <div class="row total"><span>Materials / kg</span><b id="bSumPerKg">${GBP(per)}</b></div>
       <p class="muted" style="color:var(--capp);margin-top:8px">Waste, labour, overheads, electric &amp; packaging are added in the recipe's pack costing.</p>
     </div>
   </div>`;
 }
+function fmtPct(n){ return (Math.round(n*10)/10)+'%'; }
+/* commit weight / £-per-kg live, WITHOUT rebuilding the table — keeps focus and means the
+   Save button never gets replaced mid-click (that was the "press Save twice" bug). */
 function draftIng(idx, field, val){
   const it = draft.ingredients[idx];
-  if(field==='name'){
-    it.name = val;
+  it[field] = parseFloat(val)||0;
+  recalcBuilder();
+}
+function draftIngName(idx, val, commit){
+  const it = draft.ingredients[idx]; it.name = val;
+  if(commit){
     const p = ingPrice(val);
-    if(p!=null) it.perKg = p;
-  } else it[field] = parseFloat(val)||0;
-  refresh();
+    if(p!=null){ it.perKg = p;
+      const inp = document.querySelector(`.builder-table tr[data-r="${idx}"] input[type=number][step="0.001"]`);
+      if(inp) inp.value = (+p).toFixed(3);
+    }
+  }
+  recalcBuilder();
+}
+function delDraftRow(idx){ draft.ingredients.splice(idx,1); refresh(); }
+function recalcBuilder(){
+  if(!draft) return;
+  const totKg = draft.ingredients.reduce((a,i)=>a+(i.kg||0),0);
+  const sub = draft.ingredients.reduce((a,i)=>a+(i.kg||0)*(i.perKg||0),0);
+  const per = draft.batchSize>0 ? sub/draft.batchSize : 0;
+  draft.ingredients.forEach((i,idx)=>{
+    const pc=document.querySelector(`.pctcell[data-pct="${idx}"]`); if(pc) pc.textContent = totKg>0?fmtPct((i.kg||0)/totKg*100):'—';
+    const bt=document.querySelector(`.btcell[data-bt="${idx}"]`); if(bt) bt.innerHTML = '<b>'+GBP2((i.kg||0)*(i.perKg||0))+'</b>';
+  });
+  const set=(id,html)=>{ const el=document.getElementById(id); if(el) el.innerHTML=html; };
+  set('bTotKg', '<b>'+NUM(totKg)+' kg</b>'); set('bTotBatch', '<b>'+GBP2(sub)+'</b>');
+  set('bSumBatch', GBP2(sub)); set('bSumWeight', NUM(totKg)+' kg'); set('bSumPerKg', GBP(per));
+  const mm=document.getElementById('bMismatch');
+  if(mm) mm.innerHTML = `Pick an ingredient to auto-fill its price — the actual (average of logged purchases) where available, otherwise the target cost (editable per line). Ingredient weights total <b>${NUM(totKg)} kg</b> vs batch size ${NUM(draft.batchSize)} kg${Math.abs(totKg-draft.batchSize)>0.01?' <span style="color:var(--warn)">⚠ mismatch</span>':' ✓'}.`;
 }
 function saveDraft(){
   if(!draft.name.trim()){alert('Please give the recipe a name.');return;}
@@ -1469,6 +1627,9 @@ function saveDraft(){
       const tc = store.tileColors; if(tc[draft.editing]){tc[newName]=tc[draft.editing]; delete tc[draft.editing]; store.tileColors=tc;}
     }
   }
+  // remember the category against this recipe (and carry it if the recipe was renamed)
+  { const m=store.recipeCategory; if(draft.categoryId) m[newName]=draft.categoryId;
+    if(draft.editing && draft.editing!==newName && m[draft.editing]){ delete m[draft.editing]; } store.recipeCategory=m; }
   draft=null;
   scheduleRecipeSync();
   show('recipeDetail', newName);
