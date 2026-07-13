@@ -120,7 +120,17 @@ let KPI_CAPS={settings:true,input:true};
   .budget-row input[type=date]{width:150px}.budget-row input.budget{width:110px}
   .repbar{display:flex;gap:10px;align-items:center;padding:12px 16px;flex-wrap:wrap}
   .repbar input[type=date]{padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--text)}
-  .reppage{background:#fff;color:#143644;max-width:860px;margin:0 auto 30px;padding:28px 34px;border-radius:10px}
+  .reppage{background:#fff;color:#143644;max-width:1180px;margin:0 auto 30px;padding:28px 34px;border-radius:10px}
+  .trendwrap{overflow-x:auto}
+  table.trend{border-collapse:collapse;font-size:12px;min-width:100%;margin-top:6px}
+  table.trend th,table.trend td{border:1px solid #eee;padding:4px 9px;text-align:right;white-space:nowrap;color:#143644}
+  table.trend td.lbl,table.trend th.lbl{text-align:left;position:sticky;left:0;background:#fff;font-weight:600;min-width:150px}
+  table.trend thead th{background:#143644;color:#fff;font-weight:600}
+  table.trend thead th.lbl{background:#143644;color:#fff}
+  table.trend tr.sec td{background:#f7f4ec;font-weight:700;color:#143644}
+  table.trend td.num.pos{color:#2e8b6f}table.trend td.num.neg{color:#c0563b}
+  .repnote{font-size:13px;color:#3a4a54;margin:4px 0;line-height:1.4}
+  .repnote b{color:#143644}
   .rephead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #f37d89;padding-bottom:10px;margin-bottom:14px}
   .reppage h2{margin:0;color:#143644}.repsub{color:#5b6f7a;margin-top:2px}
   .repbrand{font-weight:700;color:#f37d89}
@@ -903,67 +913,58 @@ function setStatus(msg){ const s=document.getElementById("setStatus"); if(s){ s.
 
 
 // ---------- Daily / Weekly management report ----------
-let repMode="day", repDate=null;
+let repDate=null, repWeeks=12;
 function repDefaultDate(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
-function fmtGBP(v){ return v==null?"—":(v<0?"−£":"£")+Math.abs(Math.round(v)).toLocaleString(); }
-function fmtKg(v){ return v==null?"—":Math.round(v).toLocaleString()+" kg"; }
 function varCls(v){ return v==null?"":(v>=0?"pos":"neg"); }
+/* ONE shareable management report: a running weekly grid (weeks across, like the summary sheet)
+   plus the latest week's reasons & notes underneath. */
 function renderReport(){
   const v=document.getElementById("reportView"); if(!v) return;
   if(!REPORT){ v.innerHTML='<p style="padding:20px">No data yet.</p>'; return; }
   if(!repDate) repDate=repDefaultDate();
-  // day indices covered by this report
-  let idx=[], title="", sub="";
-  if(repMode==="day"){
-    const i=REPORT.dates.indexOf(repDate);
-    idx = i>=0?[i]:[];
-    title="Daily Report"; sub=new Date(repDate+"T00:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-  } else {
-    const d=new Date(repDate+"T00:00:00"); const dow=(d.getDay()+6)%7; // Monday start
-    const mon=new Date(d); mon.setDate(d.getDate()-dow);
-    const days=[]; for(let n=0;n<7;n++){ const x=new Date(mon); x.setDate(mon.getDate()+n); days.push(x.toISOString().slice(0,10)); }
-    idx = days.map(iso=>REPORT.dates.indexOf(iso)).filter(i=>i>=0);
-    title="Weekly Report"; sub="Week beginning "+mon.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
-  }
-  const S=a=>{ const vs=idx.map(i=>a[i]).filter(x=>typeof x==="number"); return vs.length?vs.reduce((s,x)=>s+x,0):null; };
-  const T=a=>{ const vs=idx.map(i=>a[i]).filter(x=>typeof x==="string"&&x.trim()); return vs.join(" · "); };
   const R=REPORT;
-  const row=(label,val,extra)=>`<tr><td>${label}</td><td class="num ${extra||""}">${val}</td></tr>`;
-  const siteBlock=(site,vol,tgt,vv,rec,spent,rv,reVol,reLab)=>{
-    const vvv=S(vv), rvv=S(rv);
-    return `<h3>${site}</h3><table class="rep">
-      ${row("Volume produced", fmtKg(S(vol)))}
-      ${row("Volume target", fmtKg(S(tgt)))}
-      ${row("Volume variance", fmtKg(vvv), varCls(vvv))}
-      ${T(reVol)?row("Reason", '<span class="reason">'+T(reVol)+'</span>'):""}
-      ${row("Labour spent", fmtGBP(S(spent)))}
-      ${row("Recovered labour", fmtGBP(S(rec)))}
-      ${row("Labour recovery variance", fmtGBP(rvv), varCls(rvv))}
-      ${T(reLab)?row("Reason", '<span class="reason">'+T(reLab)+'</span>'):""}
-    </table>`;
-  };
-  const safe=`<h3>Safety</h3><table class="rep">
-    ${row("Accidents", S(R.acc)??"—")}${row("Riddors", S(R.rid)??"—")}${row("Near misses raised", S(R.nm)??"—")}</table>`;
-  const oos=T(R.oos), notes=T(R.notes);
-  const extras=(oos||notes)?`<h3>Stocks & notes</h3><table class="rep">
-    ${oos?row("Out of stocks", '<span class="reason">'+oos+'</span>'):""}
-    ${notes?row("Notes", '<span class="reason">'+notes+'</span>'):""}</table>`:"";
+  const d=new Date(repDate+"T00:00:00"); const dow=(d.getDay()+6)%7;
+  const curMon=new Date(d); curMon.setDate(d.getDate()-dow);
+  const weeks=[];
+  for(let w=repWeeks-1; w>=0; w--){
+    const mon=new Date(curMon); mon.setDate(curMon.getDate()-w*7);
+    const idx=[]; for(let nn=0;nn<7;nn++){ const x=new Date(mon); x.setDate(mon.getDate()+nn); const i=R.dates.indexOf(x.toISOString().slice(0,10)); if(i>=0) idx.push(i); }
+    weeks.push({label:mon.toLocaleDateString("en-GB",{day:"numeric",month:"short"}), idx});
+  }
+  const latest=weeks[weeks.length-1].idx;
+  const wsum=(arr,idx)=>{ const vs=idx.map(i=>arr[i]).filter(x=>typeof x==="number"); return vs.length?vs.reduce((s,x)=>s+x,0):null; };
+  const wtext=(arr,idx)=>{ const vs=idx.map(i=>arr[i]).filter(x=>typeof x==="string"&&x.trim()); return vs.join(" · "); };
+  const cell=(x,fmt,vari)=>`<td class="num ${vari&&x!=null?varCls(x):""}">${x==null?"":fmt(x)}</td>`;
+  const kg=x=>Math.round(x).toLocaleString(), gbp=x=>(x<0?"−£":"£")+Math.abs(Math.round(x)).toLocaleString(), n=x=>Math.round(x);
+  const rowT=(label,arr,fmt,vari)=>`<tr><td class="lbl">${label}</td>${weeks.map(wk=>cell(wsum(arr,wk.idx),fmt,vari)).join("")}</tr>`;
+  const sec=t=>`<tr class="sec"><td class="lbl">${t}</td>${weeks.map(()=>"<td></td>").join("")}</tr>`;
+  const head=`<tr><th class="lbl">Week beginning</th>${weeks.map(wk=>`<th>${wk.label}</th>`).join("")}</tr>`;
+  const grid=`<div class="trendwrap"><table class="trend"><thead>${head}</thead><tbody>
+    ${sec("Ayr — fresh / cooked")}
+    ${rowT("Volume produced (kg)",R.volAyr,kg)}${rowT("Volume target (kg)",R.tgtAyr,kg)}${rowT("Volume variance (kg)",R.vvA,kg,true)}
+    ${rowT("Labour spent",R.spentAyr,gbp)}${rowT("Recovered labour",R.recAyr,gbp)}${rowT("Recovery variance",R.rvA,gbp,true)}
+    ${sec("Blair — cold pressed")}
+    ${rowT("Volume produced (kg)",R.volCP,kg)}${rowT("Volume target (kg)",R.tgtBlair,kg)}${rowT("Volume variance (kg)",R.vvB,kg,true)}
+    ${rowT("Labour spent",R.spentBlair,gbp)}${rowT("Recovered labour",R.recBlair,gbp)}${rowT("Recovery variance",R.rvB,gbp,true)}
+    ${sec("Safety")}
+    ${rowT("Near misses",R.nm,n)}${rowT("Accidents",R.acc,n)}${rowT("Riddors",R.rid,n)}
+  </tbody></table></div>`;
+  const noteLine=(lbl,txt)=> txt?`<div class="repnote"><b>${lbl}:</b> ${txt}</div>`:"";
+  const notes=[["Ayr volume",R.reAyrVol],["Ayr labour",R.reAyrLab],["Blair volume",R.reBlairVol],["Blair labour",R.reBlairLab],["Out of stocks",R.oos],["Notes",R.notes]]
+    .map(([l,a])=>noteLine(l,wtext(a,latest))).join("");
+  const latestLabel=weeks[weeks.length-1].label;
   v.innerHTML=`
   <div class="repbar noprint">
-    <div class="toggle"><button class="${repMode==="day"?"active":""}" onclick="repMode='day';renderReport()">Daily</button><button class="${repMode==="week"?"active":""}" onclick="repMode='week';renderReport()">Weekly</button></div>
     <input type="date" value="${repDate}" onchange="repDate=this.value;renderReport()">
+    <select onchange="repWeeks=+this.value;renderReport()">${[8,12,26,52].map(x=>`<option value="${x}"${repWeeks===x?" selected":""}>last ${x} weeks</option>`).join("")}</select>
     <button class="btn primary" onclick="window.print()">🖨 Print / save PDF</button>
-    <span class="help">Everything here is calculated from the daily KPI input — nothing extra to fill in.</span>
+    <span class="help">One report to share — each column is a Mon–Sun week, newest on the right, like the summary sheet.</span>
   </div>
   <div class="reppage" id="repPage">
-    <div class="rephead"><div><h2>${title}</h2><div class="repsub">${sub}</div></div><div class="repbrand">Wilsons Pet Food</div></div>
-    ${idx.length?`
-      <div class="repcols">
-        <div>${siteBlock("Ayr — fresh / cooked",R.volAyr,R.tgtAyr,R.vvA,R.recAyr,R.spentAyr,R.rvA,R.reAyrVol,R.reAyrLab)}</div>
-        <div>${siteBlock("Blair — cold pressed",R.volCP,R.tgtBlair,R.vvB,R.recBlair,R.spentBlair,R.rvB,R.reBlairVol,R.reBlairLab)}</div>
-      </div>${safe}${extras}`
-      :'<p style="padding:14px">No numbers entered for this '+(repMode==="day"?"day":"week")+' yet — fill in the KPI Daily Input first.</p>'}
-    <div class="repfoot">Generated by Wilsons HQ · rates & standards as at the report date · recovery = volume ÷ standard × £/hour</div>
+    <div class="rephead"><div><h2>Operations Report</h2><div class="repsub">${repWeeks} weeks to ${curMon.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div></div><div class="repbrand">Wilsons Pet Food</div></div>
+    ${grid}
+    ${notes?`<h3 style="margin-top:16px">Latest week (w/c ${latestLabel}) — reasons &amp; notes</h3>${notes}`:""}
+    <div class="repfoot">Generated by Wilsons HQ · figures from the daily KPI input · recovery = volume ÷ standard × £/hour</div>
   </div>`;
 }
 // ---------- tabs / upload ----------
