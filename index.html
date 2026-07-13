@@ -344,6 +344,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
+  <div class="sb-ver" id="sbVer" title="The version of Wilsons HQ you're running. If this doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v15</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -401,6 +402,8 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-custom{opacity:.55;margin-top:14px}
   .sb-custom:hover{opacity:1}
   .sb-faclock{margin:0 0 12px;background:rgba(255,255,255,.08);color:#c8d2d8;border-radius:10px;padding:8px 10px;font-size:12px}
+  .sb-ver{font-size:11px;color:#8ea0aa;text-align:center;padding:6px 8px 2px;letter-spacing:.02em}
+  .sb-ver.mismatch{color:#f5b301;font-weight:600}
   .sb-pup{margin-top:auto;position:relative;height:150px;flex:none}
   .sb-pup img{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);width:130px;opacity:.95}
   /* slim light top bar in the content column */
@@ -2069,6 +2072,22 @@ async function startApp(){
   renderSidebar();
   navTo('home');
   setSync('● Shared');
+  checkVersion();
+}
+/* Version check: the page says v15; ask the server what version IT is running.
+   If they differ, only some files went live — flag it so you know the upload was incomplete. */
+const APP_VERSION='v15';
+async function checkVersion(){
+  const el=document.getElementById('sbVer'); if(!el) return;
+  try{
+    const d=await api('/api/version');
+    if(d && d.version && d.version!==APP_VERSION){
+      el.textContent='Wilsons HQ '+APP_VERSION+' / server '+d.version+' — upload incomplete';
+      el.classList.add('mismatch');
+    } else if(d && d.version){
+      el.textContent='Wilsons HQ '+d.version;
+    }
+  }catch(e){ /* older server with no version endpoint — leave the page label as-is */ }
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */

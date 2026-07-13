@@ -11,6 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
+const APP_VERSION = 'v15';   // bump this each release so the app can confirm the newest code is live
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
@@ -671,6 +672,8 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'sync failed: ' + e.message }); }
         return json(res, 200, { ok: true, created, updated, adopted, skipped });
       }
+      // ---- version stamp: lets the app confirm the newest code is actually live ----
+      if (url === '/api/version' && m === 'GET') return json(res, 200, { version: APP_VERSION });
       // ---- sidebar menu layout: admins choose which screens sit in Production / Technical / Office ----
       if (url === '/api/menu-layout' && m === 'GET') {
         const row = db.prepare("SELECT value FROM meta WHERE key='menuLayout'").get();
@@ -1001,4 +1004,4 @@ seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importCo
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);
-server.listen(PORT, () => console.log('Wilsons Production Manager backend on port ' + PORT + '  (db: ' + DB_FILE + ')'));
+server.listen(PORT, () => console.log('Wilsons HQ ' + APP_VERSION + ' backend on port ' + PORT + '  (db: ' + DB_FILE + ')'));
