@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v16';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v17';   // bump this each release so the app can confirm the newest code is live
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
@@ -605,7 +605,9 @@ const server = http.createServer(async (req, res) => {
             if (!raw.in[col]) raw.in[col] = raw.dates.map(() => null);
             while (raw.in[col].length < raw.dates.length) raw.in[col].push(null);
             const v = b.day.values[col];
-            raw.in[col][idx] = (v === '' || v == null) ? null : +v;
+            // numbers stay numbers; text fields (reasons / out-of-stocks / notes) are kept as text
+            const n = Number(v);
+            raw.in[col][idx] = (v === '' || v == null) ? null : (Number.isFinite(n) && String(v).trim() !== '' ? n : String(v));
           });
           kpiSet('raw', raw); kpiSet('refresh', stamp);
         }

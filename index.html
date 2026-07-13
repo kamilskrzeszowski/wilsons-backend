@@ -344,7 +344,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v16</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v17</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2085,6 +2085,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v17', date:'13 Jul 2026', notes:[
+    'KPI Daily Input: labour hours split by area (Ayr fill/cook, despatch, Blair produce/despatch), reasons, out-of-stocks and notes boxes, and boxes the app already knows (cooked kg, complaints, planned kg) fill themselves.',
+    'New computed KPIs: Recovered Labour and Labour Recovery Variance per site (replaces the Costed Plan & Labour Variance spreadsheets), plus Volume Variance vs target.',
+    'Productivity standards (kg/hour) and default volume targets are editable in KPI Settings, date-effective.',
+    'New Report tab in the KPI dashboard: a branded Daily or Weekly management report, printable to PDF \u2014 replaces the Summary Report spreadsheet.']},
   {v:'v16', date:'13 Jul 2026', notes:[
     'Complaints search now lets you type a whole word — it used to accept only one letter at a time.',
     'This version history: click the version number any time to see what changed.']},
@@ -2121,7 +2126,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v16';
+const APP_VERSION='v17';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -3727,11 +3732,17 @@ window.addEventListener('message',e=>{ if(e.data==='wilsons-open-kpi') navTo('kp
 const KPI_GROUPS=[
   ['Safety',['Accidents','Riddors','Near Miss Incidents']],
   ['Complaints',['D2C Complaints','Trade Complaints']],
-  ['Hours & people',['Labour Hours Blair','Labour Hours Ayr','Labour Hours Despatch','Training Hours','Holiday Hours','Absence Hours']],
-  ['Production',['Cold Pressed Produced (kg)','Fresh/Cooked Produced (kg)','Fresh/Cooked Rejects (kg)']],
-  ['Despatch & delivery',['Despatched Internally (kg)','Despatched 3PL (kg)','Orders Late >24hrs (DC2)','Orders Late >48hrs (Trade)']],
-  ['Trade sales',['Trade Sales £ (Indep/Multis)','New Customers','Active Customer Orders','Prospects Called','Current Customers Called']]
+  ['Labour hours (per area)',['Labour Hours Ayr Fill','Labour Hours Ayr Cook','Labour Hours Despatch','Labour Hours Blair','Labour Hours Blair Despatch']],
+  ['People hours',['Training Hours','Holiday Hours','Absence Hours']],
+  ['Production',['Cold Pressed Produced (kg)','Fresh/Cooked Produced (kg)','Fresh/Cooked Rejects (kg)','Volume Target Ayr (kg)','Volume Target Blair (kg)']],
+  ['Despatch & delivery',['Despatched Internally (kg)','Despatched 3PL (kg)','Despatched Blair (kg)','Orders Late >24hrs (DC2)','Orders Late >48hrs (Trade)']],
+  ['Trade sales',['Trade Sales £ (Indep/Multis)','New Customers','Active Customer Orders','Prospects Called','Current Customers Called']],
+  ['Reasons & notes (words, not numbers)',['Reason — Ayr volume','Reason — Blair volume','Reason — Ayr labour','Reason — Blair labour','Out of stocks (what & why)','Daily notes']]
 ];
+/* free-text day fields (everything else is a number) */
+const KPI_TEXT_FIELDS=new Set(['Reason — Ayr volume','Reason — Blair volume','Reason — Ayr labour','Reason — Blair labour','Out of stocks (what & why)','Daily notes']);
+/* friendly hints under the labour boxes */
+const KPI_HINTS={'Labour Hours Ayr Fill':'mince & pack','Labour Hours Ayr Cook':'cooking','Labour Hours Despatch':'Ayr despatch','Labour Hours Blair':'cold press production','Labour Hours Blair Despatch':'cold press despatch','Despatched Internally (kg)':'Ayr despatch kg'};
 let KPIRAW=null, kpiDate=null, kpiSaving=false;
 function kpiYesterday(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 async function renderKpiInput(){
@@ -3742,7 +3753,7 @@ async function renderKpiInput(){
   try{ const d=await api('/api/kpi'); KPIRAW=d.raw||{dates:[],in:{}}; }
   catch(e){ root.innerHTML='<p class="muted">Could not load KPI data: '+escapeHtml(e.message)+'</p>'; return; }
   drawKpiForm();
-  kpiSuggestions();
+  kpiAutoFill();
 }
 window.renderKpiInput=renderKpiInput;
 function kpiValFor(col){ const i=(KPIRAW.dates||[]).indexOf(kpiDate); if(i<0) return ''; const v=((KPIRAW.in||{})[col]||[])[i]; return v==null?'':v; }
@@ -3752,20 +3763,22 @@ function drawKpiForm(){
   /* last 7 days at a glance: filled or missing */
   const chips=[]; for(let n=1;n<=7;n++){ const d=new Date(); d.setDate(d.getDate()-n); const iso=d.toISOString().slice(0,10);
     const has=kpiDayHasData(iso);
-    chips.push(`<button class="btn ghost sm" style="${iso===kpiDate?'border-color:var(--coral);font-weight:700;':''}" onclick="kpiDate='${iso}';drawKpiForm();kpiSuggestions()">${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric'})} ${has?'<span style="color:#2e8b6f">●</span>':'<span style="color:#c0563b">○</span>'}</button>`); }
+    chips.push(`<button class="btn ghost sm" style="${iso===kpiDate?'border-color:var(--coral);font-weight:700;':''}" onclick="kpiDate='${iso}';drawKpiForm();kpiAutoFill()">${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric'})} ${has?'<span style="color:#2e8b6f">●</span>':'<span style="color:#c0563b">○</span>'}</button>`); }
   const blocks=KPI_GROUPS.map(([title,cols])=>`
     <div class="card" style="padding:14px 18px">
       <h4 style="margin:0 0 10px;font-family:var(--font-display);font-weight:400;text-transform:uppercase;font-size:13.5px;color:var(--navy)">${title}</h4>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        ${cols.map(c=>`<label class="fld" style="min-width:150px">${escapeHtml(c)}<input type="number" step="any" inputmode="decimal" data-kcol="${escapeHtml(c)}" value="${kpiValFor(c)}" style="width:150px"><span class="kpisug" data-ksug="${escapeHtml(c)}"></span></label>`).join('')}
+        ${cols.map(c=>KPI_TEXT_FIELDS.has(c)
+          ?`<label class="fld" style="min-width:320px;flex:1">${escapeHtml(c)}<input type="text" data-kcol="${escapeHtml(c)}" value="${escapeHtml(String(kpiValFor(c)||''))}" placeholder="${/Reason/.test(c)?'only needed when the day missed its target':(/stock/i.test(c)?'e.g. Chicken 380g — supplier short delivery':'anything worth telling management')}" style="width:100%"></label>`
+          :`<label class="fld" style="min-width:150px">${escapeHtml(c)}${KPI_HINTS[c]?`<span class="muted" style="font-size:10.5px;display:block;margin-top:-2px">${KPI_HINTS[c]}</span>`:''}<input type="number" step="any" inputmode="decimal" data-kcol="${escapeHtml(c)}" value="${kpiValFor(c)}" style="width:150px"><span class="kpisug" data-ksug="${escapeHtml(c)}"></span></label>`).join('')}
       </div>
     </div>`).join('');
   root.innerHTML=`
     <div class="toolbar">
-      <label class="fld">Day<input type="date" value="${kpiDate}" onchange="kpiDate=this.value;drawKpiForm();kpiSuggestions()"></label>
+      <label class="fld">Day<input type="date" value="${kpiDate}" onchange="kpiDate=this.value;drawKpiForm();kpiAutoFill()"></label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">${chips.reverse().join('')}</div>
       <span class="spacer"></span>
-      <span class="muted" style="font-size:12px">● = day has numbers · ○ = still empty</span>
+      <span class="muted" style="font-size:12px">● = day has numbers · ○ = still empty · boxes the app knows fill themselves</span>
     </div>
     ${blocks}
     <div class="toolbar" style="margin-top:4px">
@@ -3774,27 +3787,41 @@ function drawKpiForm(){
     </div>`;
 }
 /* pre-fill suggestions from what the app already knows (complaints + cooked kg) — never applied without a click */
-async function kpiSuggestions(){
+async function kpiAutoFill(){
+  /* fill what the app already knows straight into EMPTY boxes, with a note underneath.
+     Boxes that already have a saved number are left alone (a hint appears only if the app disagrees). */
+  const auto=(col,val,label)=>{
+    const el=document.querySelector(`[data-kcol="${CSS.escape(col)}"]`); if(!el||val==null) return;
+    const note=document.querySelector(`[data-ksug="${CSS.escape(col)}"]`);
+    if(el.value===''){
+      el.value=val;
+      if(note) note.innerHTML=`<span style="font-weight:400;color:#7a8a94">filled from ${label} — edit if it's wrong</span>`;
+    } else if(+el.value!==+val && note){
+      note.innerHTML=`<span style="font-weight:400;color:#7a8a94">${label} says <b>${val}</b> <button class="linkbtn" onclick="kpiUse('${col.replace(/'/g,"\\'")}',${val})">use</button></span>`;
+    }
+  };
   try{
     if(!COMPLAINTS) COMPLAINTS=await api('/api/complaints');
     const day=COMPLAINTS.filter(c=>c.cdate===kpiDate);
-    const d2c=day.filter(c=>c.custType==='Wilsons D2C').length;
-    const trade=day.filter(c=>c.custType==='Wilsons Trade').length;
     const amazon=day.filter(c=>c.custType==='Wilsons Amazon').length;
-    const sug=(col,val,extra)=>{ const el=document.querySelector(`[data-ksug="${CSS.escape(col)}"]`); if(!el) return;
-      el.innerHTML=`<span style="font-weight:400;color:#7a8a94">in the app: <b>${val}</b>${extra||''} <button class="linkbtn" onclick="kpiUse('${col.replace(/'/g,"\\'")}',${val})">use</button></span>`; };
-    sug('D2C Complaints',d2c,amazon?` (+${amazon} Amazon, not counted)`:'' );
-    sug('Trade Complaints',trade);
+    auto('D2C Complaints', day.filter(c=>c.custType==='Wilsons D2C').length, 'the complaints log'+(amazon?` (+${amazon} Amazon, not counted)`:''));
+    auto('Trade Complaints', day.filter(c=>c.custType==='Wilsons Trade').length, 'the complaints log');
   }catch(e){}
   try{
     const prod=await api('/api/production');
     const kg=prod.filter(p=>p.cook_date===kpiDate&&!(p.hist===1)).reduce((a,p)=>a+(+p.kg||0),0);
-    if(kg>0){ const el=document.querySelector(`[data-ksug="${CSS.escape('Fresh/Cooked Produced (kg)')}"]`);
-      if(el) el.innerHTML=`<span style="font-weight:400;color:#7a8a94">cooked in the app: <b>${fmt(kg)}</b> kg <button class="linkbtn" onclick="kpiUse('Fresh/Cooked Produced (kg)',${+kg.toFixed(2)})">use</button></span>`; }
+    if(kg>0) auto('Fresh/Cooked Produced (kg)', +kg.toFixed(1), 'Record Production');
+  }catch(e){}
+  try{
+    const d=new Date(kpiDate+'T00:00:00'); const dow=(d.getDay()+6)%7;
+    const mon=new Date(d); mon.setDate(d.getDate()-dow); const wk=mon.toISOString().slice(0,10);
+    const plan=(state.weekPlans||{})[wk];
+    if(plan&&plan.days){ const items=plan.days[String(dow)]||plan.days[dow]||[];
+      const kg=items.reduce((a,it)=>a+Object.values(it.alloc||{}).reduce((s,v)=>s+(+v||0),0),0);
+      if(kg>0) auto('Volume Target Ayr (kg)', +kg.toFixed(0), 'the Production Planner'); }
   }catch(e){}
 }
-function kpiUse(col,val){ const el=document.querySelector(`[data-kcol="${CSS.escape(col)}"]`); if(el){ el.value=val; } }
-window.kpiUse=kpiUse;
+window.kpiAutoFill=kpiAutoFill;
 async function kpiSaveDay(){
   if(kpiSaving) return; kpiSaving=true;
   const btn=document.getElementById('kpiSaveBtn'); const st=document.getElementById('kpiSaveState');
