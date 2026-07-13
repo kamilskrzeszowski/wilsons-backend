@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v17';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v18';   // bump this each release so the app can confirm the newest code is live
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
@@ -197,6 +197,36 @@ function importKpiSeed() {
     db.prepare("INSERT INTO meta(key,value) VALUES('kpiSeedV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     console.log('Imported KPI dashboard history + settings (seed v' + want + ').');
   } catch (e) { console.log('kpi seed failed:', e.message); }
+}
+// One-time gap-fill of KPI history from the ops spreadsheets (reasons, targets, safety, volumes).
+// Only ever fills EMPTY cells — never overwrites a number entered in the app.
+function backfillKpiFromHistory() {
+  try {
+    const f = path.join(__dirname, 'kpi-backfill.json');
+    if (!fs.existsSync(f)) return;
+    const bf = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='kpiBackfillV'").get();
+    if (row && +row.value >= want) return;
+    const rrow = db.prepare("SELECT value FROM kpi_kv WHERE key='raw'").get();
+    if (!rrow) return;                                   // nothing to fill yet
+    const raw = JSON.parse(rrow.value); raw.in = raw.in || {}; raw.dates = raw.dates || [];
+    const idx = {}; raw.dates.forEach((d, i) => idx[d] = i);
+    let filled = 0;
+    Object.keys(bf.in || {}).forEach(field => {
+      const col = bf.in[field];
+      if (!raw.in[field]) raw.in[field] = raw.dates.map(() => null);
+      (bf.dates || []).forEach((d, i) => {
+        const v = col[i]; if (v == null || v === '') return;
+        const ri = idx[d]; if (ri == null) return;        // only dates already in the calendar
+        const cur = raw.in[field][ri];
+        if (cur == null || cur === '') { raw.in[field][ri] = v; filled++; }
+      });
+    });
+    db.prepare('INSERT INTO kpi_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run('raw', JSON.stringify(raw), now());
+    db.prepare("INSERT INTO meta(key,value) VALUES('kpiBackfillV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('KPI history gap-fill: ' + filled + ' empty cells filled from the ops spreadsheets.');
+  } catch (e) { console.log('kpi backfill failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -1002,7 +1032,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); importSpecsSeed();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); importSpecsSeed();
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

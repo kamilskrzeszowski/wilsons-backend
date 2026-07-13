@@ -257,7 +257,6 @@ html.display main{padding:18px 22px}
       <button data-tab="report">Report</button>
       <button data-tab="settings">Settings</button>
     </div>
-    <button class="btn primary" id="uploadBtn">⬆ Upload spreadsheet</button>
     <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
     <button class="btn" id="fullscreenBtn" title="Toggle full screen">&#9974; Full screen</button>
     <div class="toggle" id="freqToggle">
@@ -982,7 +981,7 @@ function showTab(tab){
   else if (dashStale) { dashStale = false; render(); }
 }
 document.getElementById("tabs").addEventListener("click", e=>{ if(e.target.dataset.tab) showTab(e.target.dataset.tab); });
-document.getElementById("uploadBtn").onclick = ()=> document.getElementById("fileInput").click();
+{ const ub=document.getElementById("uploadBtn"); if(ub) ub.onclick = ()=> document.getElementById("fileInput").click(); }
 document.getElementById("fileInput").onchange = e=>{
   const file = e.target.files[0]; if(!file) return;
   const reader = new FileReader();

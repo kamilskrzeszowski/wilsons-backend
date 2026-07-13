@@ -77,6 +77,7 @@
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .spacer{flex:1}
   label.fld{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:600}
+  .kpisug{display:block;height:14px;line-height:14px;font-size:10px;font-weight:400;color:#7a8a94;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
   .muted{color:var(--muted)}
   .pill{font-size:11px;padding:2px 8px;border-radius:5px;background:var(--chip);font-weight:600}
   .empty{color:var(--muted);text-align:center;padding:40px;border:2px dashed var(--line);border-radius:10px}
@@ -344,7 +345,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v17</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v18</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2085,6 +2086,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v18', date:'13 Jul 2026', notes:[
+    'KPI Daily Input tidied: labour-hours boxes fill from the app automatically (small note under each), Trade Sales and 3PL despatch removed, out-of-stocks is now a general \u201cwhat & why\u201d box.',
+    'Complaints brought up to date from the latest spreadsheet \u2014 accurate through 10 July.',
+    'KPI history back-filled from the ops spreadsheets: daily reasons and volume targets added (gap-fill only, nothing you entered was changed).',
+    'Removed the \u201cUpload spreadsheet\u201d button from the KPI dashboard \u2014 numbers come from the daily input now.']},
   {v:'v17', date:'13 Jul 2026', notes:[
     'KPI Daily Input: labour hours split by area (Ayr fill/cook, despatch, Blair produce/despatch), reasons, out-of-stocks and notes boxes, and boxes the app already knows (cooked kg, complaints, planned kg) fill themselves.',
     'New computed KPIs: Recovered Labour and Labour Recovery Variance per site (replaces the Costed Plan & Labour Variance spreadsheets), plus Volume Variance vs target.',
@@ -2126,7 +2132,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v17';
+const APP_VERSION='v18';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -3735,8 +3741,7 @@ const KPI_GROUPS=[
   ['Labour hours (per area)',['Labour Hours Ayr Fill','Labour Hours Ayr Cook','Labour Hours Despatch','Labour Hours Blair','Labour Hours Blair Despatch']],
   ['People hours',['Training Hours','Holiday Hours','Absence Hours']],
   ['Production',['Cold Pressed Produced (kg)','Fresh/Cooked Produced (kg)','Fresh/Cooked Rejects (kg)','Volume Target Ayr (kg)','Volume Target Blair (kg)']],
-  ['Despatch & delivery',['Despatched Internally (kg)','Despatched 3PL (kg)','Despatched Blair (kg)','Orders Late >24hrs (DC2)','Orders Late >48hrs (Trade)']],
-  ['Trade sales',['Trade Sales £ (Indep/Multis)','New Customers','Active Customer Orders','Prospects Called','Current Customers Called']],
+  ['Despatch & delivery',['Despatched Internally (kg)','Despatched Blair (kg)','Orders Late >24hrs (DC2)','Orders Late >48hrs (Trade)']],
   ['Reasons & notes (words, not numbers)',['Reason — Ayr volume','Reason — Blair volume','Reason — Ayr labour','Reason — Blair labour','Out of stocks (what & why)','Daily notes']]
 ];
 /* free-text day fields (everything else is a number) */
@@ -3795,17 +3800,17 @@ async function kpiAutoFill(){
     const note=document.querySelector(`[data-ksug="${CSS.escape(col)}"]`);
     if(el.value===''){
       el.value=val;
-      if(note) note.innerHTML=`<span style="font-weight:400;color:#7a8a94">filled from ${label} — edit if it's wrong</span>`;
+      if(note) note.textContent='\u2713 '+label;
     } else if(+el.value!==+val && note){
-      note.innerHTML=`<span style="font-weight:400;color:#7a8a94">${label} says <b>${val}</b> <button class="linkbtn" onclick="kpiUse('${col.replace(/'/g,"\\'")}',${val})">use</button></span>`;
+      note.innerHTML=`app: <b>${val}</b> <button class="linkbtn" onclick="kpiUse('${col.replace(/'/g,"\\'")}',${val})">use</button>`;
     }
   };
   try{
     if(!COMPLAINTS) COMPLAINTS=await api('/api/complaints');
     const day=COMPLAINTS.filter(c=>c.cdate===kpiDate);
     const amazon=day.filter(c=>c.custType==='Wilsons Amazon').length;
-    auto('D2C Complaints', day.filter(c=>c.custType==='Wilsons D2C').length, 'the complaints log'+(amazon?` (+${amazon} Amazon, not counted)`:''));
-    auto('Trade Complaints', day.filter(c=>c.custType==='Wilsons Trade').length, 'the complaints log');
+    auto('D2C Complaints', day.filter(c=>c.custType==='Wilsons D2C').length, 'complaints');
+    auto('Trade Complaints', day.filter(c=>c.custType==='Wilsons Trade').length, 'complaints');
   }catch(e){}
   try{
     const prod=await api('/api/production');
@@ -3818,7 +3823,7 @@ async function kpiAutoFill(){
     const plan=(state.weekPlans||{})[wk];
     if(plan&&plan.days){ const items=plan.days[String(dow)]||plan.days[dow]||[];
       const kg=items.reduce((a,it)=>a+Object.values(it.alloc||{}).reduce((s,v)=>s+(+v||0),0),0);
-      if(kg>0) auto('Volume Target Ayr (kg)', +kg.toFixed(0), 'the Production Planner'); }
+      if(kg>0) auto('Volume Target Ayr (kg)', +kg.toFixed(0), 'the plan'); }
   }catch(e){}
 }
 window.kpiAutoFill=kpiAutoFill;
