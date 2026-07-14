@@ -345,7 +345,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v18</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v19</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2086,12 +2086,21 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v19', date:'14 Jul 2026', notes:[
+    'Fixed production TARGETS that were far too high: weekends were being given a target (and Friday counted as a full day). Now Mon\u2013Thu use the weekday target, Friday the lower one, and weekends none \u2014 on both the dashboard and the report (e.g. July cold-press target 120t \u2192 82t).',
+    'Recovered labour now uses the \u00a3-per-kg allowance straight from your Costed Plan / Labour Variance sheets (mince \u00a30.26, cook \u00a30.20, despatch \u00a30.15, cold press \u00a30.12) \u2014 identical maths to your spreadsheets.',
+    'One shareable \u201cOperations Report\u201d: a running weekly grid like the summary sheet, showing previous weeks. Print / save-PDF.',
+    'Filling Sheet: an in-progress basket is auto-saved to the tablet, so a reload/restart/update mid-fill never loses it (the timer resumes at the right time).',
+    'Complaint KPIs are now counted LIVE from the Complaints tracker (by complaint date) \u2014 so they can never drift. Fixed a big undercount (e.g. June was showing 21, the tracker has 95). The complaint boxes are gone from the daily input \u2014 nothing to type.',
+    'New Amazon Complaints KPI (counted live from the tracker too) \u2014 kept separate from the D2C+Trade \u201cCustomer Complaints\u201d figure.',
+    'Complaints data refreshed to 10 July; KPI history back-filled from the ops spreadsheets.']},
   {v:'v18', date:'13 Jul 2026', notes:[
     'KPI Daily Input tidied: labour-hours boxes fill from the app automatically (small note under each), Trade Sales and 3PL despatch removed, out-of-stocks is now a general \u201cwhat & why\u201d box.',
     'Complaints brought up to date from the latest spreadsheet \u2014 accurate through 10 July.',
     'KPI history back-filled from the ops spreadsheets: daily reasons and volume targets added (gap-fill only, nothing you entered was changed).',
     'Removed the \u201cUpload spreadsheet\u201d button from the KPI dashboard \u2014 numbers come from the daily input now.',
-    'The management report is now ONE shareable \u201cOperations Report\u201d \u2014 a running weekly grid (weeks across, metrics down) like the summary sheet, so previous weeks are visible at a glance. Print / save-PDF.']},
+    'The management report is now ONE shareable \u201cOperations Report\u201d \u2014 a running weekly grid (weeks across, metrics down) like the summary sheet, so previous weeks are visible at a glance. Print / save-PDF.',
+    'Filling Sheet: a basket in progress is now auto-saved to the tablet \u2014 if the screen reloads or restarts (or the app is updated) mid-fill, the basket and its running timer come straight back. Nothing is lost.']},
   {v:'v17', date:'13 Jul 2026', notes:[
     'KPI Daily Input: labour hours split by area (Ayr fill/cook, despatch, Blair produce/despatch), reasons, out-of-stocks and notes boxes, and boxes the app already knows (cooked kg, complaints, planned kg) fill themselves.',
     'New computed KPIs: Recovered Labour and Labour Recovery Variance per site (replaces the Costed Plan & Labour Variance spreadsheets), plus Volume Variance vs target.',
@@ -2133,7 +2142,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v18';
+const APP_VERSION='v19';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -2559,6 +2568,11 @@ function kp(id,label,val,cls,attrs){ return `<input id="${id||''}" class="kp ${c
 
 /* ===== Filling Sheet (tablet) ===== */
 let fillBasket=null, _fillTimer=null;
+/* the in-progress basket is auto-saved to this device so nothing is lost on a reload,
+   tablet restart, or an app update mid-fill. It's cleared once the basket is submitted. */
+function persistFill(){ try{ if(fillBasket && canEdit('filling')) localStorage.setItem('wpm_fillbasket', JSON.stringify(fillBasket)); }catch(e){} }
+function restoreFill(){ try{ const s=localStorage.getItem('wpm_fillbasket'); if(s){ const b=JSON.parse(s); if(b && typeof b==='object' && 'lines' in b) return b; } }catch(e){} return null; }
+function dropFill(){ try{ localStorage.removeItem('wpm_fillbasket'); }catch(e){} }
 function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
 function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
 function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
@@ -2578,12 +2592,12 @@ function tempAlert(){ pop(`<div style="text-align:center;padding:6px 4px">
    <p style="font-size:15px">The product must be frozen (<b>0&nbsp;°C or below</b>). Do <b>not</b> continue filling this basket.<br><br>Stop now, get your <b>manager</b>, and re-evaluate before recording it.</p>
    <button class="btn coral" onclick="closeModal()" style="margin-top:6px;font-size:16px;padding:14px 26px">OK — I'll get my manager</button></div>`); }
 function tempIsBad(v){ const n=parseFloat(v); return !isNaN(n)&&n>0; }
-function renderFilling(){ if(!fillBasket) fillBasket=newFillBasket(); goFullscreen(); drawFill(); }
+function renderFilling(){ if(!fillBasket) fillBasket=restoreFill()||newFillBasket(); if(fillBasket.fillStart&&!fillBasket.fillFinish) reportLiveFill(); goFullscreen(); drawFill(); }
 function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
 function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
 function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; reportLiveFill(); drawFill(); }
 function fillFinishNow(){ if(!fillBasket.fillStart)return; fillBasket.fillFinish=new Date().toISOString(); clearLiveFill(); drawFill(); }
-function fillClear(){ stopFillTimer(); clearLiveFill(); fillBasket=newFillBasket(); drawFill(); }
+function fillClear(){ stopFillTimer(); clearLiveFill(); dropFill(); fillBasket=newFillBasket(); drawFill(); }
 /* tell the server this account is filling a basket right now (so the dashboard shows a live countdown) */
 function reportLiveFill(){ try{ const b=fillBasket; const prods=[...new Set((b.lines||[]).filter(l=>l.recipeId).map(l=>{ const r=byId(l.recipeId); return r?(r.brand+' — '+r.name):''; }).filter(Boolean))].join(', '); api('/api/live-fill','POST',{basket:b.basket,products:prods,fillStart:b.fillStart,operators:+b.operators||0}).catch(()=>{}); }catch(e){} }
 function clearLiveFill(){ try{ api('/api/live-fill','DELETE').catch(()=>{}); }catch(e){} }
@@ -2648,8 +2662,8 @@ function drawFill(){
   </div>
   <h3>Baskets filled today</h3>
   <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Best before</th><th>Fill start</th><th>Fill finish</th>${ro?'':'<th></th>'}</tr></thead><tbody id="flToday"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody></table></div>`;
-  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; if(k==='filled') drawFill(); if((k==='tempStart'||k==='tempFinish') && tempIsBad(el.value)) tempAlert(); }; el.addEventListener('input',()=>fillBasket[k]=el.value); el.addEventListener('change',h); });
-  root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>fillBasket.lines[+el.dataset.i].bags=el.value));
+  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; persistFill(); if(k==='filled') drawFill(); if((k==='tempStart'||k==='tempFinish') && tempIsBad(el.value)) tempAlert(); }; el.addEventListener('input',()=>{ fillBasket[k]=el.value; persistFill(); }); el.addEventListener('change',h); });
+  root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>{ fillBasket.lines[+el.dataset.i].bags=el.value; persistFill(); }));
   root.querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>fillDelLine(+el.dataset.del)));
   root.querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>pickProduct(+el.dataset.pick)));
   const g=id=>document.getElementById(id);
@@ -2657,6 +2671,7 @@ function drawFill(){
   if(g('flManual'))g('flManual').onclick=manualTimes;
   if(g('flAdd'))g('flAdd').onclick=fillAddLine; if(g('flSave'))g('flSave').onclick=fillSave; if(g('flClear'))g('flClear').onclick=fillClear;
   if(b.fillStart){ tickFillTimer(); if(!b.fillFinish) _fillTimer=setInterval(tickFillTimer,1000); }
+  persistFill();
   loadFillToday();
 }
 async function loadFillToday(){
@@ -2698,7 +2713,7 @@ async function fillSave(){
       basket:b.basket,batch:b.julian,julian:b.julian,bestBefore:bbForRecipe(r,b.filled),mince:b.mince,filled:b.filled,tempStart:b.tempStart,tempFinish:b.tempFinish,fillStart:b.fillStart,fillFinish:b.fillFinish,operators:+b.operators||2,stackId:b.stackId,stackComplete:stComplete,trays:+b.trays||0,
       deductions:deductionsFor(r,+l.bags,l.pack)}; });
   msg.textContent='Saving…';
-  try{ await api('/api/production','POST',{date:b.filled||todayISO(),fromFill:true,lines}); await reloadStock(); clearLiveFill();
+  try{ await api('/api/production','POST',{date:b.filled||todayISO(),fromFill:true,lines}); await reloadStock(); clearLiveFill(); dropFill();
     const next=(b.basket&&/^\d+$/.test(b.basket))?String(+b.basket+1):'';
     stopFillTimer(); fillBasket=newFillBasket(next,+b.operators||2); drawFill();
     const m=document.getElementById('flMsg'); if(m) m.textContent='Saved ✓ basket recorded.';
@@ -3668,7 +3683,7 @@ function saveShortcuts(){
 }
 window.saveShortcuts=saveShortcuts;
 /* condensed KPI strip — the KPI module itself renders it, so the numbers always match the dashboard */
-const HOME_KPI_GROUPS={"Safety":["Accidents","Riddors","Near Miss Incidents"],"Quality":["Customer Complaints","D2C Complaints","Trade Complaints"],"Cost":["Total Labour Spend","Cold Press Labour £/kg","Fresh/Cooked Labour £/kg","Despatch Labour £/kg","Cold Pressed Produced","Fresh/Cooked Produced","Total Despatched","Fresh/Cooked Rejects %","Labour Spend Blair","Labour Spend Ayr","Labour Spend Despatch","Labour Variance Total","Labour Variance Blair","Labour Variance Ayr","Labour Variance Despatch"],"People":["Training Hours Completed","Absenteeism Rate","Holiday Usage"],"Delivery":["Orders Late >24hrs (DC2)","Orders Late >48hrs (Trade)"],"Trade Sales":["Trade Sales (Indep/Multis)","New Customers","Active Customer Orders","Prospects Called","Current Customers Called"]};
+const HOME_KPI_GROUPS={"Safety":["Accidents","Riddors","Near Miss Incidents"],"Quality":["Customer Complaints","D2C Complaints","Trade Complaints","Amazon Complaints"],"Cost":["Total Labour Spend","Cold Press Labour £/kg","Fresh/Cooked Labour £/kg","Despatch Labour £/kg","Cold Pressed Produced","Fresh/Cooked Produced","Total Despatched","Fresh/Cooked Rejects %","Labour Spend Blair","Labour Spend Ayr","Labour Spend Despatch","Labour Variance Total","Labour Variance Blair","Labour Variance Ayr","Labour Variance Despatch"],"People":["Training Hours Completed","Absenteeism Rate","Holiday Usage"],"Delivery":["Orders Late >24hrs (DC2)","Orders Late >48hrs (Trade)"],"Trade Sales":["Trade Sales (Indep/Multis)","New Customers","Active Customer Orders","Prospects Called","Current Customers Called"]};
 function renderHomeKpiFrame(){
   const f=document.getElementById('homeKpiFrame'); if(!f) return;
   const picks=(getPrefs().kpis||[]);
@@ -3738,7 +3753,7 @@ window.addEventListener('message',e=>{ if(e.data==='wilsons-open-kpi') navTo('kp
 /* ===== KPI Daily Input — the 23 numbers from the KPI input sheet, grouped the same way ===== */
 const KPI_GROUPS=[
   ['Safety',['Accidents','Riddors','Near Miss Incidents']],
-  ['Complaints',['D2C Complaints','Trade Complaints']],
+  /* complaints are counted automatically from the Complaints tracker — no entry needed */
   ['Labour hours (per area)',['Labour Hours Ayr Fill','Labour Hours Ayr Cook','Labour Hours Despatch','Labour Hours Blair','Labour Hours Blair Despatch']],
   ['People hours',['Training Hours','Holiday Hours','Absence Hours']],
   ['Production',['Cold Pressed Produced (kg)','Fresh/Cooked Produced (kg)','Fresh/Cooked Rejects (kg)','Volume Target Ayr (kg)','Volume Target Blair (kg)']],
@@ -3806,13 +3821,7 @@ async function kpiAutoFill(){
       note.innerHTML=`app: <b>${val}</b> <button class="linkbtn" onclick="kpiUse('${col.replace(/'/g,"\\'")}',${val})">use</button>`;
     }
   };
-  try{
-    if(!COMPLAINTS) COMPLAINTS=await api('/api/complaints');
-    const day=COMPLAINTS.filter(c=>c.cdate===kpiDate);
-    const amazon=day.filter(c=>c.custType==='Wilsons Amazon').length;
-    auto('D2C Complaints', day.filter(c=>c.custType==='Wilsons D2C').length, 'complaints');
-    auto('Trade Complaints', day.filter(c=>c.custType==='Wilsons Trade').length, 'complaints');
-  }catch(e){}
+  /* complaints are now counted automatically from the tracker on the server — nothing to fill here */
   try{
     const prod=await api('/api/production');
     const kg=prod.filter(p=>p.cook_date===kpiDate&&!(p.hist===1)).reduce((a,p)=>a+(+p.kg||0),0);

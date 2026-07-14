@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v18';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v19';   // bump this each release so the app can confirm the newest code is live
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
@@ -607,7 +607,22 @@ const server = http.createServer(async (req, res) => {
       const kpiSet = (k, v) => db.prepare('INSERT INTO kpi_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, JSON.stringify(v), now());
       if (url === '/api/kpi' && m === 'GET') {
         if (!kpiView) return json(res, 403, { error: 'no KPI access' });
-        return json(res, 200, { raw: kpiGet('raw'), settings: kpiGet('settings'), refresh: kpiGet('refresh'), caps: { settings: kpiSettingsEdit, input: kpiInputEdit } });
+        const raw = kpiGet('raw') || { dates: [], in: {} };
+        // Complaint KPIs are ALWAYS taken live from the complaints tracker (the single source of
+        // truth) — counted by complaint date, so they can never drift from the log.
+        try {
+          const idx = {}; (raw.dates || []).forEach((d, i) => idx[d] = i);
+          const d2c = (raw.dates || []).map(() => 0), trade = (raw.dates || []).map(() => 0), amazon = (raw.dates || []).map(() => 0);
+          db.prepare('SELECT data FROM complaints').all().forEach(r => {
+            let c = {}; try { c = JSON.parse(r.data || '{}'); } catch (e) {}
+            const i = idx[(c.cdate || '').slice(0, 10)]; if (i == null) return;
+            if (c.custType === 'Wilsons D2C') d2c[i]++;
+            else if (c.custType === 'Wilsons Trade') trade[i]++;
+            else if (c.custType === 'Wilsons Amazon') amazon[i]++;
+          });
+          raw.in = raw.in || {}; raw.in['D2C Complaints'] = d2c; raw.in['Trade Complaints'] = trade; raw.in['Amazon Complaints'] = amazon;
+        } catch (e) {}
+        return json(res, 200, { raw, settings: kpiGet('settings'), refresh: kpiGet('refresh'), caps: { settings: kpiSettingsEdit, input: kpiInputEdit } });
       }
       if (url === '/api/kpi' && m === 'PUT') {
         const b = await readBody(req); if (!b) return json(res, 400, { error: 'bad request' });
