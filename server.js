@@ -11,7 +11,8 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v19';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v20';   // bump this each release so the app can confirm the newest code is live
+// v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
@@ -553,12 +554,9 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    // --- Planning page (any signed-in user) ---
+    // --- Planning page: served to anyone; the page itself checks your login (Bearer token
+    //     from localStorage) and redirects to sign-in if needed. Data is protected by the API. ---
     if (url === '/planning' && m === 'GET') {
-      const q = new URLSearchParams((req.url.split('?')[1] || ''));
-      const tok = q.get('token') || '';
-      const s = tok ? db.prepare('SELECT * FROM sessions WHERE token=?').get(tok) : null;
-      if (!(s && s.expires > Date.now())) { res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end('<p style="font-family:sans-serif;padding:30px">Please sign in to Wilsons HQ first, then open Planning from the menu.</p>'); }
       fs.readFile(path.join(__dirname, 'planning.html'), (e, data) => {
         if (e) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Planning module not installed.'); }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
