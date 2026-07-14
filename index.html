@@ -2086,6 +2086,10 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v20', date:'14 Jul 2026', notes:[
+    'New Planning section — tasks, projects and delegation. Open it at /planning: add your own tasks and projects, assign work to team members, and track what you’re waiting on. Team members appear in the assign list once they have a Wilsons HQ login.',
+    'Planning is added on top of everything else — no change to production, recipes, KPI or any existing data.'
+  ]},
   {v:'v19', date:'14 Jul 2026', notes:[
     'Fixed production TARGETS that were far too high: weekends were being given a target (and Friday counted as a full day). Now Mon\u2013Thu use the weekday target, Friday the lower one, and weekends none \u2014 on both the dashboard and the report (e.g. July cold-press target 120t \u2192 82t).',
     'Recovered labour now uses the \u00a3-per-kg allowance straight from your Costed Plan / Labour Variance sheets (mince \u00a30.26, cook \u00a30.20, despatch \u00a30.15, cold press \u00a30.12) \u2014 identical maths to your spreadsheets.',
@@ -2142,7 +2146,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v19';
+const APP_VERSION='v20';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
