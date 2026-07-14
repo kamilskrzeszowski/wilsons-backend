@@ -417,6 +417,7 @@ function extractZipEntry(buf, wantName) {
 function readBody(req) { return new Promise((resolve) => { let b = ''; req.on('data', c => { b += c; if (b.length > 12e6) req.destroy(); }); req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch (e) { resolve(null); } }); }); }
 
 /* ---------------- routes ---------------- */
+let planning = null; // Planning module (tasks/projects) — loaded at startup, guarded.
 const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
   const m = req.method;
@@ -552,11 +553,27 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+    // --- Planning page (any signed-in user) ---
+    if (url === '/planning' && m === 'GET') {
+      const q = new URLSearchParams((req.url.split('?')[1] || ''));
+      const tok = q.get('token') || '';
+      const s = tok ? db.prepare('SELECT * FROM sessions WHERE token=?').get(tok) : null;
+      if (!(s && s.expires > Date.now())) { res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end('<p style="font-family:sans-serif;padding:30px">Please sign in to Wilsons HQ first, then open Planning from the menu.</p>'); }
+      fs.readFile(path.join(__dirname, 'planning.html'), (e, data) => {
+        if (e) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Planning module not installed.'); }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(data);
+      });
+      return;
+    }
     if (url.startsWith('/api/')) {
       const user = authUser(req);
       if (!user) return json(res, 401, { error: 'Not signed in' });
 
       if (url === '/api/me') return json(res, 200, { user });
+
+      // --- Planning module (tasks/projects/delegation) — guarded so it can never break HQ ---
+      if (planning) { try { if (await planning.handle({ url, method: m, req, res, user, db, json, readBody })) return; } catch (e) { return json(res, 500, { error: 'planning: ' + (e && e.message || e) }); } }
 
       // ---- restore EVERYTHING from an uploaded backup (admins only) ----
       // Accepts the backup .zip (or a bare app.db). The file is safety-checked, the current
@@ -1048,6 +1065,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); importSpecsSeed();
+try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

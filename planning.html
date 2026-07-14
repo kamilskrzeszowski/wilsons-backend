@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wilsons HQ — Planning</title>
+<style>
+@font-face{font-family:'Bobby Jones';src:url('/assets/BobbyJones-Regular.otf') format('opentype');font-weight:400;font-display:swap;}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Rg.ttf') format('truetype');font-weight:400;font-display:swap;}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Md.ttf') format('truetype');font-weight:600;font-display:swap;}
+@font-face{font-family:'Effra';src:url('/assets/Effra_Bd.ttf') format('truetype');font-weight:700;font-display:swap;}
+:root{
+  --navy:#143644;--slate:#4b5f6d;--cream:#e0ddcb;--coral:#f37d89;--coral-deep:#e2606c;
+  --bg:#f7f4ec;--card:#fff;--ink:#143644;--muted:#6f7b82;--line:#e2ddcd;--chip:#eef0ea;
+  --p-high:#c0563b;--p-med:#e0a13f;--p-low:#4b5f6d;--p-none:#b3bcc0;
+  --fd:'Bobby Jones','Poppins','Trebuchet MS',sans-serif;
+  --fb:'Effra',-apple-system,system-ui,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webkit-font-smoothing:antialiased;}
+.wrap{max-width:760px;margin:0 auto;padding-bottom:90px;}
+.topbar{background:var(--navy);color:#fff;padding:13px 18px;display:flex;align-items:center;gap:11px;position:sticky;top:0;z-index:5;}
+.topbar img{height:28px;width:auto;}
+.topbar .brand{font-family:var(--fd);font-size:18px;letter-spacing:.3px;}
+.topbar .home{color:#fff;opacity:.85;text-decoration:none;font-size:13px;border:1px solid rgba(255,255,255,.3);padding:5px 11px;border-radius:8px;}
+.topbar .sp{flex:1;}
+.topbar .who{display:flex;align-items:center;gap:8px;font-size:13px;opacity:.92;}
+.topbar .who .av{width:27px;height:27px;border-radius:50%;background:var(--coral-deep);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;}
+.head{padding:20px 20px 6px;}
+.head h1{font-family:var(--fd);font-size:30px;margin:0;color:var(--navy);letter-spacing:.2px;}
+.head p{margin:4px 0 0;color:var(--muted);font-size:14px;}
+.tabs{display:flex;gap:6px;padding:12px 16px 4px;overflow-x:auto;}
+.tabs .t{white-space:nowrap;padding:8px 15px;border-radius:20px;font-size:14px;font-weight:600;color:var(--slate);background:transparent;cursor:pointer;}
+.tabs .t.on{background:var(--navy);color:#fff;}
+.section{padding:8px 16px 20px;}
+.grp{margin-top:14px;}
+.grp .lbl{font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:6px 4px;}
+.grp .lbl.danger{color:var(--p-high);}
+.empty{text-align:center;color:var(--muted);padding:50px 20px;font-size:15px;}
+.task{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:9px;box-shadow:0 3px 10px -8px rgba(20,54,68,.25);}
+.check{width:22px;height:22px;border-radius:50%;border:2px solid var(--p-none);flex:none;margin-top:1px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;transition:.15s;}
+.task.done .check{background:#2f7d57;border-color:#2f7d57;}
+.task.done .check:before{content:'\2713';}
+.task .body{flex:1;min-width:0;}
+.task .title{font-size:15px;font-weight:600;color:var(--ink);line-height:1.3;}
+.task.done .title{text-decoration:line-through;color:#9aa6ab;}
+.task .meta{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap;}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:8px;}
+.pill.proj{color:#fff;}
+.pill.due{background:var(--chip);color:var(--slate);}
+.pill.due.over{background:#f8e3de;color:var(--p-high);}
+.pdot{width:9px;height:9px;border-radius:50%;flex:none;}
+.assignee{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:20px;padding:3px 10px 3px 3px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--slate);}
+.assignee .av{width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.assignee.mine{background:#e7efe9;color:#2f6b4d;}
+.person{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:11px;box-shadow:0 3px 10px -8px rgba(20,54,68,.25);}
+.person .ph{display:flex;align-items:center;gap:12px;}
+.person .av{width:40px;height:40px;border-radius:50%;color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex:none;}
+.person .pn{font-family:var(--fd);font-size:17px;color:var(--navy);}
+.person .pr{font-size:12.5px;color:var(--muted);margin-top:1px;}
+.person .cnt{margin-left:auto;text-align:right;}
+.person .cnt b{font-size:20px;color:var(--navy);}
+.person .cnt span{display:block;font-size:11px;color:var(--muted);}
+.person .plist{margin-top:12px;border-top:1px solid var(--line);padding-top:6px;}
+.person .pt{display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:14px;}
+.person .pt .ptt{flex:1;min-width:0;}
+.person .pt .ptd{font-size:12px;color:var(--muted);}
+.person .pt.done .ptt{text-decoration:line-through;color:#9aa6ab;}
+.person .smallcheck{width:18px;height:18px;border-radius:50%;border:2px solid var(--p-none);flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;}
+.person .pt.done .smallcheck{background:#2f7d57;border-color:#2f7d57;}
+.person .pt.done .smallcheck:before{content:'\2713';}
+.project{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px 16px;margin-bottom:11px;box-shadow:0 3px 10px -8px rgba(20,54,68,.25);}
+.project .prh{display:flex;align-items:center;gap:11px;}
+.project .swatch{width:12px;height:34px;border-radius:5px;flex:none;}
+.project .prn{font-family:var(--fd);font-size:17px;color:var(--navy);}
+.project .prm{font-size:12.5px;color:var(--muted);margin-top:1px;}
+.project .bar{height:7px;border-radius:6px;background:#ece7d8;margin-top:12px;overflow:hidden;}
+.project .bar i{display:block;height:100%;border-radius:6px;}
+.project .prt{display:flex;align-items:center;gap:9px;padding:6px 2px;font-size:13.5px;margin-top:2px;}
+.project .prt.done .x{text-decoration:line-through;color:#9aa6ab;}
+.project .prt .x{flex:1;}
+.mini-av{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
+.newproj{margin-top:6px;color:var(--coral-deep);font-weight:700;font-size:14px;cursor:pointer;padding:8px 4px;display:inline-block;}
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:var(--coral-deep);color:#fff;border:none;border-radius:26px;height:50px;padding:0 24px;font-family:var(--fb);font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 12px 26px -8px rgba(226,96,108,.6);z-index:10;}
+.fab b{font-size:20px;font-weight:400;}
+.scrim{position:fixed;inset:0;background:rgba(20,54,68,.4);z-index:20;display:none;}
+.scrim.on{display:block;}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:760px;margin:0 auto;background:#fff;border-radius:22px 22px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));z-index:21;transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);}
+.sheet.on{transform:translateY(0);}
+.sheet h3{font-family:var(--fd);font-size:20px;margin:0 0 8px;color:var(--navy);}
+.sheet label{display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 6px;}
+.sheet input,.sheet select{width:100%;border:1px solid var(--line);border-radius:11px;padding:12px;font-family:var(--fb);font-size:16px;color:var(--ink);background:#fbfaf6;outline:none;}
+.sheet .row{display:flex;gap:10px;}
+.sheet .row>div{flex:1;}
+.sheet .go{margin-top:18px;width:100%;background:var(--navy);color:#fff;border:none;border-radius:12px;height:48px;font-family:var(--fb);font-size:15px;font-weight:700;cursor:pointer;}
+.sheet .cancel{position:absolute;top:20px;right:20px;color:var(--muted);cursor:pointer;font-size:14px;}
+.menu{position:fixed;background:#fff;border-radius:14px;padding:6px;box-shadow:0 14px 40px -10px rgba(20,54,68,.4),0 0 0 1px var(--line);z-index:30;min-width:200px;}
+.menu .cap{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;padding:6px 11px 4px;}
+.menu .mi{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;cursor:pointer;font-size:14px;}
+.menu .mi:hover{background:var(--bg);}
+.menu .mi .tick{margin-left:auto;color:#2f7d57;}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:var(--navy);color:#fff;padding:11px 17px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:40;box-shadow:0 12px 30px -8px rgba(0,0,0,.4);}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="home" href="/">&#9166; HQ</a>
+  <img src="/assets/logo-grapefruit.svg" alt="" onerror="this.style.display='none'">
+  <span class="brand">Planning</span>
+  <span class="sp"></span>
+  <span class="who" id="who"></span>
+</div>
+<div class="wrap">
+  <div class="head"><h1>Planning</h1><p id="sub">Loading…</p></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="section" id="section"></div>
+</div>
+<button class="fab" data-act="add"><b>+</b>Add task</button>
+
+<div class="scrim" id="scrim" data-act="closeadd"></div>
+<div class="sheet" id="sheet">
+  <span class="cancel" data-act="closeadd">Cancel</span>
+  <h3>Add a task</h3>
+  <label>Task</label>
+  <input id="f-title" placeholder="e.g. Confirm pallet counts for the racking install">
+  <div class="row">
+    <div><label>Assign to</label><select id="f-assignee"></select></div>
+    <div><label>Priority</label><select id="f-prio"><option value="high">High</option><option value="med" selected>Medium</option><option value="low">Low</option></select></div>
+  </div>
+  <div class="row">
+    <div><label>Project</label><select id="f-project"></select></div>
+    <div><label>Due</label><input id="f-due" type="date"></div>
+  </div>
+  <button class="go" data-act="save">Add task</button>
+</div>
+
+<script>
+const PAL=['#143644','#e2606c','#007985','#7a3b8f','#3f7d3f','#c0563b','#e0a13f','#4b5f6d'];
+const PRIO={high:{l:'High',c:'#c0563b'},med:{l:'Medium',c:'#e0a13f'},low:{l:'Low',c:'#4b5f6d'}};
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const TOKEN=(new URLSearchParams(location.search).get('token'))||localStorage.getItem('wpm_token')||'';
+if(TOKEN)localStorage.setItem('wpm_token',TOKEN);
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function pad(n){return n<10?'0'+n:''+n;}
+function today(){const t=new Date();return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
+function parseD(s){if(!s)return null;const p=String(s).split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
+function isOver(s){const d=parseD(s);return d&&d<today();}
+function isToday(s){const d=parseD(s);return d&&d.getTime()===today().getTime();}
+function dueLabel(s){if(!s)return '';const d=parseD(s);if(!d)return '';const diff=Math.round((d-today())/86400000);if(diff===0)return 'Today';if(diff===1)return 'Tomorrow';if(diff===-1)return 'Yesterday';if(diff>1&&diff<7)return DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];return d.getDate()+' '+MON[d.getMonth()];}
+function titlecase(u){return String(u||'').replace(/[._-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());}
+function initials(u){const p=String(u||'?').replace(/[._-]/g,' ').trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||(p[0]||'')[1]||'')).toUpperCase();}
+
+const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],menu:null};
+
+async function api(path,method,body){
+  const r=await fetch(path,{method:method||'GET',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),body:body?JSON.stringify(body):undefined});
+  if(r.status===401){location.href='/';throw new Error('signin');}
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
+  return d;
+}
+async function load(){
+  try{
+    const me=await api('/api/me');state.me=me.user;
+    const[tm,pj,tk]=await Promise.all([api('/api/team'),api('/api/projects'),api('/api/tasks')]);
+    state.team={};state.torder=[];
+    (tm.team||[]).forEach((u,i)=>{u.name=(u.id===state.me.id?titlecase(u.username)+' (you)':titlecase(u.username));u.short=titlecase(u.username);u.color=PAL[i%PAL.length];u.av=initials(u.username);state.team[u.id]=u;state.torder.push(u.id);});
+    state.projects={};state.porder=[];
+    (pj.projects||[]).forEach(p=>{state.projects[p.id]=p;state.porder.push(p.id);});
+    state.tasks=tk.tasks||[];
+    $('#who').innerHTML='<span class="av" style="background:'+(state.team[state.me.id]?state.team[state.me.id].color:'#e2606c')+'">'+esc(initials(state.me.username))+'</span>'+esc(titlecase(state.me.username));
+    render();
+  }catch(e){if(e.message!=='signin')$('#section').innerHTML='<div class="empty">Couldn’t load — '+esc(e.message)+'.<br><a href="/">Sign in to Wilsons HQ</a></div>';}
+}
+
+function person(id){return state.team[id]||{name:'Unassigned',short:'Unassigned',color:'#b3bcc0',av:'?'};}
+function avA(id,cls){const p=person(id);return '<span class="'+(cls||'av')+'" style="background:'+p.color+'">'+esc(p.av)+'</span>';}
+function prioDot(p){return '<span class="pdot" style="background:'+(PRIO[p]?PRIO[p].c:'#b3bcc0')+'"></span>';}
+function projPill(pid){const pr=state.projects[pid];if(!pr)return '';return '<span class="pill proj" style="background:'+(pr.color||'#6f7b82')+'">'+esc(pr.name)+'</span>';}
+function dueHtml(s){if(!s)return '';return '<span class="pill due'+(isOver(s)?' over':'')+'">'+esc(dueLabel(s))+'</span>';}
+const isDone=t=>t.status==='done';
+
+function taskRow(t){
+  const mine=t.assignee===state.me.id;
+  return '<div class="task'+(isDone(t)?' done':'')+'">'
+    +'<div class="check" data-act="toggle" data-id="'+t.id+'"></div>'
+    +'<div class="body"><div class="title">'+esc(t.title)+'</div>'
+    +'<div class="meta">'+prioDot(t.prio)+projPill(t.project_id)+dueHtml(t.due)
+    +'<span class="assignee'+(mine?' mine':'')+'" data-act="assign" data-id="'+t.id+'">'+avA(t.assignee)+esc(person(t.assignee).short)+'</span>'
+    +'</div></div></div>';
+}
+function grp(title,rows,danger){if(!rows.length)return '';return '<div class="grp"><div class="lbl'+(danger?' danger':'')+'">'+title+'</div>'+rows.join('')+'</div>';}
+
+function render(){
+  const defs=[['mine','My work'],['team','Team'],['waiting','Waiting on'],['projects','Projects']];
+  $('#tabs').innerHTML=defs.map(d=>'<div class="t'+(state.tab===d[0]?' on':'')+'" data-act="tab" data-x="'+d[0]+'">'+d[1]+'</div>').join('');
+  let h='',sub='';
+  if(state.tab==='mine'){
+    sub='Everything on your plate, across every project.';
+    const mine=state.tasks.filter(t=>t.assignee===state.me.id);
+    const over=mine.filter(t=>!isDone(t)&&t.due&&isOver(t.due)).map(taskRow);
+    const tod=mine.filter(t=>!isDone(t)&&isToday(t.due)).map(taskRow);
+    const soon=mine.filter(t=>!isDone(t)&&t.due&&!isOver(t.due)&&!isToday(t.due)).map(taskRow);
+    const nod=mine.filter(t=>!isDone(t)&&!t.due).map(taskRow);
+    const done=mine.filter(isDone).map(taskRow);
+    h=grp('Overdue',over,true)+grp('Today',tod)+grp('Coming up',soon)+grp('No date',nod)+grp('Done',done);
+    if(!h)h='<div class="empty">Nothing on your plate yet.<br>Tap <b>+ Add task</b> to start.</div>';
+  }else if(state.tab==='team'){
+    sub='Who’s working on what — your whole team at a glance.';
+    h=state.torder.map(k=>{
+      const ts=state.tasks.filter(t=>t.assignee===k);const open=ts.filter(t=>!isDone(t));const p=person(k);
+      return '<div class="person"><div class="ph">'+avA(k)+'<div><div class="pn">'+esc(p.name)+'</div><div class="pr">'+esc(p.role||'Team')+'</div></div><div class="cnt"><b>'+open.length+'</b><span>open</span></div></div>'
+        +'<div class="plist">'+(ts.length?ts.map(t=>'<div class="pt'+(isDone(t)?' done':'')+'"><span class="smallcheck" data-act="toggle" data-id="'+t.id+'"></span>'+prioDot(t.prio)+'<span class="ptt">'+esc(t.title)+'</span>'+(t.due?'<span class="ptd">'+esc(dueLabel(t.due))+'</span>':'')+'</div>').join(''):'<div class="pt"><span class="ptd">No tasks assigned.</span></div>')+'</div></div>';
+    }).join('');
+    if(!state.torder.length)h='<div class="empty">No team members yet — invite people from the Users screen in Wilsons HQ.</div>';
+  }else if(state.tab==='waiting'){
+    sub='Tasks you’ve delegated — what you’re waiting on, and from whom.';
+    const del=state.tasks.filter(t=>t.created_by===state.me.id&&t.assignee!==state.me.id&&!isDone(t));
+    h=del.length?'<div class="grp">'+del.map(taskRow).join('')+'</div>':'<div class="empty">You haven’t delegated anything open.<br>Assign a task to a colleague and it’ll appear here.</div>';
+  }else{
+    sub='Every project, with progress and who owns each piece.';
+    h=state.porder.map(k=>{
+      const pr=state.projects[k];const ts=state.tasks.filter(t=>t.project_id===k);const done=ts.filter(isDone).length;const pct=ts.length?Math.round(done/ts.length*100):0;
+      return '<div class="project"><div class="prh"><span class="swatch" style="background:'+(pr.color||'#6f7b82')+'"></span><div><div class="prn">'+esc(pr.name)+'</div><div class="prm">'+esc(pr.meta||'')+'</div></div><div class="cnt" style="margin-left:auto;text-align:right"><b style="font-size:16px;color:var(--navy)">'+done+'/'+ts.length+'</b></div></div>'
+        +'<div class="bar"><i style="width:'+pct+'%;background:'+(pr.color||'#6f7b82')+'"></i></div>'
+        +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')+'</div>';
+    }).join('')+'<div class="newproj" data-act="newproj">+ New project</div>';
+  }
+  $('#sub').textContent=sub;$('#section').innerHTML=h;
+}
+
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),2200);}
+function openAdd(){
+  $('#f-assignee').innerHTML=state.torder.map(k=>'<option value="'+k+'"'+(k===state.me.id?' selected':'')+'>'+esc(person(k).short)+'</option>').join('');
+  $('#f-project').innerHTML='<option value="">No project</option>'+state.porder.map(k=>'<option value="'+k+'">'+esc(state.projects[k].name)+'</option>').join('');
+  $('#f-title').value='';$('#f-due').value='';$('#scrim').classList.add('on');$('#sheet').classList.add('on');setTimeout(()=>$('#f-title').focus(),120);
+}
+function closeAdd(){$('#scrim').classList.remove('on');$('#sheet').classList.remove('on');}
+async function save(){
+  const title=$('#f-title').value.trim();if(!title){$('#f-title').focus();return;}
+  const a=Number($('#f-assignee').value);
+  try{
+    await api('/api/tasks','POST',{title:title,assignee:a,project_id:$('#f-project').value,prio:$('#f-prio').value,due:$('#f-due').value||''});
+    closeAdd();await load();
+    state.tab=(a!==state.me.id)?'waiting':'mine';render();
+    toast(a!==state.me.id?('Assigned to '+person(a).short):'Task added');
+  }catch(e){toast(e.message);}
+}
+async function toggle(id){
+  const t=state.tasks.find(t=>t.id===id);if(!t)return;
+  const ns=isDone(t)?'open':'done';t.status=ns;render();
+  try{await api('/api/tasks/'+encodeURIComponent(id),'PUT',{status:ns});}catch(e){toast(e.message);load();}
+}
+function openAssign(id,x,y){
+  const t=state.tasks.find(t=>t.id===id);if(!t)return;closeMenu();
+  const mn=document.createElement('div');mn.className='menu';
+  mn.innerHTML='<div class="cap">Assign to</div>'+state.torder.map(k=>'<div class="mi" data-act="setassignee" data-id="'+id+'" data-x="'+k+'">'+avA(k)+esc(person(k).short)+(t.assignee===k?'<span class="tick">&#10003;</span>':'')+'</div>').join('');
+  document.body.appendChild(mn);state.menu=mn;
+  const mw=210,mh=mn.offsetHeight;let L=Math.min(x,window.innerWidth-mw-10),T=y+8;if(T+mh>window.innerHeight-10)T=Math.max(10,y-mh-8);
+  mn.style.left=Math.max(10,L)+'px';mn.style.top=T+'px';
+}
+function closeMenu(){if(state.menu){state.menu.remove();state.menu=null;}}
+async function setAssignee(id,k){
+  const t=state.tasks.find(t=>t.id===id);if(!t)return;closeMenu();
+  t.assignee=Number(k);render();
+  try{await api('/api/tasks/'+encodeURIComponent(id),'PUT',{assignee:Number(k)});toast(Number(k)===state.me.id?'Now yours':('Assigned to '+person(Number(k)).short));}catch(e){toast(e.message);load();}
+}
+async function newProject(){
+  const name=prompt('New project name');if(!name||!name.trim())return;
+  try{await api('/api/projects','POST',{name:name.trim(),color:PAL[state.porder.length%PAL.length]});await load();toast('Project added');}catch(e){toast(e.message);}
+}
+
+document.addEventListener('click',function(e){
+  const el=e.target.closest('[data-act]');
+  if(state.menu&&!e.target.closest('.menu')&&!(el&&el.dataset.act==='assign'))closeMenu();
+  if(!el)return;
+  const a=el.dataset.act,id=el.dataset.id,x=el.dataset.x;
+  if(a==='tab'){state.tab=x;render();}
+  else if(a==='toggle'){toggle(id);}
+  else if(a==='add'){openAdd();}
+  else if(a==='closeadd'){closeAdd();}
+  else if(a==='save'){save();}
+  else if(a==='assign'){e.stopPropagation();const r=el.getBoundingClientRect();openAssign(id,r.left,r.bottom);}
+  else if(a==='setassignee'){setAssignee(id,x);}
+  else if(a==='newproj'){newProject();}
+});
+load();
+</script>
+</body>
+</html>
