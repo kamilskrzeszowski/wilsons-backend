@@ -196,9 +196,16 @@ input,textarea{font-family:inherit;color:var(--ink)}
  .spec{box-shadow:none;width:210mm;min-height:auto}
  /* keep the navy hero, coloured strips, chips and pills — browsers drop backgrounds when printing unless told to keep them */
  .spec,.spec *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
+ /* never split a card, feeding chart, table or the header across a page break */
+ .spec .hero,.spec .card,.spec .fchart{break-inside:avoid;page-break-inside:avoid}
+ .spec table,.spec table.fc,.spec table.kv,.spec tr,.spec .chips,.spec .claims,.spec .sign{break-inside:avoid;page-break-inside:avoid}
+ .spec h3{break-after:avoid;page-break-after:avoid}
+ .spec .strip{position:absolute}
 }
 /* also honour colours when the browser renders a print PREVIEW / saves to PDF */
 .spec,.spec *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+/* keep blocks whole when generating a PDF from the on-screen preview too */
+.spec .hero,.spec .card,.spec .fchart,.spec table,.spec tr{break-inside:avoid}
 @media(max-width:900px){.app{grid-template-columns:1fr}.side{display:none}}
 </style>
 </head>
