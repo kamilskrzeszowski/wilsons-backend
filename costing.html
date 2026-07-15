@@ -1057,8 +1057,11 @@ function recipeTileHTML(r){
   const c = recipeColor(r);
   const std = recipeCost(r,'std'), act = recipeCost(r,'act');
   const hasAct = r.ingredients.some(i=>actualPrice(i.name)!=null);
+  let label = r.range ? (r.appName||r.name) : r.name;   // inside a range folder show the short recipe name
+  const pfx = r.range ? r.range+' — ' : '';
+  if(pfx && label.indexOf(pfx)===0) label = label.slice(pfx.length);   // drop the redundant "<Range> — " prefix
   return `<button class="tile" onclick="show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">
-    <div class="band" style="background:${c}"><h3>${esc(r.name)}</h3></div>
+    <div class="band" style="background:${c}"><h3>${esc(label)}</h3></div>
     <div class="body">
       <div class="catlabel">${esc(catName(catOf(r.name))||'—')}</div>
       <div class="big">${GBP(std)}<span> / kg standard</span></div>
@@ -1076,48 +1079,63 @@ function folderTileHTML(color,title,subline,count,onclick){
       <div class="foldergo">Open ›</div>
     </div></button>`;
 }
+const LIB_RANGE_ORDER=['Initial recipes'];   // these ranges sort first; the rest follow alphabetically
 function recipesView(){
   const searching = recFilter.trim()!=='';
   const cats=catList();
   const matchR = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()))
     .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter);
-  const atLeaf = searching || libPath.length===2 || (libPath.length===1 && libPath[0]==='other');
+  const top=libPath[0]||null, sub=libPath[1]||null, rng=libPath[2]||null;
+  const g=LIB_GROUPS.find(x=>x.id===top); const s=g&&g.subs.find(x=>x.id===sub);
+  // recipes within the current top (+sub) — used to spot ranges and to list a leaf
+  const inGroup = !top ? [] : matchR.filter(r=>{ const l=libLocate(r); return l.top===top && (sub==null||l.sub===sub); });
+  const ranges = (top && sub) ? [...new Set(inGroup.map(r=>r.range).filter(Boolean))]
+    .sort((a,b)=>{ const ia=LIB_RANGE_ORDER.indexOf(a),ib=LIB_RANGE_ORDER.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); }) : [];
+  let mode;
+  if(searching) mode='search';
+  else if(libPath.length===0) mode='top';
+  else if(libPath.length===1 && top!=='other') mode='subs';
+  else if(libPath.length===2 && ranges.length && !rng) mode='ranges';
+  else mode='recipes';
+  const showingRecipes = (mode==='search'||mode==='recipes');
   // breadcrumb
   let crumb;
   if(searching){ crumb=`<span class="libcrumb">Search results</span>`; }
   else{
+    const gName=g?g.name:(top==='other'?'Other':top);
     const parts=[`<button class="libcrumb linky" onclick="libUp(0)">All recipes</button>`];
-    if(libPath[0]){ const g=LIB_GROUPS.find(x=>x.id===libPath[0]); parts.push(`<span class="libsep">›</span>`,
-      libPath.length>1?`<button class="libcrumb linky" onclick="libUp(1)">${esc(g?g.name:(libPath[0]==='other'?'Other':libPath[0]))}</button>`
-                       :`<span class="libcrumb">${esc(g?g.name:(libPath[0]==='other'?'Other':libPath[0]))}</span>`); }
-    if(libPath[1]){ const g=LIB_GROUPS.find(x=>x.id===libPath[0]); const s=g&&g.subs.find(x=>x.id===libPath[1]);
-      parts.push(`<span class="libsep">›</span>`,`<span class="libcrumb">${esc(s?s.name:libPath[1])}</span>`); }
+    if(top){ parts.push(`<span class="libsep">›</span>`, libPath.length>1?`<button class="libcrumb linky" onclick="libUp(1)">${esc(gName)}</button>`:`<span class="libcrumb">${esc(gName)}</span>`); }
+    if(sub){ const sName=esc(s?s.name:sub); parts.push(`<span class="libsep">›</span>`, libPath.length>2?`<button class="libcrumb linky" onclick="libUp(2)">${sName}</button>`:`<span class="libcrumb">${sName}</span>`); }
+    if(rng){ parts.push(`<span class="libsep">›</span>`, `<span class="libcrumb">${esc(rng)}</span>`); }
     crumb=parts.join('');
   }
+  // count shown only when we're actually listing recipes
+  let leafList=inGroup; if(rng) leafList=leafList.filter(r=>r.range===rng);
+  const shownCount = mode==='search'? matchR.length : (mode==='recipes'? leafList.length : 0);
   const toolbar=`
   <div class="toolbar">
     <input type="text" id="recSearch" placeholder="Search all recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;refresh()">
-    ${atLeaf?`<select onchange="recCatFilter=this.value;refresh()" title="Filter by category"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}
+    ${showingRecipes?`<select onchange="recCatFilter=this.value;refresh()" title="Filter by category"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}
     <button class="btn ghost" onclick="openCategoryManager()">⚙ Categories</button>
     <button class="btn accent" onclick="openBuilder()">+ New recipe</button>
   </div>
-  <div class="libbar">${crumb}<span class="count" style="margin-left:auto">${atLeaf?matchR.length+' recipe'+(matchR.length===1?'':'s'):''}</span></div>`;
+  <div class="libbar">${crumb}<span class="count" style="margin-left:auto">${showingRecipes?shownCount+' recipe'+(shownCount===1?'':'s'):''}</span></div>`;
   // body
   let body='';
-  if(searching){
+  if(mode==='search'){
     body = matchR.length ? `<div class="grid">${matchR.map(recipeTileHTML).join('')}</div>`
                          : `<p class="muted" style="padding:20px">No recipes match “${esc(recFilter)}”.</p>`;
-  } else if(libPath.length===0){
-    const tiles=LIB_GROUPS.map(g=>folderTileHTML(g.color,g.name,g.subs.map(s=>s.name).join(' · '),libCount(g.id),`libGo('${g.id}')`));
+  } else if(mode==='top'){
+    const tiles=LIB_GROUPS.map(gg=>folderTileHTML(gg.color,gg.name,gg.subs.map(x=>x.name).join(' · '),libCount(gg.id),`libGo('${gg.id}')`));
     const otherN=libCount('other'); if(otherN) tiles.push(folderTileHTML('#8a8175','Other',null,otherN,`libGo('other')`));
     body=`<div class="grid">${tiles.join('')}</div>`;
-  } else if(libPath.length===1 && libPath[0]!=='other'){
-    const g=LIB_GROUPS.find(x=>x.id===libPath[0]);
-    body=`<div class="grid">${g.subs.map(s=>folderTileHTML(s.color||g.color,s.name,null,libCount(g.id,s.id),`libGo('${g.id}','${s.id}')`)).join('')}</div>`;
+  } else if(mode==='subs'){
+    body=`<div class="grid">${g.subs.map(x=>folderTileHTML(x.color||g.color,x.name,null,libCount(g.id,x.id),`libGo('${g.id}','${x.id}')`)).join('')}</div>`;
+  } else if(mode==='ranges'){
+    const color=(s&&s.color)||(g&&g.color)||'#143644';
+    body=`<div class="grid">${ranges.map(rn=>folderTileHTML(color,rn,null,inGroup.filter(r=>r.range===rn).length,`libGo('${top}','${sub}','${String(rn).replace(/'/g,"\\'")}')`)).join('')}</div>`;
   } else {
-    const top=libPath[0], sub=libPath[1]||null;
-    const list=matchR.filter(r=>{ const l=libLocate(r); return l.top===top && (sub==null||l.sub===sub); });
-    body= list.length ? `<div class="grid">${list.map(recipeTileHTML).join('')}</div>`
+    body= leafList.length ? `<div class="grid">${leafList.map(recipeTileHTML).join('')}</div>`
                       : `<p class="muted" style="padding:20px">No recipes in this folder yet.</p>`;
   }
   const bin = (!searching && libPath.length===0) ? deletedRecipesView() : '';

@@ -314,6 +314,135 @@ function importPahRecipes() {
     console.log('PAH recipes: added ' + newRec + ' recipes and ' + newIng + ' new ingredient(s).');
   } catch (e) { console.log('pah recipes import failed:', e.message); }
 }
+// One-time: the wider PAH ranges (Fresh Frozen / Ambient · Dog / Cat). Groups the first 7 PAH recipes
+// under an "Initial recipes" range and adds the rest, one range per spreadsheet tab. Additive; guarded
+// by meta 'pahRangesV'. Concept recipes carry no prices, so new ingredients are added unpriced.
+function importPahRanges() {
+  try {
+    const f = path.join(__dirname, 'pah-ranges-seed.json');
+    if (!fs.existsSync(f)) return;
+    const seed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = seed.version || 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahRangesV'").get();
+    if (row && +row.value >= want) return;
+    const brand = seed.brand || 'PAH';
+    const initialRange = seed.initialRange || 'Initial recipes';
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+    let newIng = 0, newRec = 0;
+
+    // 1) new ingredients (concept recipes give no prices, so these are added without a price)
+    const ingByName = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingByName[i.name.trim().toLowerCase()] = i.id);
+    let customings = []; try { customings = JSON.parse(ckvGet('wpf_customings') || '[]'); if (!Array.isArray(customings)) customings = []; } catch (e) { customings = []; }
+    const ciByName = new Set(customings.map(x => String(x.name || '').trim().toLowerCase()));
+    (seed.newIngredients || []).forEach(ni => {
+      const key = String(ni.name || '').trim().toLowerCase(); if (!key) return;
+      if (!ingByName[key]) { const iid = uid('i'); db.prepare('INSERT INTO ingredients(id,name,category,supplier,notes) VALUES(?,?,?,?,?)').run(iid, ni.name.trim(), ni.category || '', '', 'added for PAH ' + brand + ' concept ranges'); ingByName[key] = iid; newIng++; }
+      if (!ciByName.has(key)) { customings.push({ name: ni.name.trim(), supplier: '', custom: true, selPerTonne: null, selTransPerKg: null, djlPerTonne: null, djlPerKg: null, djlTransPerKg: null, monthlyUsageKg: null, spendMonth: null }); ciByName.add(key); }
+    });
+    ckvSet('wpf_customings', JSON.stringify(customings));
+
+    // 2) costing recipe store: label the existing initial PAH recipes, then add the new ranged ones
+    let custom = []; try { custom = JSON.parse(ckvGet('wpf_custom') || '[]'); if (!Array.isArray(custom)) custom = []; } catch (e) { custom = []; }
+    custom.forEach(r => { if (String(r.brand || '').trim().toLowerCase() === brand.toLowerCase() && !r.range) r.range = initialRange; });
+    const haveCostName = new Set(custom.map(r => String(r.name || '').trim().toLowerCase()));
+    (seed.recipes || []).forEach(rc => {
+      const uniqueApp = rc.range + ' — ' + rc.appName;             // unique within the brand so the app-wide sync keeps them distinct
+      const costName = brand + ' — ' + uniqueApp;
+      if (haveCostName.has(costName.trim().toLowerCase())) return;
+      custom.push({ name: costName, appName: uniqueApp, brand, range: rc.range, custom: { perKg: 0 }, batchSize: rc.batchSize || 100, wastePct: rc.wastePct != null ? rc.wastePct : 0.05,
+        ingredients: (rc.ingredients || []).map(i => ({ name: i.name, kg: +i.kg || 0, perKg: +i.perKg || 0 })) });
+    });
+    ckvSet('wpf_custom', JSON.stringify(custom));
+
+    // 3) shared recipes table — unique name per range ("<Range> — <Recipe>"), keyed by name+brand
+    const keyOf = (n, b) => String(n || '').trim().toLowerCase() + '|' + String(b || '').trim().toLowerCase();
+    const haveRec = new Set(db.prepare('SELECT name,brand FROM recipes').all().map(r => keyOf(r.name, r.brand)));
+    (seed.recipes || []).forEach(rc => {
+      const recName = rc.range + ' — ' + rc.appName;
+      if (haveRec.has(keyOf(recName, brand))) return;
+      const ings = (rc.ingredients || []).map(i => { const iid = ingByName[String(i.name).trim().toLowerCase()]; return iid ? { ingId: iid, kg: +i.kg || 0 } : null; }).filter(Boolean);
+      const id = 'pah-' + String(recName).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color) VALUES(?,?,?,?,?,?,'costing',?)")
+        .run(id, brand, recName, '[]', JSON.stringify(ings), now(), '#0072ce');
+      newRec++;
+    });
+
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahRangesV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH ranges: added ' + newRec + ' recipes and ' + newIng + ' new ingredient(s).');
+  } catch (e) { console.log('pah ranges import failed:', e.message); }
+}
+// One-time: make sure every costed recipe has a product spec. ADDITIVE and NON-DESTRUCTIVE — existing
+// specs are never touched or overwritten; a draft spec is created only for a recipe that has no spec with
+// the same brand+name. New specs are DRAFTS: the Composition is auto-filled from the recipe's ingredients
+// (real data); everything else uses the same [placeholder] template the app's own drafts use, for the
+// team to complete. Guarded by meta 'recipeSpecsV'.
+function ensureRecipeSpecs() {
+  try {
+    const want = 2;
+    const row = db.prepare("SELECT value FROM meta WHERE key='recipeSpecsV'").get();
+    if (row && +row.value >= want) return;
+    const srow = db.prepare("SELECT value FROM specs_kv WHERE key='data'").get();
+    let data = { products: [] };
+    if (srow) { try { data = JSON.parse(srow.value) || { products: [] }; } catch (e) { data = { products: [] }; } }
+    if (!Array.isArray(data.products)) data.products = [];
+    const keyOf = (b, n) => String(b || '').trim().toLowerCase() + '|' + String(n || '').trim().toLowerCase();
+    const byKey = {}; data.products.forEach(p => { byKey[keyOf(p.brand, p.name)] = p; });
+
+    // spec template pieces — kept identical to the Bowlprint draft template in specs.html
+    const FA = [[5,188,198,247],[6,216,227,284],[7,242,255,318],[8,267,281,352],[9,292,307,384],[10,316,333,416],[12,362,382,477],[15,428,451,564],[20,532,560,700],[25,628,662,827],[30,721,758,948],[35,809,851,1064],[40,894,941,1176]];
+    const AN_LABELS = ['Crude protein','Crude fat','Crude fibre','Crude ash','Moisture','Calcium','Phosphorus'];
+    const ADULT_NOTE = 'Grams per day for adult dogs at maintenance. Introduce gradually over 5–7 days (start ~25% new food, increasing daily). Serve at room temperature; always provide fresh drinking water. Adjust to keep your dog in ideal body condition.';
+    const DISC = 'The composition, analytical constituents, additives and claims stated are based on the current approved recipe together with formulation data and laboratory analysis gathered during development. This document is provided for the customer’s internal review and to inform final artwork; approval of on-pack content and label declarations remains the responsibility of the customer. Information is supplied in good faith and believed accurate to the best of our knowledge.';
+    const DEFMETA = () => [{ l: 'Spec ref', v: '[ add code ]' }, { l: 'Revision', v: '1.0 (draft)' }, { l: 'Issued', v: '[ add date ]' }, { l: 'Pack', v: '[ add pack ]' }];
+    const general = (nameLine, cp) => [
+      { l: 'Product name', v: nameLine }, { l: 'Life stage', v: '[ Adult / Puppy ]' },
+      { l: 'Food type', v: cp ? 'Cold-pressed complete dry food' : 'Complete wet food · gently steamed, ready to eat' },
+      { l: 'Pack format', v: '[ add pack format ]' }, { l: 'Net weight', v: '[ add net weight ]' },
+      { l: 'Barcode (EAN-13)', v: '[ add 13-digit code ]' }, { l: 'Case configuration', v: '[ add case config ]' },
+      { l: 'Storage', v: 'Cool, dry place, out of direct sunlight' }, { l: 'After opening', v: cp ? 'Reseal; use within the best-before period' : 'Refrigerate & use within 4 days' },
+      { l: 'Shelf life', v: '[ XX months from production ]' }, { l: 'Country of origin', v: 'United Kingdom' }];
+
+    const ingNames = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingNames[i.id] = i.name);
+    const compOf = ingsJson => {
+      let ings = []; try { ings = JSON.parse(ingsJson || '[]'); } catch (e) {}
+      const total = ings.reduce((a, g) => a + (+g.kg || 0), 0) || 1;
+      const parts = ings.slice().sort((a, b) => (+b.kg || 0) - (+a.kg || 0)).map(g => { const pct = (+g.kg || 0) / total * 100; const p = pct >= 1 ? Math.round(pct * 10) / 10 : Math.round(pct * 1000) / 1000; return (ingNames[g.ingId] || g.ingId) + ' (' + p + '%)'; });
+      return parts.length ? parts.join(', ') + '.' : '';
+    };
+
+    const recipes = db.prepare('SELECT id,brand,name,ingredients,color FROM recipes ORDER BY brand,name').all();
+    let created = 0, linked = 0;
+    recipes.forEach(r => {
+      const ref = String(r.brand || '').trim() + ' ' + String(r.name || '').trim();   // "Brand Name" — resolves via /api/recipe-composition
+      const ex = byKey[keyOf(r.brand, r.name)];
+      if (ex) {                                                      // spec already exists — don't overwrite; just link our own drafts so composition stays live
+        if (ex.id && String(ex.id).startsWith('rx-') && !ex.recipeRef) { ex.recipeRef = ref; linked++; }
+        return;
+      }
+      const cp = /cold pressed/i.test(r.brand || '');
+      const spec = {
+        id: 'rx-' + (String(r.brand || '') + '-' + String(r.name || '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        name: r.name, recipeRef: ref, subtitle: '[ complete the subtitle ]', descriptor: cp ? 'Cold-pressed · [ complete the details ]' : 'Gently steamed · [ complete the details ]',
+        accent: r.color || '#f37d89', range: cp ? 'Cold Press' : 'Fresh', brand: r.brand || 'White Label', logo: null, meta: DEFMETA(),
+        sections: [
+          { kind: 'chips', title: 'Key facts', show: true, data: ['Draft', '[ add ]'] },
+          { kind: 'text', title: 'Composition', show: true, wide: true, data: compOf(r.ingredients) },
+          { kind: 'analytical', title: 'Analytical constituents', show: true, data: { rows: AN_LABELS.map(l => ({ l, v: '' })), energy: '' } },
+          { kind: 'additives', title: 'Additives / kg', show: true, data: { vitamins: '', trace: '' } },
+          { kind: 'kv', title: 'General characteristics', show: true, wide: true, data: general(r.name, cp) },
+          { kind: 'feedAdult', title: 'Feeding guide', show: true, wide: true, data: { note: ADULT_NOTE, table: JSON.parse(JSON.stringify(FA)) } },
+          { kind: 'claims', title: 'Claims & statements', show: true, wide: true, data: ['[ add claims ]'] },
+          { kind: 'disclaimer', title: 'Notes & sign-off', show: true, wide: true, data: DISC }
+        ]
+      };
+      data.products.push(spec); byKey[keyOf(r.brand, r.name)] = spec; created++;
+    });
+    db.prepare('INSERT INTO specs_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run('data', JSON.stringify(data), now());
+    db.prepare("INSERT INTO meta(key,value) VALUES('recipeSpecsV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('Recipe specs: created ' + created + ' draft spec(s), linked ' + linked + ' existing draft(s) to their recipe; existing specs left untouched.');
+  } catch (e) { console.log('recipe specs failed:', e.message); }
+}
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
   if (n > 0) return;
@@ -1147,7 +1276,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importSpecsSeed();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

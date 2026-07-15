@@ -194,7 +194,11 @@ input,textarea{font-family:inherit;color:var(--ink)}
  .stage{padding:0}
  .wrap{display:block}
  .spec{box-shadow:none;width:210mm;min-height:auto}
+ /* keep the navy hero, coloured strips, chips and pills — browsers drop backgrounds when printing unless told to keep them */
+ .spec,.spec *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
 }
+/* also honour colours when the browser renders a print PREVIEW / saves to PDF */
+.spec,.spec *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @media(max-width:900px){.app{grid-template-columns:1fr}.side{display:none}}
 </style>
 </head>
@@ -446,8 +450,10 @@ function renderSide(){
   let html=`<div class="rangehd ${col?'col':''}" data-act="toggleRange" data-r="${esc(rg)}">
     <span class="chev">\u25bc</span>${esc(rg)}<span class="ct">${inRange.length}</span></div>`;
   if(col)return html;
-  html+=BRANDS.map(br=>{
+  const brandsHere=[...new Set([...BRANDS, ...inRange.map(p=>p.brand||'White Label')])];   // show any brand present, not just the two defaults
+  html+=brandsHere.map(br=>{
    const items=inRange.filter(p=>(p.brand||'White Label')===br);
+   if(!items.length && !BRANDS.includes(br)) return '';   // hide empty extra brands
    const bcol=state.collapsed.has(rg+'||'+br);
    let sub=`<div class="brandhd ${bcol?'col':''}" data-act="toggleBrand" data-r="${esc(rg)}" data-b="${esc(br)}">
      <span class="chev2">\u25be</span>${esc(br)}<span class="bct">${items.length}</span>
@@ -549,7 +555,7 @@ function editor(p){
    <div class="row"><label>Product name</label><input data-path="name" value="${esc(p.name)}"></div>
    <div class="row"><label>Group</label><div style="display:flex;gap:8px">
      <select data-path="range">${RANGES.map(r=>`<option ${p.range===r?'selected':''}>${esc(r)}</option>`).join('')}</select>
-     <select data-path="brand">${BRANDS.map(b=>`<option ${p.brand===b?'selected':''}>${esc(b)}</option>`).join('')}</select>
+     <select data-path="brand">${[...new Set([...BRANDS, p.brand].filter(Boolean))].map(b=>`<option ${p.brand===b?'selected':''}>${esc(b)}</option>`).join('')}</select>
    </div></div>
    <div class="row"><label>Subtitle</label><input data-path="subtitle" value="${esc(p.subtitle)}"></div>
    <div class="row"><label>Strapline</label><input data-path="descriptor" value="${esc(p.descriptor)}"></div>
@@ -580,8 +586,13 @@ function secHead(s,i){
 }
 function secEditor(s,i){
  let inner='';
- if(s.kind==='text'||s.kind==='customText'||s.kind==='disclaimer')
-  inner=`${(SP_SHARED&&/composition/i.test(s.title))?`<button class="addrow" data-act="fromRecipe" data-i="${i}" title="Fill this composition from a recipe in Recipe Costing / the Recipe Library">⇣ Fill from recipe</button>`:''}<textarea data-path="sections.${i}.data">${esc(s.data)}</textarea>`;
+ if(s.kind==='text'||s.kind==='customText'||s.kind==='disclaimer'){
+  const isComp=SP_SHARED&&/composition/i.test(s.title); const linked=isComp&&cur()&&cur().recipeRef;
+  const head=!isComp?'':(linked
+    ? `<div style="font-size:11.5px;color:var(--nav);background:#eef6f2;border:1px solid #cfe6da;border-radius:8px;padding:6px 9px;margin-bottom:7px">🔗 Linked to <b>${esc(cur().recipeRef)}</b> in Recipe Costing — this composition updates automatically. <button class="addrow" style="margin-left:4px" data-act="fromRecipe" data-i="${i}">change recipe</button></div>`
+    : `<button class="addrow" data-act="fromRecipe" data-i="${i}" title="Fill this composition from a recipe in Recipe Costing / the Recipe Library">⇣ Fill from recipe</button>`);
+  inner=`${head}<textarea data-path="sections.${i}.data">${esc(s.data)}</textarea>`;
+ }
  else if(s.kind==='kv'||s.kind==='customKV'){
   inner=`<div class="kvedit">${s.data.map((r,j)=>`<div class="kvrow">
     <input data-path="sections.${i}.data.${j}.l" value="${esc(r.l)}">
@@ -622,15 +633,27 @@ function secEditor(s,i){
  return `<div class="sec ${s.show?'':'off'}" data-sec="${i}">${secHead(s,i)}${inner}</div>`;
 }
 
+/* When a spec is linked to a recipe (recipeRef), pull the latest Composition from Recipe Costing so
+   any change to the recipe flows straight through to the spec (and its printed / PDF copy). */
+async function syncLinkedComposition(p){
+ if(!p||!p.recipeRef||!SP_SHARED) return false;
+ const sec=(p.sections||[]).find(s=>/composition/i.test(s.title)); if(!sec) return false;
+ try{
+  const c=await fetch('/api/recipe-composition?name='+encodeURIComponent(p.recipeRef),{headers:{Authorization:'Bearer '+SP_TOKEN}});
+  const d=await c.json();
+  if(d&&d.composition&&d.composition!==sec.data){ sec.data=d.composition; save(); return true; }
+ }catch(e){}
+ return false;
+}
 /* ======================= actions ======================= */
 document.addEventListener('click',e=>{
  const t=e.target.closest('[data-act]');if(!t)return;
  const a=t.dataset.act, p=cur();
- if(a==='select'){state.sel=t.dataset.id;render();}
+ if(a==='select'){state.sel=t.dataset.id;render();syncLinkedComposition(cur()).then(ch=>{if(ch)render();});}
  else if(a==='mode'){state.mode=t.dataset.m;render();}
  else if(a==='toggleRange'){const r=t.dataset.r;state.collapsed.has(r)?state.collapsed.delete(r):state.collapsed.add(r);save();renderSide();}
  else if(a==='toggleBrand'){const k=t.dataset.r+'||'+t.dataset.b;state.collapsed.has(k)?state.collapsed.delete(k):state.collapsed.add(k);save();renderSide();}
- else if(a==='print'){state.mode='preview';render();setTimeout(()=>window.print(),60);}
+ else if(a==='print'){state.mode='preview';render();(async()=>{await syncLinkedComposition(cur());render();setTimeout(()=>window.print(),80);})();}
  else if(a==='addProduct'){const np=blank(t.dataset.r||'Fresh',t.dataset.b||'White Label');state.products.push(np);state.sel=np.id;state.mode='edit';save();render();}
  else if(a==='duplicate'&&p){const c=JSON.parse(JSON.stringify(p));c.id=uid();c.name=p.name+' (copy)';state.products.push(c);state.sel=c.id;save();render();}
  else if(a==='delete'&&p){if(confirm('Delete '+p.name+'?')){state.products=state.products.filter(x=>x.id!==p.id);state.sel=state.products[0]?.id||null;save();render();}}
@@ -663,7 +686,7 @@ document.addEventListener('click',e=>{
      const q=recs[ix].brand?recs[ix].brand+' '+recs[ix].name:recs[ix].name; /* brand included — several brands share names like "Chicken" */
      const c=await fetch('/api/recipe-composition?name='+encodeURIComponent(q),{headers:{Authorization:'Bearer '+SP_TOKEN}});
      const d=await c.json();
-     if(d.composition){ const p=cur(); const sec=p.sections[+t.dataset.i]; sec.data=d.composition; save(); render(); }
+     if(d.composition){ const p=cur(); const sec=p.sections[+t.dataset.i]; sec.data=d.composition; p.recipeRef=q; save(); render(); }
      else alert(d.error||'No composition found for that recipe.');
     }catch(e){ alert('Could not load recipes: '+e.message); }
    })();
