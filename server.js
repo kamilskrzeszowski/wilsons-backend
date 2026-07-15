@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v20';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v21';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -228,6 +228,91 @@ function backfillKpiFromHistory() {
     db.prepare("INSERT INTO meta(key,value) VALUES('kpiBackfillV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     console.log('KPI history gap-fill: ' + filled + ' empty cells filled from the ops spreadsheets.');
   } catch (e) { console.log('kpi backfill failed:', e.message); }
+}
+// One-time reconciliation: make the KPI history AGREE with the hand-kept Summary Report (the master).
+// Unlike the gap-fill above, this OVERWRITES the listed columns for exactly the listed dates, so the
+// KPI's recovered/spent/variance reproduce the Summary figures. Guarded by meta 'kpiReconcileV'.
+function reconcileKpiFromSummary() {
+  try {
+    const f = path.join(__dirname, 'kpi-reconcile.json');
+    if (!fs.existsSync(f)) return;
+    const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = rec.version || 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='kpiReconcileV'").get();
+    if (row && +row.value >= want) return;
+    const rrow = db.prepare("SELECT value FROM kpi_kv WHERE key='raw'").get();
+    if (!rrow) return;
+    const raw = JSON.parse(rrow.value); raw.in = raw.in || {}; raw.dates = raw.dates || [];
+    const idx = {}; raw.dates.forEach((d, i) => idx[d] = i);
+    let set = 0, days = 0;
+    Object.keys(rec.days || {}).forEach(date => {
+      const ri = idx[date]; if (ri == null) return;          // only dates already in the calendar
+      const day = rec.days[date]; days++;
+      Object.keys(day).forEach(col => {
+        if (!raw.in[col]) raw.in[col] = raw.dates.map(() => null);
+        raw.in[col][ri] = day[col];                          // authoritative overwrite (incl. null / 0)
+        set++;
+      });
+    });
+    db.prepare('INSERT INTO kpi_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run('raw', JSON.stringify(raw), now());
+    db.prepare("INSERT INTO meta(key,value) VALUES('kpiReconcileV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('KPI reconcile: aligned ' + days + ' days (' + set + ' cells) to the Summary Report.');
+  } catch (e) { console.log('kpi reconcile failed:', e.message); }
+}
+// One-time: add the PAH white-label recipes to Recipe Costing. Additive — new ingredients are only
+// created when they don't already exist (matched case-insensitively); existing ingredients are reused.
+// Guarded by meta 'pahRecipesV'. Writes the costing store (wpf_custom / wpf_customings) AND the shared
+// recipes/ingredients tables so the recipe appears in Costing and across the app.
+function importPahRecipes() {
+  try {
+    const f = path.join(__dirname, 'pah-recipes-seed.json');
+    if (!fs.existsSync(f)) return;
+    const seed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = seed.version || 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahRecipesV'").get();
+    if (row && +row.value >= want) return;
+    const brand = seed.brand || 'PAH';
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+    let newIng = 0, newRec = 0;
+
+    // 1) ingredients table + costing ingredient list (only ones that don't already exist)
+    const ingByName = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingByName[i.name.trim().toLowerCase()] = i.id);
+    let customings = []; try { customings = JSON.parse(ckvGet('wpf_customings') || '[]'); if (!Array.isArray(customings)) customings = []; } catch (e) { customings = []; }
+    const ciByName = new Set(customings.map(x => String(x.name || '').trim().toLowerCase()));
+    (seed.newIngredients || []).forEach(ni => {
+      const key = String(ni.name || '').trim().toLowerCase(); if (!key) return;
+      if (!ingByName[key]) { const iid = uid('i'); db.prepare('INSERT INTO ingredients(id,name,category,supplier,notes) VALUES(?,?,?,?,?)').run(iid, ni.name.trim(), ni.category || '', '', 'added for PAH white-label recipes'); ingByName[key] = iid; newIng++; }
+      if (!ciByName.has(key)) { customings.push({ name: ni.name.trim(), supplier: '', custom: true, selPerTonne: ni.gbpPerKg != null ? ni.gbpPerKg * 1000 : null, selTransPerKg: null, djlPerTonne: null, djlPerKg: null, djlTransPerKg: null, monthlyUsageKg: null, spendMonth: null }); ciByName.add(key); }
+    });
+    ckvSet('wpf_customings', JSON.stringify(customings));
+
+    // 2) costing recipe store (wpf_custom) — append recipes not already present
+    let custom = []; try { custom = JSON.parse(ckvGet('wpf_custom') || '[]'); if (!Array.isArray(custom)) custom = []; } catch (e) { custom = []; }
+    const haveCostName = new Set(custom.map(r => String(r.name || '').trim().toLowerCase()));
+    (seed.recipes || []).forEach(rc => {
+      const costName = brand + ' — ' + rc.appName;                 // "PAH — Chicken"
+      if (haveCostName.has(costName.trim().toLowerCase())) return;
+      custom.push({ name: costName, appName: rc.appName, brand, custom: { perKg: 0 }, batchSize: rc.batchSize || 100, wastePct: rc.wastePct != null ? rc.wastePct : 0.05,
+        ingredients: (rc.ingredients || []).map(i => ({ name: i.name, kg: +i.kg || 0, perKg: +i.perKg || 0 })) });
+    });
+    ckvSet('wpf_custom', JSON.stringify(custom));
+
+    // 3) shared recipes table (so the recipe shows across the app immediately) — keyed by name+brand
+    const keyOf = (n, b) => String(n || '').trim().toLowerCase() + '|' + String(b || '').trim().toLowerCase();
+    const haveRec = new Set(db.prepare('SELECT name,brand FROM recipes').all().map(r => keyOf(r.name, r.brand)));
+    (seed.recipes || []).forEach(rc => {
+      if (haveRec.has(keyOf(rc.appName, brand))) return;
+      const ings = (rc.ingredients || []).map(i => { const iid = ingByName[String(i.name).trim().toLowerCase()]; return iid ? { ingId: iid, kg: +i.kg || 0 } : null; }).filter(Boolean);
+      const id = 'pah-' + String(rc.appName).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color) VALUES(?,?,?,?,?,?,'costing',?)")
+        .run(id, brand, rc.appName, '[]', JSON.stringify(ings), now(), '#b7772a');
+      newRec++;
+    });
+
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahRecipesV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH recipes: added ' + newRec + ' recipes and ' + newIng + ' new ingredient(s).');
+  } catch (e) { console.log('pah recipes import failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -1062,7 +1147,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); importSpecsSeed();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importSpecsSeed();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

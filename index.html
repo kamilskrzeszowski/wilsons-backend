@@ -345,7 +345,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v19</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v21</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2086,6 +2086,13 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v21', date:'15 Jul 2026', notes:[
+    'KPI history now AGREES with the hand-kept Summary Report: the 33 real days (1 Jun–13 Jul 2026) were re-aligned so recovered labour, labour spent and every variance match the summary sheet to the pound. Volume already matched — the gap was different despatch kg and hours in the two records; the summary sheet is now the master.',
+    'New Daily report (mirrors the summary sheet’s Daily tab) — days running left-to-right with produced/target/variance, labour cost/recovered/variance, safety and stocks, for the end-of-day send. The Operations Report now has a Daily / Weekly toggle so both live in one place.',
+    'Recipe Costing is tidied into folders: a Wilsons tile (Cold Press · Fresh) and a White Label tile (Wild, Nutriment, Tuggs, Green Pantry, Naked, Run, PAH). Click a folder to drill in; search still looks across everything.',
+    'Added the 7 PAH white-label recipes (Chicken, Beef, Fish, Game, Turkey, Poultry Puppy, Lamb) under White Label → PAH, reusing existing ingredients. One new ingredient was created (Lentils).',
+    'No change to any live production, recipe or complaint data — only the June–July KPI figures were reconciled.'
+  ]},
   {v:'v20', date:'14 Jul 2026', notes:[
     'New Planning section — tasks, projects and delegation. Open it at /planning: add your own tasks and projects, assign work to team members, and track what you’re waiting on. Team members appear in the assign list once they have a Wilsons HQ login.',
     'Planning is added on top of everything else — no change to production, recipes, KPI or any existing data.'
@@ -2146,7 +2153,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v20';
+const APP_VERSION='v21';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

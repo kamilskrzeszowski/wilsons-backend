@@ -78,6 +78,15 @@ td input{width:90px;padding:4px 6px;border:1px solid var(--line);border-radius:6
 .tile .kv b{color:var(--sea);font-size:14px}
 .tile .big{font-family:'Bobby Jones','Effra',sans-serif;font-size:24px;font-weight:400;color:var(--sea)}
 .tile .big span{font-size:13px;font-weight:600;color:var(--channel)}
+/* recipe folders (Wilsons / White Label drill-down) */
+.tile.folder .band h3{font-size:20px}
+.tile .foldergo{margin-top:12px;font-size:13px;color:var(--capp);font-weight:700;letter-spacing:.02em}
+.tile .folderkv{color:var(--channel);font-size:12.5px;line-height:1.4}
+.libbar{display:flex;align-items:center;gap:8px;margin:2px 0 16px;flex-wrap:wrap}
+.libcrumb{font-size:14px;color:var(--sea);font-weight:600}
+.libcrumb.linky{background:none;border:none;cursor:pointer;color:var(--capp);padding:0;font:inherit;font-weight:700;text-decoration:none}
+.libcrumb.linky:hover{text-decoration:underline}
+.libsep{color:var(--channel)}
 .stat-row{display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 .stat{background:#fff;color:var(--sea);border-radius:16px;padding:15px 22px;min-width:170px;box-shadow:0 1px 4px rgba(20,54,68,.08)}
 .stat .v{font-family:'Bobby Jones','Effra',sans-serif;font-size:28px;font-weight:400;color:var(--sea);line-height:1.1}
@@ -171,7 +180,7 @@ dialog .btn{margin-top:8px;margin-right:8px}
     <button class="databtn" onclick="exportAllData()" title="Download every costing figure as one file — a backup you can keep">⤓ Save data</button>
     <button class="databtn" onclick="importAllData()" title="Load a costing data file saved earlier (replaces the current costing figures; production data is never affected)">⤒ Load data</button>
     <span id="costSync" class="syncstate" style="display:none"></span>
-    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v19</span>
+    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v21</span>
   </nav>
 </header>
 <main id="main"></main>
@@ -216,7 +225,7 @@ function catOf(name){                       // category id for a recipe (by name
 function setRecipeCategory(name, catId){ const m=store.recipeCategory; if(catId) m[name]=catId; else delete m[name]; store.recipeCategory=m; scheduleRecipeSync(); refresh(); }
 window.setRecipeCategory=setRecipeCategory;
 /* fresh/cooked brands keep their Recipe Library colours — same hexes as the app's brand colours */
-const BRANDHEX={'Wilsons':'#143644','TUGGS':'#e2606c','Wild':'#007985','Nutriment':'#7a3b8f','Green Pantry':'#3f7d3f'};
+const BRANDHEX={'Wilsons':'#143644','TUGGS':'#e2606c','Wild':'#007985','Nutriment':'#7a3b8f','Green Pantry':'#3f7d3f','PAH':'#0072ce'};
 /* ONE colour per recipe, used here and in the app's Recipe Library/Planner:
    fresh brands → their brand colour; everything else → the tile colour chosen here */
 function recipeColor(r){
@@ -924,6 +933,37 @@ function costingBrandOf(name){
   if(m) return m[1]+' (Cold Pressed)';
   return 'Cold Pressed';
 }
+/* ===== recipe folders: tidy the library into Wilsons (Cold Press / Fresh) and White Label
+   (by customer). The folder for a recipe is worked out from its brand — nothing is invented. ===== */
+let libPath=[];
+function libBrandOf(r){
+  if(r && r.brand) return r.brand;
+  const m=/^(.+?)\s+—\s+/.exec((r&&r.name)||''); if(m) return m[1];   // app recipes are "Brand — Name"
+  return costingBrandOf((r&&r.name)||'');
+}
+const LIB_GROUPS=[
+  {id:'wilsons',name:'Wilsons',color:'#143644',subs:[
+    {id:'coldpress',name:'Cold Press',color:'#143644',match:b=>/premium cold pressed|working dog cold pressed/i.test(b)},
+    {id:'fresh',name:'Fresh',color:'#007985',match:b=>/^wilsons$/i.test(b)},
+  ]},
+  {id:'whitelabel',name:'White Label',color:'#7a3b8f',subs:[
+    {id:'wild',name:'Wild',color:'#007985',match:b=>/wild/i.test(b)},
+    {id:'nutriment',name:'Nutriment',color:'#7a3b8f',match:b=>/nutriment/i.test(b)},
+    {id:'tuggs',name:'Tuggs',color:'#e2606c',match:b=>/tuggs/i.test(b)},
+    {id:'greenpantry',name:'Green Pantry',color:'#3f7d3f',match:b=>/green pantry/i.test(b)},
+    {id:'naked',name:'Naked',color:'#b7772a',match:b=>/naked/i.test(b)},
+    {id:'run',name:'Run',color:'#5a6b74',match:b=>/\brun\b/i.test(b)},
+    {id:'pah',name:'PAH',color:'#0072ce',match:b=>/pah|pets at home/i.test(b)},
+  ]},
+];
+function libLocate(r){
+  const b=libBrandOf(r);
+  for(const g of LIB_GROUPS){ const s=g.subs.find(s=>s.match(b)); if(s) return {top:g.id,sub:s.id}; }
+  return {top:'other',sub:'other'};
+}
+function libCount(topId,subId){ return allRecipes().filter(r=>{ const l=libLocate(r); return l.top===topId && (subId==null||l.sub===subId); }).length; }
+function libGo(){ libPath=[].slice.call(arguments); recFilter=''; refresh(); }
+function libUp(n){ libPath=libPath.slice(0,n); recFilter=''; refresh(); }
 let _rsT=null;
 function scheduleRecipeSync(){ if(!SHARED) return; clearTimeout(_rsT); _rsT=setTimeout(()=>syncRecipesToApp(false),1500); }
 async function syncRecipesToApp(adopt){
@@ -1013,35 +1053,75 @@ async function pullAppRecipes(){
   }catch(e){ window.APP_RECIPES=[]; }
 }
 let recCatFilter='';
+function recipeTileHTML(r){
+  const c = recipeColor(r);
+  const std = recipeCost(r,'std'), act = recipeCost(r,'act');
+  const hasAct = r.ingredients.some(i=>actualPrice(i.name)!=null);
+  return `<button class="tile" onclick="show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">
+    <div class="band" style="background:${c}"><h3>${esc(r.name)}</h3></div>
+    <div class="body">
+      <div class="catlabel">${esc(catName(catOf(r.name))||'—')}</div>
+      <div class="big">${GBP(std)}<span> / kg standard</span></div>
+      <div class="kv"><span>Actual (purchases)</span><b>${hasAct?GBP(act):'—'}</b></div>
+      <div class="kv"><span>Ingredients</span><b>${r.ingredients.length}</b></div>
+      <div class="kv"><span>Batch size</span><b>${NUM(r.batchSize)} kg</b></div>
+    </div></button>`;
+}
+function folderTileHTML(color,title,subline,count,onclick){
+  return `<button class="tile folder" onclick="${onclick}">
+    <div class="band" style="background:${color}"><h3>${esc(title)}</h3></div>
+    <div class="body">
+      <div class="big">${count}<span> recipe${count===1?'':'s'}</span></div>
+      ${subline?`<div class="kv folderkv"><span>${esc(subline)}</span></div>`:''}
+      <div class="foldergo">Open ›</div>
+    </div></button>`;
+}
 function recipesView(){
-  const rows = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()))
-    .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter);
+  const searching = recFilter.trim()!=='';
   const cats=catList();
-  return `
+  const matchR = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()))
+    .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter);
+  const atLeaf = searching || libPath.length===2 || (libPath.length===1 && libPath[0]==='other');
+  // breadcrumb
+  let crumb;
+  if(searching){ crumb=`<span class="libcrumb">Search results</span>`; }
+  else{
+    const parts=[`<button class="libcrumb linky" onclick="libUp(0)">All recipes</button>`];
+    if(libPath[0]){ const g=LIB_GROUPS.find(x=>x.id===libPath[0]); parts.push(`<span class="libsep">›</span>`,
+      libPath.length>1?`<button class="libcrumb linky" onclick="libUp(1)">${esc(g?g.name:(libPath[0]==='other'?'Other':libPath[0]))}</button>`
+                       :`<span class="libcrumb">${esc(g?g.name:(libPath[0]==='other'?'Other':libPath[0]))}</span>`); }
+    if(libPath[1]){ const g=LIB_GROUPS.find(x=>x.id===libPath[0]); const s=g&&g.subs.find(x=>x.id===libPath[1]);
+      parts.push(`<span class="libsep">›</span>`,`<span class="libcrumb">${esc(s?s.name:libPath[1])}</span>`); }
+    crumb=parts.join('');
+  }
+  const toolbar=`
   <div class="toolbar">
-    <input type="text" id="recSearch" placeholder="Search recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;refresh()">
-    <select onchange="recCatFilter=this.value;refresh()" title="Filter by category">
-      <option value="">All categories</option>
-      ${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
-    </select>
+    <input type="text" id="recSearch" placeholder="Search all recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;refresh()">
+    ${atLeaf?`<select onchange="recCatFilter=this.value;refresh()" title="Filter by category"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}
     <button class="btn ghost" onclick="openCategoryManager()">⚙ Categories</button>
     <button class="btn accent" onclick="openBuilder()">+ New recipe</button>
-    <span class="count">${rows.length} recipes</span>
   </div>
-  <div class="grid">${rows.map(r=>{
-    const c = recipeColor(r);
-    const std = recipeCost(r,'std'), act = recipeCost(r,'act');
-    const hasAct = r.ingredients.some(i=>actualPrice(i.name)!=null);
-    return `<button class="tile" onclick="show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">
-      <div class="band" style="background:${c}"><h3>${esc(r.name)}</h3></div>
-      <div class="body">
-        <div class="catlabel">${esc(catName(catOf(r.name))||'—')}</div>
-        <div class="big">${GBP(std)}<span> / kg standard</span></div>
-        <div class="kv"><span>Actual (purchases)</span><b>${hasAct?GBP(act):'—'}</b></div>
-        <div class="kv"><span>Ingredients</span><b>${r.ingredients.length}</b></div>
-        <div class="kv"><span>Batch size</span><b>${NUM(r.batchSize)} kg</b></div>
-      </div></button>`;
-  }).join('')}</div>${deletedRecipesView()}`;
+  <div class="libbar">${crumb}<span class="count" style="margin-left:auto">${atLeaf?matchR.length+' recipe'+(matchR.length===1?'':'s'):''}</span></div>`;
+  // body
+  let body='';
+  if(searching){
+    body = matchR.length ? `<div class="grid">${matchR.map(recipeTileHTML).join('')}</div>`
+                         : `<p class="muted" style="padding:20px">No recipes match “${esc(recFilter)}”.</p>`;
+  } else if(libPath.length===0){
+    const tiles=LIB_GROUPS.map(g=>folderTileHTML(g.color,g.name,g.subs.map(s=>s.name).join(' · '),libCount(g.id),`libGo('${g.id}')`));
+    const otherN=libCount('other'); if(otherN) tiles.push(folderTileHTML('#8a8175','Other',null,otherN,`libGo('other')`));
+    body=`<div class="grid">${tiles.join('')}</div>`;
+  } else if(libPath.length===1 && libPath[0]!=='other'){
+    const g=LIB_GROUPS.find(x=>x.id===libPath[0]);
+    body=`<div class="grid">${g.subs.map(s=>folderTileHTML(s.color||g.color,s.name,null,libCount(g.id,s.id),`libGo('${g.id}','${s.id}')`)).join('')}</div>`;
+  } else {
+    const top=libPath[0], sub=libPath[1]||null;
+    const list=matchR.filter(r=>{ const l=libLocate(r); return l.top===top && (sub==null||l.sub===sub); });
+    body= list.length ? `<div class="grid">${list.map(recipeTileHTML).join('')}</div>`
+                      : `<p class="muted" style="padding:20px">No recipes in this folder yet.</p>`;
+  }
+  const bin = (!searching && libPath.length===0) ? deletedRecipesView() : '';
+  return toolbar+body+bin;
 }
 /* ===== category manager: rename existing, add new, remove unused ===== */
 function openCategoryManager(){

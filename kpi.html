@@ -129,6 +129,7 @@ let KPI_CAPS={settings:true,input:true};
   table.trend thead th.lbl{background:#143644;color:#fff}
   table.trend tr.sec td{background:#f7f4ec;font-weight:700;color:#143644}
   table.trend td.num.pos{color:#2e8b6f}table.trend td.num.neg{color:#c0563b}
+  table.trend td.note{white-space:normal;text-align:left;font-size:11px;line-height:1.35;min-width:170px;max-width:240px;vertical-align:top;color:#555}
   .repnote{font-size:13px;color:#3a4a54;margin:4px 0;line-height:1.4}
   .repnote b{color:#143644}
   .rephead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #f37d89;padding-bottom:10px;margin-bottom:14px}
@@ -433,8 +434,13 @@ function buildData(){
   const recOf=(vol, act)=> vol.map((v,i)=>{ const a=allowanceFor(act, RAW.dates[i]); if(v==null||a==null) return null; return round(v*a); });
   const volAyr=numArr("Fresh/Cooked Produced (kg)"), volCP=numArr("Cold Pressed Produced (kg)");
   const volDespA=numArr("Despatched Internally (kg)"), volDespB=numArr("Despatched Blair (kg)");
-  const recAyr = sumA(recOf(volAyr,"ayrFill"), recOf(volAyr,"ayrCook"), recOf(volDespA,"despatch"));
-  const recBlair = sumA(recOf(volCP,"cpProduce"), recOf(volDespB,"cpDespatch"));
+  /* recovered = volume × £/kg by activity; a per-day override wins where present (used to pin
+     historical days to the hand-kept Summary Report on carry-over days the flat formula can't model) */
+  const rovA=numArr("Recovered Ayr override"), rovB=numArr("Recovered Blair override");
+  const recAyrCalc = sumA(recOf(volAyr,"ayrFill"), recOf(volAyr,"ayrCook"), recOf(volDespA,"despatch"));
+  const recBlairCalc = sumA(recOf(volCP,"cpProduce"), recOf(volDespB,"cpDespatch"));
+  const recAyr = recAyrCalc.map((v,i)=> rovA[i]!=null?rovA[i]:v);
+  const recBlair = recBlairCalc.map((v,i)=> rovB[i]!=null?rovB[i]:v);
   /* labour recovery variance = recovered − spent (positive = the day paid for itself) */
   const spentAyrAll = sumA(sA, sD);                                  // Ayr areas incl. despatch
   const rvA = recAyr.map((r,i)=> (r==null||spentAyrAll[i]==null)?null: round(r-spentAyrAll[i]));
@@ -920,7 +926,8 @@ function setStatus(msg){ const s=document.getElementById("setStatus"); if(s){ s.
 
 
 // ---------- Daily / Weekly management report ----------
-let repDate=null, repWeeks=12;
+let repDate=null, repWeeks=12, repMode="week", repDays=14;
+function repEsc(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 function repDefaultDate(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function varCls(v){ return v==null?"":(v>=0?"pos":"neg"); }
 /* ONE shareable management report: a running weekly grid (weeks across, like the summary sheet)
@@ -930,22 +937,30 @@ function renderReport(){
   if(!REPORT){ v.innerHTML='<p style="padding:20px">No data yet.</p>'; return; }
   if(!repDate) repDate=repDefaultDate();
   const R=REPORT;
+  const isDay = repMode==="day";
   const d=new Date(repDate+"T00:00:00"); const dow=(d.getDay()+6)%7;
   const curMon=new Date(d); curMon.setDate(d.getDate()-dow);
-  const weeks=[];
-  for(let w=repWeeks-1; w>=0; w--){
-    const mon=new Date(curMon); mon.setDate(curMon.getDate()-w*7);
-    const idx=[]; for(let nn=0;nn<7;nn++){ const x=new Date(mon); x.setDate(mon.getDate()+nn); const i=R.dates.indexOf(x.toISOString().slice(0,10)); if(i>=0) idx.push(i); }
-    weeks.push({label:mon.toLocaleDateString("en-GB",{day:"numeric",month:"short"}), idx});
+  // columns: one per day (daily report) or one per Mon–Sun week (weekly report)
+  const cols=[];
+  if(isDay){
+    for(let k=repDays-1;k>=0;k--){ const x=new Date(d); x.setDate(d.getDate()-k); const iso=isoOf(x); const i=R.dates.indexOf(iso);
+      cols.push({label:x.toLocaleDateString("en-GB",{weekday:"short"})+"<br>"+x.toLocaleDateString("en-GB",{day:"numeric",month:"short"}), idx:i>=0?[i]:[]}); }
+  } else {
+    for(let w=repWeeks-1; w>=0; w--){ const mon=new Date(curMon); mon.setDate(curMon.getDate()-w*7);
+      const idx=[]; for(let nn=0;nn<7;nn++){ const x=new Date(mon); x.setDate(mon.getDate()+nn); const i=R.dates.indexOf(isoOf(x)); if(i>=0) idx.push(i); }
+      cols.push({label:mon.toLocaleDateString("en-GB",{day:"numeric",month:"short"}), idx}); }
   }
-  const latest=weeks[weeks.length-1].idx;
+  const latest=cols[cols.length-1].idx;
   const wsum=(arr,idx)=>{ const vs=idx.map(i=>arr[i]).filter(x=>typeof x==="number"); return vs.length?vs.reduce((s,x)=>s+x,0):null; };
   const wtext=(arr,idx)=>{ const vs=idx.map(i=>arr[i]).filter(x=>typeof x==="string"&&x.trim()); return vs.join(" · "); };
   const cell=(x,fmt,vari)=>`<td class="num ${vari&&x!=null?varCls(x):""}">${x==null?"":fmt(x)}</td>`;
   const kg=x=>Math.round(x).toLocaleString(), gbp=x=>(x<0?"−£":"£")+Math.abs(Math.round(x)).toLocaleString(), n=x=>Math.round(x);
-  const rowT=(label,arr,fmt,vari)=>`<tr><td class="lbl">${label}</td>${weeks.map(wk=>cell(wsum(arr,wk.idx),fmt,vari)).join("")}</tr>`;
-  const sec=t=>`<tr class="sec"><td class="lbl">${t}</td>${weeks.map(()=>"<td></td>").join("")}</tr>`;
-  const head=`<tr><th class="lbl">Week beginning</th>${weeks.map(wk=>`<th>${wk.label}</th>`).join("")}</tr>`;
+  const rowT=(label,arr,fmt,vari)=>`<tr><td class="lbl">${label}</td>${cols.map(wk=>cell(wsum(arr,wk.idx),fmt,vari)).join("")}</tr>`;
+  const sec=t=>`<tr class="sec"><td class="lbl">${t}</td>${cols.map(()=>"<td></td>").join("")}</tr>`;
+  // per-day reasons row (daily report only): all of a day's words in one wrapping cell
+  const REASONS=[["Ayr vol",R.reAyrVol],["Ayr lab",R.reAyrLab],["Blair vol",R.reBlairVol],["Blair lab",R.reBlairLab],["OOS",R.oos],["Note",R.notes]];
+  const noteRow = !isDay ? "" : `${sec("Reasons &amp; notes")}<tr><td class="lbl">By day</td>${cols.map(c=>{ const i=c.idx[0]; const parts=[]; if(i!=null){ REASONS.forEach(([l,a])=>{ const t=a&&a[i]; if(typeof t==="string"&&t.trim()) parts.push("<b>"+l+":</b> "+repEsc(t)); }); } return `<td class="note">${parts.join("<br>")}</td>`; }).join("")}</tr>`;
+  const head=`<tr><th class="lbl">${isDay?"Day":"Week beginning"}</th>${cols.map(wk=>`<th>${wk.label}</th>`).join("")}</tr>`;
   const grid=`<div class="trendwrap"><table class="trend"><thead>${head}</thead><tbody>
     ${sec("Ayr — fresh / cooked")}
     ${rowT("Volume produced (kg)",R.volAyr,kg)}${rowT("Volume target (kg)",R.tgtAyr,kg)}${rowT("Volume variance (kg)",R.vvA,kg,true)}
@@ -955,23 +970,34 @@ function renderReport(){
     ${rowT("Labour spent",R.spentBlair,gbp)}${rowT("Recovered labour",R.recBlair,gbp)}${rowT("Recovery variance",R.rvB,gbp,true)}
     ${sec("Safety")}
     ${rowT("Near misses",R.nm,n)}${rowT("Accidents",R.acc,n)}${rowT("Riddors",R.rid,n)}
+    ${noteRow}
   </tbody></table></div>`;
   const noteLine=(lbl,txt)=> txt?`<div class="repnote"><b>${lbl}:</b> ${txt}</div>`:"";
-  const notes=[["Ayr volume",R.reAyrVol],["Ayr labour",R.reAyrLab],["Blair volume",R.reBlairVol],["Blair labour",R.reBlairLab],["Out of stocks",R.oos],["Notes",R.notes]]
+  const notes= isDay ? "" : [["Ayr volume",R.reAyrVol],["Ayr labour",R.reAyrLab],["Blair volume",R.reBlairVol],["Blair labour",R.reBlairLab],["Out of stocks",R.oos],["Notes",R.notes]]
     .map(([l,a])=>noteLine(l,wtext(a,latest))).join("");
-  const latestLabel=weeks[weeks.length-1].label;
+  const latestLabel=cols[cols.length-1].label.replace("<br>"," ");
+  const modeBtn=(mv,lbl)=>`<button class="btn${repMode===mv?" primary":""}" onclick="repMode='${mv}';renderReport()">${lbl}</button>`;
+  const pick = isDay
+    ? `<select onchange="repDays=+this.value;renderReport()">${[7,14,21,31].map(x=>`<option value="${x}"${repDays===x?" selected":""}>last ${x} days</option>`).join("")}</select>`
+    : `<select onchange="repWeeks=+this.value;renderReport()">${[8,12,26,52].map(x=>`<option value="${x}"${repWeeks===x?" selected":""}>last ${x} weeks</option>`).join("")}</select>`;
+  const title = isDay ? "Daily Report" : "Weekly Report";
+  const sub = isDay
+    ? `${repDays} days to ${d.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}`
+    : `${repWeeks} weeks to ${curMon.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}`;
   v.innerHTML=`
   <div class="repbar noprint">
+    ${modeBtn("day","Daily")}${modeBtn("week","Weekly")}
+    <span style="width:1px;height:22px;background:var(--border)"></span>
     <input type="date" value="${repDate}" onchange="repDate=this.value;renderReport()">
-    <select onchange="repWeeks=+this.value;renderReport()">${[8,12,26,52].map(x=>`<option value="${x}"${repWeeks===x?" selected":""}>last ${x} weeks</option>`).join("")}</select>
+    ${pick}
     <button class="btn primary" onclick="window.print()">🖨 Print / save PDF</button>
-    <span class="help">One report to share — each column is a Mon–Sun week, newest on the right, like the summary sheet.</span>
+    <span class="help">${isDay?"Each column is a day — send this at end of day (like the summary sheet’s Daily tab).":"Each column is a Mon–Sun week, newest on the right — the Monday round-up."}</span>
   </div>
   <div class="reppage" id="repPage">
-    <div class="rephead"><div><h2>Operations Report</h2><div class="repsub">${repWeeks} weeks to ${curMon.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div></div><div class="repbrand">Wilsons Pet Food</div></div>
+    <div class="rephead"><div><h2>${title}</h2><div class="repsub">${sub}</div></div><div class="repbrand">Wilsons Pet Food</div></div>
     ${grid}
     ${notes?`<h3 style="margin-top:16px">Latest week (w/c ${latestLabel}) — reasons &amp; notes</h3>${notes}`:""}
-    <div class="repfoot">Generated by Wilsons HQ · figures from the daily KPI input · recovery = volume × the £/kg labour allowance (from your Costed Plan & Labour Variance sheets)</div>
+    <div class="repfoot">Generated by Wilsons HQ · figures from the daily KPI input · recovery = volume × the £/kg labour allowance (from your Costed Plan &amp; Labour Variance sheets)</div>
   </div>`;
 }
 // ---------- tabs / upload ----------
