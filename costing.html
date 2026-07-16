@@ -59,6 +59,17 @@ table{width:100%;border-collapse:collapse}
 th{background:var(--sea);color:#fff;text-align:left;padding:9px 10px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;white-space:nowrap;user-select:none}
 th.num,td.num{text-align:right}
 th .arr{opacity:.6;font-size:10px}
+/* data tables: scroll inside the card so the column headings stay frozen at the top while you scroll rows */
+.card:has(> table){overflow:auto;max-height:calc(100vh - 200px)}
+.card > table thead th{position:sticky;top:0;z-index:6}
+/* small dropdown menu (e.g. Export ▾) */
+.menu{position:relative;display:inline-block}
+.menu>summary{list-style:none;cursor:pointer}
+.menu>summary::-webkit-details-marker{display:none}
+.menupop{position:absolute;right:0;top:calc(100% + 5px);background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:0 8px 24px rgba(20,54,68,.20);padding:6px;z-index:60;min-width:190px;display:flex;flex-direction:column;gap:2px}
+.menupop button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;background:none;border:none;color:var(--sea);font-size:13px;cursor:pointer;font-family:inherit}
+.menupop button:hover{background:var(--cream)}
+.menupop .sep{height:1px;background:var(--line);margin:4px 2px}
 td{padding:7px 10px;border-bottom:1px solid #eee9dd;white-space:nowrap}
 tr:hover td{background:#faf8f1}
 tr.group-start td{border-top:2px solid var(--capp)}
@@ -542,10 +553,14 @@ function show(v, arg){
 }
 
 /* ================= PRODUCTS (driven by recipe pack sizes) ================= */
-let prodFilter='';
+let prodFilter='', prodCatFilter='', prodBrandFilter='';
+function prodBrandOf(name){ const r=findRecipe(name); return (r&&r.brand)||costingBrandOf(name); }
 function productRows(){
   const out=[];
-  allRecipes().forEach(r=>{
+  allRecipes()
+    .filter(r=>!prodCatFilter || catOf(r.name)===prodCatFilter)
+    .filter(r=>!prodBrandFilter || ((r.brand||costingBrandOf(r.name))===prodBrandFilter))
+    .forEach(r=>{
     const st = rcState(r.name);
     const per = recipeCost(r, recMode);
     if(!st.packs.length){ out.push({name:r.name, none:true}); }
@@ -617,14 +632,28 @@ function productsView(){
   </div>
   <div class="toolbar">
     <input type="text" id="prodSearch" placeholder="Search products…" value="${esc(prodFilter)}" oninput="prodFilter=this.value;refresh()">
+    <select onchange="prodCatFilter=this.value;refresh()" title="Filter by product category">
+      <option value="">All categories</option>
+      ${catList().map(c=>`<option value="${esc(c.id)}"${prodCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
+    </select>
+    <select onchange="prodBrandFilter=this.value;refresh()" title="Filter by brand">
+      <option value="">All brands</option>
+      ${[...new Set(allRecipes().map(r=>r.brand||costingBrandOf(r.name)).filter(Boolean))].sort().map(b=>`<option value="${esc(b)}"${prodBrandFilter===b?' selected':''}>${esc(b)}</option>`).join('')}
+    </select>
     ${channelToggle()}
     ${modeToggle()}
-    <button class="btn ghost no-print" onclick="prodSelectMode=!prodSelectMode; if(!prodSelectMode) prodSel.clear(); refresh()">${prodSelectMode?'✕ Cancel selection':'Select'}</button>
-    <button class="btn accent" onclick="exportProductsXlsx()">Export to Excel${prodSelectMode&&prodSel.size?` (${prodSel.size} selected)`:' (all)'}</button>
-    <button class="btn ghost" onclick="exportProducts()">CSV</button>
-    <button class="btn ghost" onclick="window.print()">Print</button>
-    <button class="btn no-print" style="background:var(--sea);color:#fff" onclick="openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export…</button>
-    <span class="count">${nSkus} SKUs</span>
+    <button class="btn no-print" style="background:var(--sea);color:#fff;margin-left:auto" onclick="openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export…</button>
+    <details class="menu no-print">
+      <summary class="btn ghost">Export ▾</summary>
+      <div class="menupop">
+        <button onclick="this.closest('details').open=false;exportProductsXlsx()">Excel${prodSelectMode&&prodSel.size?` — ${prodSel.size} selected`:' — all rows'}</button>
+        <button onclick="this.closest('details').open=false;exportProducts()">CSV</button>
+        <button onclick="this.closest('details').open=false;window.print()">Print this table</button>
+        <div class="sep"></div>
+        <button onclick="this.closest('details').open=false;prodSelectMode=!prodSelectMode; if(!prodSelectMode) prodSel.clear(); refresh()">${prodSelectMode?'✕ Cancel row selection':'Select specific rows…'}</button>
+      </div>
+    </details>
+    <span class="count">${nSkus} SKUs${(prodCatFilter||prodBrandFilter)?' shown':''}</span>
   </div>
   <div class="card"><table>
     <thead><tr>${selCol?`<th class="no-print"><input type="checkbox" ${allSel?'checked':''} onchange="selAllProds(this.checked)"></th>`:''}${
@@ -634,7 +663,7 @@ function productsView(){
     }</tr></thead>
     <tbody>${body || `<tr><td colspan="${(selCol?1:0)+dataCols}" class="muted" style="text-align:center;padding:24px">No products yet.</td></tr>`}</tbody>
   </table></div>
-  <p class="muted" style="margin-top:10px">Each product line comes from a recipe — open the recipe to set its pack sizes and packaging. Sell prices can be typed straight into this table. <b>D2C</b> and <b>Trade</b> each get their own packing / box / shipping costs — assign a channel to any cost item on the <b>Pack &amp; Costs</b> tab (items set to “both channels” count in both totals). Costs shown on the <b>${recMode==='std'?'standard (target)':'actual purchase'}</b> basis. ${prodSelectMode?'Tick the rows to export, then press Export to Excel.':'Press <b>Select</b> to pick specific rows for the Excel export.'}</p>`;
+  <p class="muted" style="margin-top:10px">Each product line comes from a recipe — open the recipe to set its pack sizes and packaging. Sell prices can be typed straight into this table. <b>D2C</b> and <b>Trade</b> each get their own packing / box / shipping costs — assign a channel to any cost item on the <b>Pack &amp; Costs</b> tab (items set to “both channels” count in both totals). Costs shown on the <b>${recMode==='std'?'standard (target)':'actual purchase'}</b> basis. ${prodSelectMode?'Tick the rows you want, then use <b>Export ▾</b>.':'Use <b>★ Branded export</b> for a customer document, or <b>Export ▾</b> for Excel / CSV.'}</p>`;
 }
 function toggleProdSel(key){ if(prodSel.has(key)) prodSel.delete(key); else prodSel.add(key); refresh(); }
 function selAllProds(on){
@@ -745,10 +774,11 @@ function ingredientsView(){
     <td>${(()=>{
       const quotes = store.supplierDB.filter(e=>e.ing===i.key);
       const names = [...new Set([i.sup, ...quotes.map(e=>e.supplier)])].filter(Boolean);
-      return `<select onchange="ingPickSup(${x},this.value)" style="max-width:170px;padding:5px 8px;border:1px solid var(--line);border-radius:6px">
+      return `<select onchange="ingPickSup(${x},this.value)" style="max-width:170px;padding:5px 8px;border:1px solid var(--line);border-radius:6px${!i.sup?';color:var(--capp)':''}">
+        <option value="" ${!i.sup?'selected':''}>— no supplier yet —</option>
         ${names.map(s=>{const q=quotes.find(o=>o.supplier===s);
           return `<option value="${esc(s)}" ${s===i.sup?'selected':''}>${esc(s)}${q?` — ${GBP(q.perKg+(q.del||0))}`:''}</option>`}).join('')}
-        <option value="__new">+ new supplier…</option>
+        <option value="__new">+ add a supplier…</option>
       </select>`;
     })()}</td>
     <td class="num"><input type="number" step="0.001" value="${i.base!=null?(+i.base).toFixed(3):''}" onchange="ingSetPrice(${x},this.value)"></td>
