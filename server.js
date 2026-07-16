@@ -443,6 +443,30 @@ function ensureRecipeSpecs() {
     console.log('Recipe specs: created ' + created + ' draft spec(s), linked ' + linked + ' existing draft(s) to their recipe; existing specs left untouched.');
   } catch (e) { console.log('recipe specs failed:', e.message); }
 }
+// One-time: set the PAH ingredient prices agreed from Standard Material Costs.xlsx. GAP-FILL only —
+// writes to the costing target-price store (wpf_prices) ONLY where no price is set yet, so it never
+// overwrites a price already entered in the app. Prices flow into the Ingredients tab and every recipe
+// that uses the ingredient; recipes themselves are not touched. Guarded by meta 'pahPricesV'.
+function importPahIngredientPrices() {
+  try {
+    const f = path.join(__dirname, 'pah-prices-seed.json');
+    if (!fs.existsSync(f)) return;
+    const seed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const want = seed.version || 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahPricesV'").get();
+    if (row && +row.value >= want) return;
+    const r = db.prepare("SELECT value FROM costing_kv WHERE key='wpf_prices'").get();
+    let po = {}; try { po = r ? JSON.parse(r.value) : {}; if (!po || typeof po !== 'object') po = {}; } catch (e) { po = {}; }
+    let set = 0, skipped = 0;
+    Object.keys(seed.prices || {}).forEach(name => {
+      if (po[name] == null) { po[name] = seed.prices[name]; set++; }   // only fill where no price exists
+      else skipped++;
+    });
+    db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run('wpf_prices', JSON.stringify(po), now());
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahPricesV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH ingredient prices: set ' + set + ', skipped ' + skipped + ' (already priced).');
+  } catch (e) { console.log('pah prices import failed:', e.message); }
+}
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
   if (n > 0) return;
@@ -1276,7 +1300,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importSpecsSeed(); ensureRecipeSpecs();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

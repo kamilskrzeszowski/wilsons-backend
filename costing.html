@@ -262,6 +262,8 @@ async function saveDirty(){
   catch(e){ setSyncState('offline','Save failed — retrying'); clearTimeout(_saveT); _saveT=setTimeout(saveDirty,4000); }
 }
 window.addEventListener('beforeunload',()=>{ if(SHARED&&Object.keys(_dirty).length){ try{ navigator.sendBeacon&&saveDirty(); }catch(e){} } });
+/* warn before refresh / closing the tab while a recipe is being edited */
+window.addEventListener('beforeunload',e=>{ if(typeof view!=='undefined' && view==='builder' && typeof builderDirty!=='undefined' && builderDirty){ e.preventDefault(); e.returnValue=''; } });
 /* pick up other people's changes every 15s (skipped while you're mid-edit) */
 function startPolling(){
   if(!SHARED) return;
@@ -462,6 +464,8 @@ function downloadCSV(name, rows){
 /* ---------- nav ---------- */
 let view = 'products', lastArg = null, sortState = {};
 function show(v, arg){
+  if(view==='builder' && v!=='builder' && typeof confirmLeaveBuilder==='function' && !confirmLeaveBuilder()) return;   // guard: don't leave a half-edited recipe
+  builderDirty=false;
   view = v; if(arg!==undefined) lastArg = arg;
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   const nb = document.getElementById('nav-'+(v==='recipeDetail'?'recipes':(v==='builder'?'builder':v)));
@@ -1106,11 +1110,11 @@ function recipesView(){
     const parts=[`<button class="libcrumb linky" onclick="libUp(0)">All recipes</button>`];
     if(top){ parts.push(`<span class="libsep">›</span>`, libPath.length>1?`<button class="libcrumb linky" onclick="libUp(1)">${esc(gName)}</button>`:`<span class="libcrumb">${esc(gName)}</span>`); }
     if(sub){ const sName=esc(s?s.name:sub); parts.push(`<span class="libsep">›</span>`, libPath.length>2?`<button class="libcrumb linky" onclick="libUp(2)">${sName}</button>`:`<span class="libcrumb">${sName}</span>`); }
-    if(rng){ parts.push(`<span class="libsep">›</span>`, `<span class="libcrumb">${esc(rng)}</span>`); }
+    if(rng){ parts.push(`<span class="libsep">›</span>`, `<span class="libcrumb">${esc(rng==='__none__'?'Other':rng)}</span>`); }
     crumb=parts.join('');
   }
   // count shown only when we're actually listing recipes
-  let leafList=inGroup; if(rng) leafList=leafList.filter(r=>r.range===rng);
+  let leafList=inGroup; if(rng) leafList = rng==='__none__' ? leafList.filter(r=>!r.range) : leafList.filter(r=>r.range===rng);
   const shownCount = mode==='search'? matchR.length : (mode==='recipes'? leafList.length : 0);
   const toolbar=`
   <div class="toolbar">
@@ -1133,7 +1137,10 @@ function recipesView(){
     body=`<div class="grid">${g.subs.map(x=>folderTileHTML(x.color||g.color,x.name,null,libCount(g.id,x.id),`libGo('${g.id}','${x.id}')`)).join('')}</div>`;
   } else if(mode==='ranges'){
     const color=(s&&s.color)||(g&&g.color)||'#143644';
-    body=`<div class="grid">${ranges.map(rn=>folderTileHTML(color,rn,null,inGroup.filter(r=>r.range===rn).length,`libGo('${top}','${sub}','${String(rn).replace(/'/g,"\\'")}')`)).join('')}</div>`;
+    const tiles=ranges.map(rn=>folderTileHTML(color,rn,null,inGroup.filter(r=>r.range===rn).length,`libGo('${top}','${sub}','${String(rn).replace(/'/g,"\\'")}')`));
+    const un=inGroup.filter(r=>!r.range).length;   // recipes that lost their range (e.g. edited on an older version) still appear here, never hidden
+    if(un) tiles.push(folderTileHTML('#8a8175','Other',null,un,`libGo('${top}','${sub}','__none__')`));
+    body=`<div class="grid">${tiles.join('')}</div>`;
   } else {
     body= leafList.length ? `<div class="grid">${leafList.map(recipeTileHTML).join('')}</div>`
                       : `<p class="muted" style="padding:20px">No recipes in this folder yet.</p>`;
@@ -1584,8 +1591,11 @@ function exportRecipe(name){
 }
 
 /* ================= BUILDER ================= */
-let draft = null;
+let draft = null, builderDirty = false;
+/* ask before leaving a half-edited recipe */
+function confirmLeaveBuilder(){ if(view==='builder' && builderDirty){ return confirm('You have unsaved changes to this recipe.\n\nLeave without saving? Your changes will be lost.'); } return true; }
 function openBuilder(fromName, dup){
+  if(!confirmLeaveBuilder()) return;
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('nav-builder').classList.add('active');
   if(fromName){
@@ -1593,7 +1603,7 @@ function openBuilder(fromName, dup){
     draft = {
       name: dup ? src.name + ' (copy)' : src.name,
       editing: dup ? null : src.name,
-      brand: src.brand||'', appName: dup ? null : src.appName,
+      brand: src.brand||'', appName: dup ? null : src.appName, range: dup ? undefined : src.range,
       categoryId: catOf(src.name),
       batchSize: src.batchSize||1000, wastePct: src.wastePct??0.05,
       ingredients: src.ingredients.map(i=>({name:i.name, kg:i.kg, perKg: src.custom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? ingPrice(i.name) ?? 0)}))
@@ -1601,6 +1611,7 @@ function openBuilder(fromName, dup){
   } else {
     draft = {name:'', editing:null, brand:'', appName:null, categoryId:(catList()[0]&&catList()[0].id)||'', batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
   }
+  builderDirty=false;   // fresh draft — no unsaved changes yet
   view='builder';
   document.getElementById('main').innerHTML = builderView();
   window.scrollTo(0,0);
@@ -1635,13 +1646,13 @@ function builderView(){
     </span>
   </div>
   <div class="toolbar">
-    <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value">
-    <label class="muted">Brand <input type="text" list="brandList" placeholder="e.g. TUGGS" value="${esc(draft.brand||'')}" style="width:180px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.brand=this.value.trim()" title="Which brand (and so which factory) this recipe belongs to — cold-pressed brands go to Blair, everything else to Ayr"></label>
+    <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value;builderDirty=true">
+    <label class="muted">Brand <input type="text" list="brandList" placeholder="e.g. TUGGS" value="${esc(draft.brand||'')}" style="width:180px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.brand=this.value.trim();builderDirty=true" title="Which brand (and so which factory) this recipe belongs to — cold-pressed brands go to Blair, everything else to Ayr"></label>
     <datalist id="brandList">${[...new Set([...Object.keys(BRANDHEX),...allRecipes().map(r=>r.brand||costingBrandOf(r.name))])].filter(Boolean).map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
-    <label class="muted">Category <select onchange="draft.categoryId=this.value" style="padding:8px;border:1px solid var(--line);border-radius:8px" title="Which product category this recipe is">
+    <label class="muted">Category <select onchange="draft.categoryId=this.value;builderDirty=true" style="padding:8px;border:1px solid var(--line);border-radius:8px" title="Which product category this recipe is">
       ${catList().map(c=>`<option value="${esc(c.id)}"${draft.categoryId===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
     </select></label>
-    <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" oninput="draft.batchSize=parseFloat(this.value)||1000;recalcBuilder()"></label>
+    <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" oninput="draft.batchSize=parseFloat(this.value)||1000;builderDirty=true;recalcBuilder()"></label>
     <select onchange="if(this.value){openBuilder(this.value)}" class="no-print">
       <option value="">Start from existing recipe…</option>
       ${allRecipes().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
@@ -1654,7 +1665,7 @@ function builderView(){
         <tbody>${rows}</tbody>
         <tfoot><tr class="totrow"><td><b>Total</b></td><td class="num"><b id="bTotKg">${NUM(totKg)} kg</b></td><td class="num"><b>${totKg>0?'100%':'—'}</b></td><td></td><td class="num"><b id="bTotBatch">${GBP2(sub)}</b></td><td class="no-print"></td></tr></tfoot>
       </table></div>
-      <button class="btn" style="margin-top:10px" onclick="draft.ingredients.push({name:'',kg:0,perKg:0});refresh()">+ Add ingredient</button>
+      <button class="btn" style="margin-top:10px" onclick="draft.ingredients.push({name:'',kg:0,perKg:0});builderDirty=true;refresh()">+ Add ingredient</button>
       <p class="muted" style="margin-top:8px" id="bMismatch">Pick an ingredient to auto-fill its price — the actual (average of logged purchases) where available, otherwise the target cost (editable per line). Ingredient weights total <b>${NUM(totKg)} kg</b> vs batch size ${NUM(draft.batchSize)} kg${Math.abs(totKg-draft.batchSize)>0.01?' <span style="color:var(--warn)">⚠ mismatch</span>':' ✓'}.</p>
     </div>
     <div class="summary-box">
@@ -1672,10 +1683,12 @@ function fmtPct(n){ return (Math.round(n*10)/10)+'%'; }
 function draftIng(idx, field, val){
   const it = draft.ingredients[idx];
   it[field] = parseFloat(val)||0;
+  if(field==='perKg') it._priceEdited=true;   // user typed a price → propagate it to the ingredient on save
+  builderDirty=true;
   recalcBuilder();
 }
 function draftIngName(idx, val, commit){
-  const it = draft.ingredients[idx]; it.name = val;
+  const it = draft.ingredients[idx]; it.name = val; builderDirty=true;
   if(commit){
     const p = ingPrice(val);
     if(p!=null){ it.perKg = p;
@@ -1685,7 +1698,7 @@ function draftIngName(idx, val, commit){
   }
   recalcBuilder();
 }
-function delDraftRow(idx){ draft.ingredients.splice(idx,1); refresh(); }
+function delDraftRow(idx){ draft.ingredients.splice(idx,1); builderDirty=true; refresh(); }
 function recalcBuilder(){
   if(!draft) return;
   const totKg = draft.ingredients.reduce((a,i)=>a+(i.kg||0),0);
@@ -1711,7 +1724,7 @@ function saveDraft(){
   if(!ings.length){alert('Add at least one ingredient with a weight.');return;}
   const sub = ings.reduce((a,i)=>a+i.kg*i.perKg,0);
   const rec = {name:newName, custom:{perKg: sub/(draft.batchSize||1000)},
-    brand:(draft.brand||'').trim(), appName:draft.appName||undefined,
+    brand:(draft.brand||'').trim(), appName:draft.appName||undefined, range:draft.range||undefined,
     batchSize:draft.batchSize||1000, wastePct:draft.wastePct??0.05,
     ingredients:ings.map(i=>({name:keyOf(i.name),kg:i.kg,perKg:i.perKg}))};
   if(wasStock && newName===draft.editing){
@@ -1729,7 +1742,12 @@ function saveDraft(){
   // remember the category against this recipe (and carry it if the recipe was renamed)
   { const m=store.recipeCategory; if(draft.categoryId) m[newName]=draft.categoryId;
     if(draft.editing && draft.editing!==newName && m[draft.editing]){ delete m[draft.editing]; } store.recipeCategory=m; }
-  draft=null;
+  // a price typed against an ingredient becomes that ingredient's STANDARD price — it shows in the
+  // Ingredients tab and flows into every recipe that uses it (not just this one)
+  { const po=store.priceOverrides; let changed=false;
+    ings.forEach(i=>{ if(!i._priceEdited) return; const p=+i.perKg; if(p>0){ const k=keyOf(i.name); if(po[k]!==p){ po[k]=p; changed=true; } } });
+    if(changed) store.priceOverrides=po; }
+  draft=null; builderDirty=false;
   scheduleRecipeSync();
   show('recipeDetail', newName);
 }
