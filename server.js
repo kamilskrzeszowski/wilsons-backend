@@ -511,7 +511,7 @@ function importPahPackCosting() {
       { id: 'pah-pouch-cat', name: 'Pouch — cat 70/80g (PAH)', basis: 'pack', cost: 0.08, std: false, ch: 'all' },
       { id: 'pah-srp-cat', name: 'SRP — cat (26p ÷ 12 pouches)', basis: 'pack', cost: 0.0217, std: false, ch: 'all' },
       { id: 'pah-ship-70', name: 'Shipper — 70g (50p ÷ 19 SRPs ÷ 12)', basis: 'pack', cost: 0.0022, std: false, ch: 'all' },
-      { id: 'pah-ship-80', name: 'Shipper — 80g (50p ÷ 16 SRPs ÷ 12)', basis: 'pack', cost: 0.0026, std: false, ch: 'all' }
+      { id: 'pah-ship-85', name: 'Shipper — 85g (50p ÷ 15 SRPs ÷ 12)', basis: 'pack', cost: 0.0028, std: false, ch: 'all' }
     ];
     let items = null; try { items = JSON.parse(ckvGet('wpf_costitems')); } catch (e) { items = null; }
     if (!Array.isArray(items) || !items.length) items = DEFAULT_ITEMS;
@@ -544,7 +544,7 @@ function importPahPackCosting() {
         ? [{ kg: 0.4, items: ['pah-pouch-400', 'pah-srp-400', 'pah-ship-400'] },
            { kg: 0.15, items: ['pah-pouch-150', 'pah-srp-150', 'pah-ship-150'] }]
         : [{ kg: 0.07, items: ['pah-pouch-cat', 'pah-srp-cat', 'pah-ship-70'] },
-           { kg: 0.08, items: ['pah-pouch-cat', 'pah-srp-cat', 'pah-ship-80'] }];
+           { kg: 0.085, items: ['pah-pouch-cat', 'pah-srp-cat', 'pah-ship-85'] }];
       const st = rc[costName] || { wastePct: 0.025, packs: [] };
       st.packs = Array.isArray(st.packs) ? st.packs : [];
       wantPacks.forEach(wp => {
@@ -560,6 +560,39 @@ function importPahPackCosting() {
     db.prepare("INSERT INTO meta(key,value) VALUES('pahPackCostV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     console.log('PAH pack costing: broths £1.25, Fresh Frozen/Ambient profile on ' + (seed.recipes || []).length + ' recipes, ' + packsAdded + ' packs added, ' + NEW_ITEMS.length + ' pack cost items ensured.');
   } catch (e) { console.log('pah pack costing failed:', e.message); }
+}
+// One-time correction (Kamil 16 Jul 2026): the second cat weight is 85g, not 80g. Change any 80g cat
+// pack to 85g and its shipper share (50p ÷ 15 SRPs of 12 = £0.0028/pouch, since 15×1.02kg keeps ≤16kg).
+// Guarded by meta 'pahCatWeightV'. Only touches 80g packs, so anything hand-changed is left alone.
+function amendPahCatWeight() {
+  try {
+    const want = 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahCatWeightV'").get();
+    if (row && +row.value >= want) return;
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+    // ensure the 85g shipper item exists, and retire the 80g one if it becomes unused
+    let items = []; try { items = JSON.parse(ckvGet('wpf_costitems') || '[]'); if (!Array.isArray(items)) items = []; } catch (e) { items = []; }
+    if (!items.some(i => i.id === 'pah-ship-85')) items.push({ id: 'pah-ship-85', name: 'Shipper — 85g (50p ÷ 15 SRPs ÷ 12)', basis: 'pack', cost: 0.0028, std: false, ch: 'all' });
+    // change 80g cat packs -> 85g and repoint their shipper
+    let rc = {}; try { rc = JSON.parse(ckvGet('wpf_reccost') || '{}') || {}; } catch (e) { rc = {}; }
+    let changed = 0;
+    Object.keys(rc).forEach(k => {
+      (rc[k].packs || []).forEach(p => {
+        if (Math.abs((+p.kg || 0) - 0.08) < 0.0005) {
+          p.kg = 0.085; p.id = 'pah85';
+          p.items = (p.items || []).map(x => x === 'pah-ship-80' ? 'pah-ship-85' : x);
+          changed++;
+        }
+      });
+    });
+    if (!Object.values(rc).some(st => (st.packs || []).some(p => (p.items || []).includes('pah-ship-80'))))
+      items = items.filter(i => i.id !== 'pah-ship-80');
+    ckvSet('wpf_costitems', JSON.stringify(items));
+    ckvSet('wpf_reccost', JSON.stringify(rc));
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahCatWeightV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH cat weight fix: ' + changed + ' pack(s) changed 80g -> 85g.');
+  } catch (e) { console.log('pah cat weight fix failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -1394,7 +1427,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); importSpecsSeed(); ensureRecipeSpecs();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
