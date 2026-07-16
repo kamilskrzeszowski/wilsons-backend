@@ -1992,8 +1992,10 @@ function refresh(){
   const ae = document.activeElement;
   const focusId = ae && ae.id ? ae.id : null;
   const selStart = focusId && ae.selectionStart!=null ? ae.selectionStart : null;
+  const sx=window.scrollX, sy=window.scrollY;   // a refresh re-draws in place — never jump back to the top
   if(view==='builder'){ document.getElementById('main').innerHTML = builderView(); }
   else show(view);
+  window.scrollTo(sx, sy);
   if(focusId){
     const el = document.getElementById(focusId);
     if(el){ el.focus(); if(selStart!=null){try{el.setSelectionRange(selStart,selStart)}catch(e){}} }
