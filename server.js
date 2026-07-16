@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v22';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v23';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -593,6 +593,49 @@ function amendPahCatWeight() {
     db.prepare("INSERT INTO meta(key,value) VALUES('pahCatWeightV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     console.log('PAH cat weight fix: ' + changed + ' pack(s) changed 80g -> 85g.');
   } catch (e) { console.log('pah cat weight fix failed:', e.message); }
+}
+// One-time (Kamil 16 Jul 2026): on the live app the PAH range recipes lost their `range` tag when edited
+// by an older build, so they fell into an "Other" folder and the in-app export couldn't group them.
+// Recover each recipe's range from its name (e.g. "PAH — Fresh Frozen Dog — Chicken" -> "Fresh Frozen
+// Dog") and tidy the one malformed name ("PAH — Ambient Cat Turkey & Duck" -> "… Cat — Turkey & Duck"),
+// carrying its pack costs / profile / colour across. Guarded by meta 'pahRangeFixV'. Additive — prices,
+// ingredients and pack contents are untouched; recipes that already have a range (e.g. practice data) are
+// left alone.
+function fixPahRanges() {
+  try {
+    const want = 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahRangeFixV'").get();
+    if (row && +row.value >= want) return;
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+    let custom = []; try { custom = JSON.parse(ckvGet('wpf_custom') || '[]'); if (!Array.isArray(custom)) custom = []; } catch (e) { return; }
+    const RANGES = ['Fresh Frozen Dog', 'Ambient Dog', 'Fresh Frozen Cat', 'Ambient Cat'];
+    const nameSet = new Set(custom.map(r => String(r.name || '')));
+    const renames = {}; let fixedRange = 0, renamed = 0;
+    custom.forEach(r => {
+      if (String(r.brand || '') !== 'PAH') return;
+      if (r.range) return;                                    // already tagged — leave it
+      const nm = String(r.name || '');
+      const rest = nm.indexOf('PAH — ') === 0 ? nm.slice(6) : nm;
+      let matched = null, recipe = null;
+      for (const R of RANGES) { if (rest.indexOf(R) === 0) { matched = R; recipe = rest.slice(R.length).replace(/^\s*—?\s*/, '').trim(); break; } }
+      if (!matched) { r.range = 'Initial recipes'; return; }  // no range in the name -> an initial recipe
+      r.range = matched; r.appName = matched + ' — ' + recipe; fixedRange++;
+      const correct = 'PAH — ' + matched + ' — ' + recipe;
+      if (nm !== correct && !nameSet.has(correct)) { renames[nm] = correct; r.name = correct; nameSet.add(correct); renamed++; }
+    });
+    ckvSet('wpf_custom', JSON.stringify(custom));
+    if (Object.keys(renames).length) {                        // carry pack costs / profile / category / colour to the corrected name
+      ['wpf_reccost', 'wpf_recprofile', 'wpf_reccat', 'wpf_tilecolors'].forEach(key => {
+        let o = {}; try { o = JSON.parse(ckvGet(key) || '{}') || {}; } catch (e) { return; }
+        let touched = false;
+        Object.keys(renames).forEach(old => { if (o[old] !== undefined) { if (o[renames[old]] === undefined) o[renames[old]] = o[old]; delete o[old]; touched = true; } });   // keep the correct entry if it already exists, always drop the old name
+        if (touched) ckvSet(key, JSON.stringify(o));
+      });
+    }
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahRangeFixV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH range fix: re-tagged ' + fixedRange + ' recipe(s), renamed ' + renamed + '.');
+  } catch (e) { console.log('pah range fix failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -1427,7 +1470,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

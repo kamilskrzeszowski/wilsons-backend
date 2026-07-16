@@ -209,7 +209,7 @@ dialog .btn{margin-top:8px;margin-right:8px}
     <button class="databtn" onclick="exportAllData()" title="Download every costing figure as one file — a backup you can keep">⤓ Save data</button>
     <button class="databtn" onclick="importAllData()" title="Load a costing data file saved earlier (replaces the current costing figures; production data is never affected)">⤒ Load data</button>
     <span id="costSync" class="syncstate" style="display:none"></span>
-    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v22</span>
+    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v23</span>
   </nav>
 </header>
 <main id="main"></main>
@@ -1610,7 +1610,7 @@ function cxDate(){ return new Date().toLocaleDateString('en-GB',{day:'numeric',m
 function custExportPDF(){
   const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
   const data=custExportData(names);
-  const P3=v=>'£'+(+v).toFixed(3);
+  const P3=v=>'£'+(+v).toFixed(2);   // pounds & pence, matching the app's on-screen costing exactly
   let el=document.getElementById('custDoc'); if(!el){el=document.createElement('div');el.id='custDoc';document.body.appendChild(el);}
   el.innerHTML=`
   <div class="cx-hero">
@@ -1637,7 +1637,7 @@ function custExportXLS(){
   const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
   const data=custExportData(names);
   const NAVY='#143644', CORAL='#e2606c', CREAM='#f7f4ec';
-  const num=`style="mso-number-format:'£ 0\\.000';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
+  const num=`style="mso-number-format:'£ 0\\.00';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
   const num2=`style="mso-number-format:'£ 0\\.00';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
   let rows=`
   <tr><td colspan="7" style="background:${NAVY};color:#fff;font-size:20pt;font-weight:700;padding:16px 12px;font-family:Georgia,serif">WILSONS PET FOOD</td></tr>
@@ -1647,12 +1647,12 @@ function custExportXLS(){
     rows+=`<tr><td colspan="7" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>
     <tr>${['Product','Pack','Materials £','Production £','Packaging £','Total cost £','Cost per kg £'].map(h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Product'||h==='Pack'?'left':'right'}">${h}</td>`).join('')}</tr>`;
     g.recipes.forEach(rc=>{
-      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${esc(rc.label)}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
+      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${esc(rc.label)}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(2)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
       rc.packs.forEach((p,pi)=>{
         rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${pi===0?esc(rc.label):''}</td>
         <td style="padding:4px 8px;border-bottom:1px solid #eee">${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td>
-        <td ${num}>${p.mat.toFixed(3)}</td><td ${num}>${p.production.toFixed(3)}</td><td ${num}>${p.packaging.toFixed(3)}</td>
-        <td style="mso-number-format:'£ 0\\.000';text-align:right;font-weight:700;background:${CREAM};padding:4px 8px;border-bottom:1px solid #eee">${p.total.toFixed(3)}</td>
+        <td ${num}>${p.mat.toFixed(2)}</td><td ${num}>${p.production.toFixed(2)}</td><td ${num}>${p.packaging.toFixed(2)}</td>
+        <td style="mso-number-format:'£ 0\\.00';text-align:right;font-weight:700;background:${CREAM};padding:4px 8px;border-bottom:1px solid #eee">${p.total.toFixed(2)}</td>
         <td ${num2}>${p.perKg.toFixed(2)}</td></tr>`;
       });
     });
