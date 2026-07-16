@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v21';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v22';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -466,6 +466,100 @@ function importPahIngredientPrices() {
     db.prepare("INSERT INTO meta(key,value) VALUES('pahPricesV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
     console.log('PAH ingredient prices: set ' + set + ', skipped ' + skipped + ' (already priced).');
   } catch (e) { console.log('pah prices import failed:', e.message); }
+}
+// One-time: PAH pack costing (Kamil, 16 Jul 2026). Broth prices £1.25; the "Fresh Frozen / Ambient"
+// cost profile (waste 2.5%, labour 20p+10p+10p, overheads 8p, energy 8p per kg) assigned to the 22 PAH
+// range recipes; pouch/SRP/shipper cost items; and 150g/400g packs on dog recipes, 70g/80g on cat.
+// Gap-fill on packs & items (never removes or rewrites what exists). Guarded by meta 'pahPackCostV'.
+function importPahPackCosting() {
+  try {
+    const f = path.join(__dirname, 'pah-ranges-seed.json');
+    if (!fs.existsSync(f)) return;
+    const want = 1;
+    const row = db.prepare("SELECT value FROM meta WHERE key='pahPackCostV'").get();
+    if (row && +row.value >= want) return;
+    const seed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const brand = seed.brand || 'PAH';
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+
+    // 1) bone broths -> £1.25/kg (explicit update requested — applies to the 7 broths only)
+    let po = {}; try { po = JSON.parse(ckvGet('wpf_prices') || '{}') || {}; } catch (e) { po = {}; }
+    ['Beef', 'Chicken', 'Duck', 'Fish', 'Lamb', 'Pork', 'Turkey'].forEach(a => { po[a + ' Bone Broth'] = 1.25; });
+    ckvSet('wpf_prices', JSON.stringify(po));
+
+    // 2) optional pack cost items (pouches / SRP shares / shipper shares, per pouch) — added if missing
+    const DEFAULT_ITEMS = [   // mirror of the client defaults, used only if the store doesn't exist yet
+      { id: 'waste', name: 'Waste', basis: 'pct', cost: 5, std: true, ch: 'all' },
+      { id: 'labour', name: 'Labour', basis: 'kg', cost: 0.1134, std: true, ch: 'all' },
+      { id: 'ovh', name: 'Overheads', basis: 'kg', cost: 0.1191, std: true, ch: 'all' },
+      { id: 'elec', name: 'Electric', basis: 'kg', cost: 0.04, std: true, ch: 'all' },
+      { id: 'box-s', name: 'Shipping box — small (2kg)', basis: 'pack', cost: 0.33, std: false, ch: 'all' },
+      { id: 'box-m', name: 'Shipping box — standard (5–10kg)', basis: 'pack', cost: 0.62, std: false, ch: 'all' },
+      { id: 'box-l', name: 'Shipping box — large (12–15kg)', basis: 'pack', cost: 0.75, std: false, ch: 'all' },
+      { id: 'bag-s', name: 'Bag — 2kg', basis: 'pack', cost: 0.35, std: false, ch: 'all' },
+      { id: 'bag-m', name: 'Bag — 6–10kg', basis: 'pack', cost: 0.59, std: false, ch: 'all' },
+      { id: 'bag-l', name: 'Bag — 12–15kg', basis: 'pack', cost: 0.66, std: false, ch: 'all' }
+    ];
+    const NEW_ITEMS = [
+      { id: 'pah-pouch-150', name: 'Pouch — 150g (PAH)', basis: 'pack', cost: 0.09, std: false, ch: 'all' },
+      { id: 'pah-pouch-400', name: 'Pouch — 400g (PAH)', basis: 'pack', cost: 0.10, std: false, ch: 'all' },
+      { id: 'pah-srp-150', name: 'SRP — 150g (30p ÷ 12 pouches)', basis: 'pack', cost: 0.025, std: false, ch: 'all' },
+      { id: 'pah-srp-400', name: 'SRP — 400g (36p ÷ 8 pouches)', basis: 'pack', cost: 0.045, std: false, ch: 'all' },
+      { id: 'pah-ship-150', name: 'Shipper — 150g (50p ÷ 8 SRPs ÷ 12)', basis: 'pack', cost: 0.0052, std: false, ch: 'all' },
+      { id: 'pah-ship-400', name: 'Shipper — 400g (50p ÷ 5 SRPs ÷ 8)', basis: 'pack', cost: 0.0125, std: false, ch: 'all' },
+      { id: 'pah-pouch-cat', name: 'Pouch — cat 70/80g (PAH)', basis: 'pack', cost: 0.08, std: false, ch: 'all' },
+      { id: 'pah-srp-cat', name: 'SRP — cat (26p ÷ 12 pouches)', basis: 'pack', cost: 0.0217, std: false, ch: 'all' },
+      { id: 'pah-ship-70', name: 'Shipper — 70g (50p ÷ 19 SRPs ÷ 12)', basis: 'pack', cost: 0.0022, std: false, ch: 'all' },
+      { id: 'pah-ship-80', name: 'Shipper — 80g (50p ÷ 16 SRPs ÷ 12)', basis: 'pack', cost: 0.0026, std: false, ch: 'all' }
+    ];
+    let items = null; try { items = JSON.parse(ckvGet('wpf_costitems')); } catch (e) { items = null; }
+    if (!Array.isArray(items) || !items.length) items = DEFAULT_ITEMS;
+    const haveIds = new Set(items.map(i => i.id));
+    NEW_ITEMS.forEach(it => { if (!haveIds.has(it.id)) items.push(it); });
+    ckvSet('wpf_costitems', JSON.stringify(items));
+
+    // 3) the Fresh Frozen / Ambient cost profile (seed once; editable afterwards on Pack & Costs)
+    let profiles = null; try { profiles = JSON.parse(ckvGet('wpf_costprofiles')); } catch (e) { profiles = null; }
+    if (!Array.isArray(profiles)) profiles = [];
+    if (!profiles.some(p => p.id === 'freshamb')) profiles.push({ id: 'freshamb', name: 'Fresh Frozen / Ambient', items: [
+      { id: 'fa-waste', name: 'Waste', basis: 'pct', cost: 2.5, ch: 'all' },
+      { id: 'fa-minc', name: 'Labour — mincing & packing', basis: 'kg', cost: 0.20, ch: 'all' },
+      { id: 'fa-cook', name: 'Labour — cooking', basis: 'kg', cost: 0.10, ch: 'all' },
+      { id: 'fa-disp', name: 'Labour — dispatch', basis: 'kg', cost: 0.10, ch: 'all' },
+      { id: 'fa-ovh', name: 'Overheads', basis: 'kg', cost: 0.08, ch: 'all' },
+      { id: 'fa-ene', name: 'Energy', basis: 'kg', cost: 0.08, ch: 'all' }
+    ]});
+    ckvSet('wpf_costprofiles', JSON.stringify(profiles));
+
+    // 4) assign the profile + create the packs for the 22 range recipes
+    let rp = {}; try { rp = JSON.parse(ckvGet('wpf_recprofile') || '{}') || {}; } catch (e) { rp = {}; }
+    let rc = {}; try { rc = JSON.parse(ckvGet('wpf_reccost') || '{}') || {}; } catch (e) { rc = {}; }
+    let packsAdded = 0;
+    (seed.recipes || []).forEach(r => {
+      const costName = brand + ' — ' + r.range + ' — ' + r.appName;
+      if (!rp[costName]) rp[costName] = 'freshamb';
+      const isDog = /dog/i.test(r.range);
+      const wantPacks = isDog
+        ? [{ kg: 0.4, items: ['pah-pouch-400', 'pah-srp-400', 'pah-ship-400'] },
+           { kg: 0.15, items: ['pah-pouch-150', 'pah-srp-150', 'pah-ship-150'] }]
+        : [{ kg: 0.07, items: ['pah-pouch-cat', 'pah-srp-cat', 'pah-ship-70'] },
+           { kg: 0.08, items: ['pah-pouch-cat', 'pah-srp-cat', 'pah-ship-80'] }];
+      const st = rc[costName] || { wastePct: 0.025, packs: [] };
+      st.packs = Array.isArray(st.packs) ? st.packs : [];
+      wantPacks.forEach(wp => {
+        if (st.packs.some(p => Math.abs((+p.kg || 0) - wp.kg) < 0.001)) return;   // pack size already there — leave it
+        st.packs.push({ id: 'pah' + Math.round(wp.kg * 1000), kg: wp.kg, items: wp.items.slice(), sell: null });
+        packsAdded++;
+      });
+      rc[costName] = st;
+    });
+    ckvSet('wpf_recprofile', JSON.stringify(rp));
+    ckvSet('wpf_reccost', JSON.stringify(rc));
+
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahPackCostV',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    console.log('PAH pack costing: broths £1.25, Fresh Frozen/Ambient profile on ' + (seed.recipes || []).length + ' recipes, ' + packsAdded + ' packs added, ' + NEW_ITEMS.length + ' pack cost items ensured.');
+  } catch (e) { console.log('pah pack costing failed:', e.message); }
 }
 function ensureAdmin() {
   const n = db.prepare('SELECT count(*) c FROM users').get().c;
@@ -1300,7 +1394,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); importSpecsSeed(); ensureRecipeSpecs();
 try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

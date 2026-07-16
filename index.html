@@ -345,7 +345,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v21</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v22</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2086,6 +2086,12 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v22', date:'16 Jul 2026', notes:[
+    'Recipe Costing fixes: an edited recipe no longer disappears from its folder when saved (its range is kept, and any that already lost it show under an “Other” tile); leaving a half-edited recipe now asks “Leave without saving?”; and a £/kg typed against an ingredient line becomes that ingredient’s standard price — updating the Ingredients tab and every recipe that uses it.',
+    'PAH ingredient prices applied from the Standard Material Costs sheet (29 fresh-cut prices, averaged, with Kamil’s corrections) — gap-fill only, so nothing already priced was changed. All 7 bone broths set to £1.25/kg.',
+    'New COST PROFILES: “Fresh Frozen / Ambient” (waste 2.5%, mincing & packing 20p, cooking 10p, dispatch 10p, overheads 8p, energy 8p per kg) on the 22 PAH range recipes — pick a recipe’s profile under Pack costing; edit profiles on Pack & Costs. Everything else stays on the standard (cold-pressed) costs.',
+    'PAH packs: dog range recipes get 400g & 150g (pouch 10p/9p, SRP 36p÷8 / 30p÷12, shipper 50p at 5 / 8 SRPs per ~16kg); cat recipes get 70g & 80g (pouch 8p, SRP 26p÷12, shipper at 19 / 16 SRPs). Sell prices left blank to fill in.'
+  ]},
   {v:'v21', date:'15 Jul 2026', notes:[
     'KPI history now AGREES with the hand-kept Summary Report: the 33 real days (1 Jun–13 Jul 2026) were re-aligned so recovered labour, labour spent and every variance match the summary sheet to the pound. Volume already matched — the gap was different despatch kg and hours in the two records; the summary sheet is now the master.',
     'New Daily report (mirrors the summary sheet’s Daily tab) — days running left-to-right with produced/target/variance, labour cost/recovered/variance, safety and stocks, for the end-of-day send. The Operations Report now has a Daily / Weekly toggle so both live in one place.',
@@ -2155,7 +2161,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v21';
+const APP_VERSION='v22';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

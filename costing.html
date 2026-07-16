@@ -180,7 +180,7 @@ dialog .btn{margin-top:8px;margin-right:8px}
     <button class="databtn" onclick="exportAllData()" title="Download every costing figure as one file — a backup you can keep">⤓ Save data</button>
     <button class="databtn" onclick="importAllData()" title="Load a costing data file saved earlier (replaces the current costing figures; production data is never affected)">⤒ Load data</button>
     <span id="costSync" class="syncstate" style="display:none"></span>
-    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v21</span>
+    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v22</span>
   </nav>
 </header>
 <main id="main"></main>
@@ -316,8 +316,28 @@ const store = {
   get supplierOverrides(){ try{return JSON.parse(kvGet('wpf_supnames')||'{}')}catch(e){return{}} },
   set supplierOverrides(v){ kvSet('wpf_supnames', JSON.stringify(v)) },
   get customIngs(){ try{return JSON.parse(kvGet('wpf_customings')||'[]')}catch(e){return[]} },
-  set customIngs(v){ kvSet('wpf_customings', JSON.stringify(v)) }
+  set customIngs(v){ kvSet('wpf_customings', JSON.stringify(v)) },
+  /* cost PROFILES: named sets of standard per-kg costs + waste for a site/process (e.g. Fresh Frozen /
+     Ambient vs the cold-pressed defaults). A recipe picks its profile on its costing page. */
+  get costProfiles(){ try{const v=JSON.parse(kvGet('wpf_costprofiles')); if(Array.isArray(v)) return v;}catch(e){} return JSON.parse(JSON.stringify(DEFAULT_COST_PROFILES)); },
+  set costProfiles(v){ kvSet('wpf_costprofiles', JSON.stringify(v)) },
+  get recipeProfile(){ try{return JSON.parse(kvGet('wpf_recprofile')||'{}')}catch(e){return{}} },   // recipe name -> profile id ('' = standard)
+  set recipeProfile(v){ kvSet('wpf_recprofile', JSON.stringify(v)) }
 };
+const DEFAULT_COST_PROFILES = [
+  {id:'freshamb', name:'Fresh Frozen / Ambient', items:[
+    {id:'fa-waste', name:'Waste',                       basis:'pct', cost:2.5,  ch:'all'},
+    {id:'fa-minc',  name:'Labour — mincing & packing',  basis:'kg',  cost:0.20, ch:'all'},
+    {id:'fa-cook',  name:'Labour — cooking',            basis:'kg',  cost:0.10, ch:'all'},
+    {id:'fa-disp',  name:'Labour — dispatch',           basis:'kg',  cost:0.10, ch:'all'},
+    {id:'fa-ovh',   name:'Overheads',                   basis:'kg',  cost:0.08, ch:'all'},
+    {id:'fa-ene',   name:'Energy',                      basis:'kg',  cost:0.08, ch:'all'}
+  ]}
+];
+function profileFor(recipeName){
+  const pid=(store.recipeProfile||{})[recipeName]; if(!pid) return null;
+  return store.costProfiles.find(p=>p.id===pid)||null;
+}
 /* Default pack / production cost items, seeded from the FY24-25 costing spreadsheet — all editable.
    std:true = applied to every pack automatically; std:false = selectable per pack from the dropdown. */
 /* ch = which sales channel the cost belongs to: 'all' (both), 'd2c', or 'trade'.
@@ -406,11 +426,17 @@ function recipeCost(r, mode){
 /* full cost build-up for one pack of a recipe.
    Items with std:true apply automatically; others only if selected on the pack.
    basis: 'pct' = % of materials, 'kg' = £ × pack kg, 'pack' = £ per pack. */
-function packTotals(perKg, p){
+function packTotals(perKg, p, prof){
   const items = store.costItems;
   const mat = perKg*p.kg;
   const val = it => it.basis==='pct' ? mat*it.cost/100 : (it.basis==='kg' ? it.cost*p.kg : it.cost);
-  const applied = items.filter(it=>it.std || (p.items||[]).includes(it.id))
+  /* standard per-kg costs come from the recipe's cost PROFILE when it has one (e.g. Fresh Frozen /
+     Ambient); otherwise the global standard items. Optional items (pouches, SRPs, boxes…) always
+     come from the global list, picked per pack. */
+  const stdList = prof ? prof.items.map(it=>({...it, std:true}))
+                       : items.filter(it=>it.std).map(it=>({...it, std:true}));
+  const optList = items.filter(it=>!it.std && (p.items||[]).includes(it.id)).map(it=>({...it, std:false}));
+  const applied = [...stdList, ...optList]
                        .map(it=>({id:it.id, name:it.name, basis:it.basis, cost:it.cost, std:!!it.std, ch:it.ch||'all', v:val(it)}));
   const sum = list=>list.reduce((a,x)=>a+x.v,0);
   const shared = applied.filter(x=>x.ch==='all');          // costs common to both channels
@@ -421,12 +447,16 @@ function packTotals(perKg, p){
   const d2c   = { items:d2cOnly,   extras:sum(d2cOnly),   tot:baseTot+sum(d2cOnly),   sell:(+p.sell>0?+p.sell:null),      };
   const trade = { items:tradeOnly, extras:sum(tradeOnly), tot:baseTot+sum(tradeOnly), sell:(+p.sellTrade>0?+p.sellTrade:null) };
   d2c.margin = mgn(d2c.sell, d2c.tot); trade.margin = mgn(trade.sell, trade.tot);
-  const g = id => { const x=applied.find(a=>a.id===id); return x?x.v:0; };
+  /* bucket the standard costs by CATEGORY (not fixed ids) so profile items land in the right
+     Products-table columns: waste = % items, labour by name, overheads, electric/energy */
+  const bkt = f => applied.filter(a=>a.std&&f(a)).reduce((s,a)=>s+a.v,0);
+  const waste=bkt(a=>a.basis==='pct'), lab=bkt(a=>/labour/i.test(a.name)),
+        ovh=bkt(a=>/overhead/i.test(a.name)), ele=bkt(a=>/electric|energy/i.test(a.name));
   const extras = sum(shared)+sum(d2cOnly);
   /* top-level fields = the D2C view, so screens that show a single figure keep working */
   return {mat, applied, extras, tot:d2c.tot, margin:d2c.margin, d2c, trade,
-    waste:g('waste'), lab:g('labour'), ovh:g('ovh'), ele:g('elec'),
-    other: extras-g('waste')-g('labour')-g('ovh')-g('elec')};
+    waste, lab, ovh, ele,
+    other: extras-waste-lab-ovh-ele};
 }
 
 /* ---------- whole-app data backup (all costing figures saved in this browser) ---------- */
@@ -491,7 +521,7 @@ function productRows(){
     const per = recipeCost(r, recMode);
     if(!st.packs.length){ out.push({name:r.name, none:true}); }
     else st.packs.forEach(p=>{
-      out.push({name:r.name, pid:p.id, kg:p.kg, sell:p.sell, sellTrade:p.sellTrade, ...packTotals(per, p)});
+      out.push({name:r.name, pid:p.id, kg:p.kg, sell:p.sell, sellTrade:p.sellTrade, ...packTotals(per, p, profileFor(r.name))});
     });
   });
   return out;
@@ -1324,10 +1354,11 @@ function rcPackDelItem(pid, itemId){
 function packCostBox(r, perKg){
   const st = rcState(r.name);
   const items = store.costItems;
+  const prof = profileFor(r.name);
   const addable = items.filter(it=>!it.std);
   const rate = it => it.basis==='pct' ? it.cost.toFixed(1)+'%' : (it.basis==='kg' ? GBP(it.cost)+'/kg' : GBP2(it.cost)+'/pack');
   const packCards = st.packs.map(p=>{
-    const t = packTotals(perKg, p);
+    const t = packTotals(perKg, p, prof);
     const lines = t.applied.map(a=>`<div class="row"><span>${esc(a.name)}${chTag(a.ch)} <span style="color:var(--capp);font-size:11px">${rate(a)}</span>${a.std?'':` <button class="btn small danger no-print" style="padding:0 6px;font-size:10px" onclick="rcPackDelItem('${p.id}','${a.id}')">✕</button>`}</span><b>${GBP2(a.v)}</b></div>`).join('');
     const opts = addable.filter(it=>!(p.items||[]).includes(it.id))
       .map(it=>`<option value="${it.id}">${esc(it.name)}${it.ch==='d2c'?' [D2C]':(it.ch==='trade'?' [Trade]':'')} — ${rate(it)}</option>`).join('');
@@ -1347,11 +1378,21 @@ function packCostBox(r, perKg){
       <div class="row"><span>Margin Trade</span><b>${t.trade.margin!=null?(t.trade.margin*100).toFixed(1)+'%':'—'}</b></div>
     </div>`;
   }).join('');
+  const profSel = `<label class="no-print" style="display:flex;align-items:center;gap:8px;margin:6px 0 10px;font-size:12.5px;color:var(--capp)">Cost profile
+    <select onchange="rcSetProfile('${esc(r.name).replace(/'/g,"\\'")}',this.value)" style="padding:5px 8px;border-radius:6px;border:none;color:var(--sea)">
+      <option value="">Standard (cold pressed)</option>
+      ${store.costProfiles.map(pr=>`<option value="${esc(pr.id)}"${prof&&prof.id===pr.id?' selected':''}>${esc(pr.name)}</option>`).join('')}
+    </select></label>`;
   return `<div class="summary-box" style="margin-top:14px">
     <h3>Pack costing</h3>
-    <p class="muted" style="color:var(--capp);margin:6px 0 10px">Items marked “every pack” on the Pack &amp; Costs tab (waste, labour, overheads, electric by default) are applied automatically. Anything else is added per pack from the dropdown. Each pack appears as a SKU on the Products tab.</p>
+    <p class="muted" style="color:var(--capp);margin:6px 0 10px">${prof?`This recipe uses the <b>${esc(prof.name)}</b> cost profile — its waste, labour, overheads &amp; energy rates are applied to every pack.`:'Items marked “every pack” on the Pack &amp; Costs tab (waste, labour, overheads, electric by default) are applied automatically.'} Anything else is added per pack from the dropdown. Each pack appears as a SKU on the Products tab.</p>
+    ${profSel}
     <button class="btn accent no-print" onclick="rcAddPack()">+ Add pack size</button>
   </div>${packCards}`;
+}
+function rcSetProfile(name, pid){
+  const m=store.recipeProfile; if(pid) m[name]=pid; else delete m[name];
+  store.recipeProfile=m; refresh();
 }
 
 /* ================= PACK & COSTS ================= */
@@ -1396,7 +1437,20 @@ function costsView(){
   <div class="toolbar" style="margin-top:12px">
     <button class="btn ghost" onclick="resetItems()">Reset to spreadsheet defaults</button>
     <button class="btn ghost" onclick="exportItems()">Export CSV</button>
-  </div>`;
+  </div>
+  <div class="detail-head" style="margin-top:26px"><h2>Cost profiles</h2></div>
+  <p class="muted" style="margin-bottom:14px">A cost profile is a complete set of standard costs for a site / process — its own waste, labour, overheads and energy. Recipes on a profile use <b>these</b> rates instead of the standard items above. Pick a recipe's profile on its costing page (under “Pack costing”). Recipes without a profile keep the standard items, so nothing changes unless you choose it.</p>
+  ${store.costProfiles.map((pr,pi)=>`<div class="card" style="margin-bottom:16px"><table>
+    <thead><tr><th colspan="3" style="font-size:14px">${esc(pr.name)} <span class="muted" style="font-weight:400">— used by ${Object.values(store.recipeProfile||{}).filter(x=>x===pr.id).length} recipe(s)</span></th></tr>
+    <tr><th>Cost</th><th>Basis</th><th class="num">Rate</th></tr></thead>
+    <tbody>${pr.items.map((it,ii)=>`<tr>
+      <td>${esc(it.name)}</td><td>${it.basis==='pct'?'% of materials':'£ per kg'}</td>
+      <td class="num"><input type="number" step="0.001" value="${it.basis==='pct'?(+it.cost).toFixed(1):(+it.cost).toFixed(3)}" style="width:90px" onchange="setProfileCost(${pi},${ii},this.value)"></td>
+    </tr>`).join('')}</tbody></table></div>`).join('')}`;
+}
+function setProfileCost(pi, ii, val){
+  const v=parseFloat(val); if(isNaN(v)) return;
+  const ps=store.costProfiles; ps[pi].items[ii].cost=v; store.costProfiles=ps; refresh();
 }
 function setItemField(idx, field, val){
   const items = store.costItems;
