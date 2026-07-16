@@ -124,6 +124,35 @@ dialog .btn{margin-top:8px;margin-right:8px}
   th{position:static;background:#143644 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .card{box-shadow:none;border:1px solid #ccc}
 }
+/* ---- branded customer costing document (PDF via print) ---- */
+#custDoc{display:none;font-family:'Effra',system-ui,sans-serif;color:#143644}
+#custDoc .cx-hero{background:#143644;border-radius:18px;padding:26px 30px;color:#fff;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:16px}
+#custDoc .cx-hero h1{font-family:'Bobby Jones';font-size:27pt;line-height:1;margin:0 0 8px;text-transform:uppercase}
+#custDoc .cx-hero .sub{color:#f6c1c7;font-size:10pt;font-weight:500}
+#custDoc .cx-hero .meta{text-align:right;font-size:8.5pt;line-height:1.8;white-space:nowrap;color:#cfd9de}
+#custDoc .cx-hero img{height:44px;display:block;margin-left:auto;margin-bottom:8px}
+#custDoc .cx-groupband{background:#e2606c;color:#fff;border-radius:12px;padding:10px 18px;font-family:'Bobby Jones';font-size:14pt;text-transform:uppercase;letter-spacing:.02em;margin:16px 0 10px}
+#custDoc .cx-card{background:#fff;border:1px solid #e7e2d4;border-radius:14px;padding:14px 18px;margin-bottom:12px;box-shadow:0 1px 4px rgba(20,54,68,.06)}
+#custDoc .cx-card h3{font-family:'Bobby Jones';font-size:12.5pt;margin:0 0 3px;display:flex;align-items:center;gap:8px}
+#custDoc .cx-card h3:before{content:"";width:9px;height:9px;border-radius:50%;background:#e2606c}
+#custDoc .cx-card .cx-perkg{font-size:8.5pt;color:#5c6f7a;margin-bottom:8px}
+#custDoc table{width:100%;border-collapse:collapse;font-size:9pt}
+#custDoc th{background:#143644;color:#fff;padding:6px 9px;text-align:right;font-weight:600;font-size:8pt;letter-spacing:.03em}
+#custDoc th:first-child{text-align:left;border-radius:6px 0 0 6px}
+#custDoc th:last-child{border-radius:0 6px 6px 0}
+#custDoc td{padding:6px 9px;text-align:right;border-bottom:1px solid #f0ece0}
+#custDoc td:first-child{text-align:left;font-weight:700}
+#custDoc td.cx-tot{font-weight:700;background:#f7f4ec}
+#custDoc .cx-foot{font-size:7.5pt;color:#6b7c86;line-height:1.5;margin-top:14px}
+@media print{
+  body.custprint > :not(#custDoc){display:none !important}
+  body.custprint #custDoc{display:block !important}
+  #custDoc,#custDoc *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+  #custDoc .cx-group{break-before:page;page-break-before:always}
+  #custDoc .cx-group.first{break-before:auto;page-break-before:auto}
+  #custDoc .cx-card,#custDoc table,#custDoc tr{break-inside:avoid;page-break-inside:avoid}
+  #custDoc .cx-groupband{break-after:avoid;page-break-after:avoid}
+}
 </style>
 </head>
 <body>
@@ -594,6 +623,7 @@ function productsView(){
     <button class="btn accent" onclick="exportProductsXlsx()">Export to Excel${prodSelectMode&&prodSel.size?` (${prodSel.size} selected)`:' (all)'}</button>
     <button class="btn ghost" onclick="exportProducts()">CSV</button>
     <button class="btn ghost" onclick="window.print()">Print</button>
+    <button class="btn no-print" style="background:var(--sea);color:#fff" onclick="openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export…</button>
     <span class="count">${nSkus} SKUs</span>
   </div>
   <div class="card"><table>
@@ -1396,61 +1426,97 @@ function rcSetProfile(name, pid){
 }
 
 /* ================= PACK & COSTS ================= */
-function costsView(){
-  const items = store.costItems;
-  const usedIn = id => Object.values(store.recipeCosting).filter(st=>Array.isArray(st.packs)&&st.packs.some(p=>(p.items||[]).includes(id))).length;
-  const example = it => it.basis==='pct' ? it.cost.toFixed(1)+'% of materials' : (it.basis==='kg' ? GBP2(it.cost*10)+' <span class="muted">per 10kg pack</span>' : GBP2(it.cost));
-  const rows = items.map((it,idx)=>`<tr>
-    <td class="pname"><input type="text" value="${esc(it.name)}" style="width:100%;min-width:220px;text-align:left" onchange="setItemField(${idx},'name',this.value)"></td>
-    <td><select onchange="setItemField(${idx},'basis',this.value)" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px">
+/* One consistent layout: every profile (incl. the Standard one) is a card with the SAME columns —
+   Cost item | Basis | Rate | Channel | remove — plus an add-line row. Optional per-pack items
+   (pouches, SRPs, boxes…) live in their own table below with the same columns. */
+function costRowHTML(it, on){   // on = {name,basis,cost,ch,del} handler snippets
+  return `<tr>
+    <td class="pname"><input type="text" value="${esc(it.name)}" style="width:100%;min-width:200px;text-align:left" onchange="${on.name}"></td>
+    <td><select onchange="${on.basis}" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px">
       <option value="pack" ${it.basis==='pack'?'selected':''}>£ per pack</option>
       <option value="kg" ${it.basis==='kg'?'selected':''}>£ per kg</option>
       <option value="pct" ${it.basis==='pct'?'selected':''}>% of materials</option></select></td>
-    <td class="num"><input type="number" step="0.001" value="${(+it.cost).toFixed(it.basis==='kg'?4:(it.basis==='pct'?1:2))}" onchange="setItemField(${idx},'cost',this.value)"></td>
-    <td><select onchange="setItemField(${idx},'std',this.value)" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;${it.std?'background:var(--sea);color:#fff':''}">
-      <option value="1" ${it.std?'selected':''}>every pack (standard)</option>
-      <option value="0" ${it.std?'':'selected'}>optional — choose per pack</option></select></td>
-    <td><select onchange="setItemField(${idx},'ch',this.value)" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;${it.ch==='d2c'?'background:var(--grape);color:var(--sea);font-weight:700':(it.ch==='trade'?'background:var(--channel);color:#fff':'')}">
+    <td class="num"><input type="number" step="0.001" style="width:100px" value="${(+it.cost).toFixed(it.basis==='kg'?4:(it.basis==='pct'?1:3))}" onchange="${on.cost}"></td>
+    <td><select onchange="${on.ch}" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;${it.ch==='d2c'?'background:var(--grape);color:var(--sea);font-weight:700':(it.ch==='trade'?'background:var(--channel);color:#fff':'')}">
       <option value="all" ${(it.ch||'all')==='all'?'selected':''}>both channels</option>
       <option value="d2c" ${it.ch==='d2c'?'selected':''}>D2C only</option>
       <option value="trade" ${it.ch==='trade'?'selected':''}>Trade only</option></select></td>
-    <td class="num">${example(it)}</td>
-    <td class="num">${it.std?'all':(usedIn(it.id)||'—')}</td>
-    <td class="no-print"><button class="btn small danger" onclick="delItem(${idx})">✕</button></td>
-  </tr>`).join('');
+    ${on.extra!==undefined?`<td class="num">${on.extra}</td>`:''}
+    <td class="no-print">${on.del?`<button class="btn small danger" onclick="${on.del}">✕</button>`:''}</td>
+  </tr>`;
+}
+const COST_HEAD = extra=>`<tr><th>Cost item</th><th>Basis</th><th class="num">Rate</th><th>Channel</th>${extra?`<th class="num">${extra}</th>`:''}<th class="no-print"></th></tr>`;
+function costsView(){
+  const items = store.costItems;
+  const usedIn = id => Object.values(store.recipeCosting).filter(st=>Array.isArray(st.packs)&&st.packs.some(p=>(p.items||[]).includes(id))).length;
+  const profiledCount = Object.keys(store.recipeProfile||{}).length;
+  /* the Standard profile card = the std:true cost items, same layout as every other profile */
+  const stdRows = items.map((it,idx)=>({it,idx})).filter(x=>x.it.std)
+    .map(x=>costRowHTML(x.it,{name:`setItemField(${x.idx},'name',this.value)`,basis:`setItemField(${x.idx},'basis',this.value)`,cost:`setItemField(${x.idx},'cost',this.value)`,ch:`setItemField(${x.idx},'ch',this.value)`,del:`setItemField(${x.idx},'std','0')`})).join('');
+  const stdCard = `<div class="card" style="margin-bottom:16px"><table>
+    <thead><tr><th colspan="5" style="font-size:14px">Standard (cold pressed) <span style="font-weight:400;opacity:.75">— used by every recipe without a profile (${allRecipes().length-profiledCount})</span></th></tr>${COST_HEAD()}</thead>
+    <tbody>${stdRows}</tbody></table>
+    <div class="no-print" style="padding:10px 14px"><button class="btn small" onclick="addStdItem()">+ Add cost line</button> <span class="muted" style="font-size:11.5px">✕ moves a line down to the optional items (it isn’t deleted).</span></div></div>`;
+  const profCards = store.costProfiles.map((pr,pi)=>{
+    const used = Object.values(store.recipeProfile||{}).filter(x=>x===pr.id).length;
+    const rows = pr.items.map((it,ii)=>costRowHTML(it,{name:`setProfField(${pi},${ii},'name',this.value)`,basis:`setProfField(${pi},${ii},'basis',this.value)`,cost:`setProfField(${pi},${ii},'cost',this.value)`,ch:`setProfField(${pi},${ii},'ch',this.value)`,del:`delProfItem(${pi},${ii})`})).join('');
+    return `<div class="card" style="margin-bottom:16px"><table>
+    <thead><tr><th colspan="5" style="font-size:14px"><input type="text" value="${esc(pr.name)}" style="min-width:240px;font-weight:700;background:transparent;border:none;color:#fff;font-size:14px" onchange="renameProfile(${pi},this.value)" title="Profile name — click to rename"> <span style="font-weight:400;opacity:.75">— used by ${used} recipe(s)</span></th></tr>${COST_HEAD()}</thead>
+    <tbody>${rows}</tbody></table>
+    <div class="no-print" style="padding:10px 14px;display:flex;gap:10px;align-items:center"><button class="btn small" onclick="addProfItem(${pi})">+ Add cost line</button>${used?'':`<button class="btn small danger" onclick="delProfile(${pi})">Delete profile</button>`}</div></div>`;
+  }).join('');
+  /* optional per-pack items — same columns, plus how many recipes use each */
+  const optRows = items.map((it,idx)=>({it,idx})).filter(x=>!x.it.std)
+    .map(x=>costRowHTML(x.it,{name:`setItemField(${x.idx},'name',this.value)`,basis:`setItemField(${x.idx},'basis',this.value)`,cost:`setItemField(${x.idx},'cost',this.value)`,ch:`setItemField(${x.idx},'ch',this.value)`,del:`delItem(${x.idx})`,extra:(usedIn(x.it.id)||'—')+` <button class="btn small no-print" style="padding:1px 7px;font-size:10px" title="Make this a standard line (applied to every pack on the Standard profile)" onclick="setItemField(${x.idx},'std','1')">↑ std</button>`})).join('');
   return `
   <div class="detail-head"><h2>Pack &amp; production costs</h2></div>
-  <p class="muted" style="margin-bottom:14px">Set each item to <b>every pack</b> (applied automatically to all recipes — waste, labour, overheads, electric by default) or <b>optional</b> (chosen per pack from the dropdown on the recipe). <b>Channel</b> decides where the cost counts: <b>both channels</b>, <b>D2C only</b> (e.g. the shipping box and courier for website orders) or <b>Trade only</b> (e.g. outer boxes and haulage for wholesale). This is how D2C and Trade get different packing and shipping costs. Bases: £ per pack, £ per kg of pack, or % of materials. Defaults come from the FY24-25 costing spreadsheet and are fully editable.</p>
-  <div class="card no-print" style="padding:16px;margin-bottom:20px">
+  <p class="muted" style="margin-bottom:14px">Every recipe uses ONE cost profile — a complete set of waste, labour, overheads &amp; energy for a site / process. Recipes without a profile use <b>Standard (cold pressed)</b>. Pick a recipe's profile on its costing page (under “Pack costing”). <b>Channel</b> decides where a cost counts: both, D2C only, or Trade only. Bases: £ per pack, £ per kg, or % of materials.</p>
+  ${stdCard}${profCards}
+  <div class="no-print" style="margin-bottom:26px"><button class="btn accent" onclick="addProfile()">+ New cost profile</button></div>
+  <div class="detail-head"><h2>Optional pack items</h2></div>
+  <p class="muted" style="margin-bottom:14px">Pouches, SRPs, shippers, boxes and bags — chosen per pack from the dropdown on each recipe's costing page. These apply on top of whichever cost profile the recipe uses.</p>
+  <div class="card no-print" style="padding:16px;margin-bottom:16px">
     <div class="toolbar" style="margin-bottom:0">
-      <input type="text" id="ciName" placeholder="New cost item name (e.g. Pouch 400g, Label, Pallet wrap)…" style="min-width:300px">
+      <input type="text" id="ciName" placeholder="New item name (e.g. Pouch 400g, Label, Pallet wrap)…" style="min-width:300px">
       <select id="ciBasis" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px"><option value="pack">£ per pack</option><option value="kg">£ per kg</option><option value="pct">% of materials</option></select>
       <input type="number" id="ciCost" placeholder="Cost" step="0.001" style="min-width:100px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
-      <select id="ciStd" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px"><option value="0">optional — choose per pack</option><option value="1">every pack (standard)</option></select>
       <select id="ciCh" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px"><option value="all">both channels</option><option value="d2c">D2C only</option><option value="trade">Trade only</option></select>
-      <button class="btn accent" onclick="addCostItem()">Add cost item</button>
+      <button class="btn accent" onclick="addCostItem()">Add optional item</button>
     </div>
   </div>
   <div class="card"><table>
-    <thead><tr><th>Cost item</th><th>Basis</th><th class="num">Cost</th><th>Applies</th><th>Channel</th><th class="num">Example</th><th class="num">Used in recipes</th><th class="no-print"></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
+    <thead>${COST_HEAD('Used in recipes')}</thead>
+    <tbody>${optRows}</tbody></table></div>
   <div class="toolbar" style="margin-top:12px">
     <button class="btn ghost" onclick="resetItems()">Reset to spreadsheet defaults</button>
     <button class="btn ghost" onclick="exportItems()">Export CSV</button>
-  </div>
-  <div class="detail-head" style="margin-top:26px"><h2>Cost profiles</h2></div>
-  <p class="muted" style="margin-bottom:14px">A cost profile is a complete set of standard costs for a site / process — its own waste, labour, overheads and energy. Recipes on a profile use <b>these</b> rates instead of the standard items above. Pick a recipe's profile on its costing page (under “Pack costing”). Recipes without a profile keep the standard items, so nothing changes unless you choose it.</p>
-  ${store.costProfiles.map((pr,pi)=>`<div class="card" style="margin-bottom:16px"><table>
-    <thead><tr><th colspan="3" style="font-size:14px">${esc(pr.name)} <span class="muted" style="font-weight:400">— used by ${Object.values(store.recipeProfile||{}).filter(x=>x===pr.id).length} recipe(s)</span></th></tr>
-    <tr><th>Cost</th><th>Basis</th><th class="num">Rate</th></tr></thead>
-    <tbody>${pr.items.map((it,ii)=>`<tr>
-      <td>${esc(it.name)}</td><td>${it.basis==='pct'?'% of materials':'£ per kg'}</td>
-      <td class="num"><input type="number" step="0.001" value="${it.basis==='pct'?(+it.cost).toFixed(1):(+it.cost).toFixed(3)}" style="width:90px" onchange="setProfileCost(${pi},${ii},this.value)"></td>
-    </tr>`).join('')}</tbody></table></div>`).join('')}`;
+  </div>`;
 }
-function setProfileCost(pi, ii, val){
-  const v=parseFloat(val); if(isNaN(v)) return;
-  const ps=store.costProfiles; ps[pi].items[ii].cost=v; store.costProfiles=ps; refresh();
+function setProfField(pi, ii, field, val){
+  const ps=store.costProfiles;
+  if(field==='cost'){ const v=parseFloat(val); if(isNaN(v)) return; ps[pi].items[ii].cost=v; }
+  else ps[pi].items[ii][field]=val;
+  store.costProfiles=ps; refresh();
+}
+function addProfItem(pi){ const ps=store.costProfiles; ps[pi].items.push({id:'pf'+Date.now(), name:'New cost', basis:'kg', cost:0, ch:'all'}); store.costProfiles=ps; refresh(); }
+function delProfItem(pi, ii){ const ps=store.costProfiles; if(!confirm('Remove "'+ps[pi].items[ii].name+'" from this profile?')) return; ps[pi].items.splice(ii,1); store.costProfiles=ps; refresh(); }
+function renameProfile(pi, val){ const v=(val||'').trim(); if(!v) return; const ps=store.costProfiles; ps[pi].name=v; store.costProfiles=ps; refresh(); }
+function addProfile(){
+  const name=prompt('Name for the new cost profile (e.g. a site or process):'); if(!name||!name.trim()) return;
+  const ps=store.costProfiles;
+  ps.push({id:'prof'+Date.now(), name:name.trim(), items:[
+    {id:'np-waste'+Date.now(), name:'Waste', basis:'pct', cost:5, ch:'all'},
+    {id:'np-lab'+Date.now(), name:'Labour', basis:'kg', cost:0, ch:'all'},
+    {id:'np-ovh'+Date.now(), name:'Overheads', basis:'kg', cost:0, ch:'all'},
+    {id:'np-ene'+Date.now(), name:'Energy', basis:'kg', cost:0, ch:'all'}
+  ]});
+  store.costProfiles=ps; refresh();
+}
+function delProfile(pi){
+  const ps=store.costProfiles;
+  if(Object.values(store.recipeProfile||{}).some(x=>x===ps[pi].id)){ alert('This profile is in use — move its recipes to another profile first.'); return; }
+  if(!confirm('Delete the "'+ps[pi].name+'" profile?')) return;
+  ps.splice(pi,1); store.costProfiles=ps; refresh();
 }
 function setItemField(idx, field, val){
   const items = store.costItems;
@@ -1463,11 +1529,15 @@ function addCostItem(){
   const name = document.getElementById('ciName').value.trim();
   const basis = document.getElementById('ciBasis').value;
   const cost = parseFloat(document.getElementById('ciCost').value);
-  const std = document.getElementById('ciStd').value==='1';
   if(!name){alert('Please give the cost item a name.');return;}
   if(isNaN(cost)||cost<0){alert('Please enter a cost.');return;}
   const items = store.costItems;
-  items.push({id:'ci'+Date.now(), name, basis, cost, std, ch:(document.getElementById('ciCh')||{}).value||'all'});
+  items.push({id:'ci'+Date.now(), name, basis, cost, std:false, ch:(document.getElementById('ciCh')||{}).value||'all'});
+  store.costItems = items; refresh();
+}
+function addStdItem(){
+  const items = store.costItems;
+  items.push({id:'ci'+Date.now(), name:'New cost', basis:'kg', cost:0, std:true, ch:'all'});
   store.costItems = items; refresh();
 }
 function delItem(idx){
@@ -1482,6 +1552,118 @@ function delItem(idx){
 function resetItems(){ if(confirm('Reset all cost items to the spreadsheet defaults? Custom items will be removed.')){kvRemove('wpf_costitems');refresh();} }
 function exportItems(){
   downloadCSV('wilsons-cost-items.csv',[['Cost item','Basis','Cost','Applies','Channel'],...store.costItems.map(i=>[i.name,i.basis==='kg'?'£ per kg':(i.basis==='pct'?'% of materials':'£ per pack'),i.cost,i.std?'every pack':'optional',CH_LABEL[i.ch||'all']])]);
+}
+
+/* ================= BRANDED CUSTOMER EXPORT (PDF / Excel) ================= */
+/* Presenting costs to a customer: pick whole groups (e.g. PAH — Fresh Frozen Dog) or single recipes,
+   then export a Wilsons-branded PDF (print) or a formatted Excel — separate from the plain CSV/Excel. */
+function custLabel(r){
+  let l = r.range ? (r.appName||r.name) : r.name;
+  const pfx = r.range ? r.range+' — ' : '';
+  if(pfx && l.indexOf(pfx)===0) l = l.slice(pfx.length);
+  return l;
+}
+function custGroups(){
+  const groups={};
+  allRecipes().forEach(r=>{
+    const gk=(r.brand||costingBrandOf(r.name))+(r.range?' — '+r.range:'');
+    (groups[gk]=groups[gk]||[]).push(r);
+  });
+  return Object.keys(groups).sort((a,b)=>a.localeCompare(b)).map(g=>({key:g, recipes:groups[g]}));
+}
+function openCustExport(){
+  const dlg=document.getElementById('cxDlg')||(()=>{const d=document.createElement('dialog');d.id='cxDlg';d.style.cssText='border:none;border-radius:14px;padding:0;max-width:640px;width:94%;max-height:82vh';document.body.appendChild(d);return d;})();
+  const body=custGroups().map((g,gi)=>`<div style="margin-bottom:10px">
+    <label style="display:flex;gap:8px;align-items:center;font-weight:700;color:var(--sea)"><input type="checkbox" data-cxg="${gi}" onchange="document.querySelectorAll('#cxDlg [data-gof=\\'${gi}\\']').forEach(c=>c.checked=this.checked)">${esc(g.key)} <span class="muted" style="font-weight:400">(${g.recipes.length})</span></label>
+    <div style="margin:4px 0 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:2px 14px">
+      ${g.recipes.map(r=>`<label style="display:flex;gap:7px;align-items:center;font-size:13px"><input type="checkbox" data-gof="${gi}" data-cxr="${esc(r.name)}">${esc(custLabel(r))}</label>`).join('')}
+    </div></div>`).join('');
+  dlg.innerHTML=`<div style="padding:20px 22px;overflow-y:auto;max-height:calc(82vh - 40px)">
+    <h2 style="margin:0 0 4px">Branded export — costs for a customer</h2>
+    <p class="muted" style="margin:0 0 14px">Tick whole groups or individual recipes, then choose PDF (print / save as PDF) or a formatted Excel. Both carry the Wilsons branding and show, per pack: materials, production (waste · labour · overheads · energy), packaging, and total cost. No margins or sell prices are included.</p>
+    ${body}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;position:sticky;bottom:0;background:#fff;padding-top:10px">
+      <button class="btn ghost" onclick="document.getElementById('cxDlg').close()">Cancel</button>
+      <button class="btn" onclick="custExportXLS()">⬇ Excel (branded)</button>
+      <button class="btn accent" onclick="custExportPDF()">🖨 PDF / Print</button>
+    </div></div>`;
+  if(!dlg.open) dlg.showModal();
+}
+function custSelected(){ return [...document.querySelectorAll('#cxDlg [data-cxr]:checked')].map(i=>i.dataset.cxr); }
+function custExportData(names){
+  const groups={};
+  names.forEach(n=>{
+    const r=findRecipe(n); if(!r) return;
+    const gk=(r.brand||costingBrandOf(r.name))+(r.range?' — '+r.range:'');
+    const per=recipeCost(r,'std'), prof=profileFor(r.name), st=rcState(r.name);
+    const packs=(st.packs||[]).map(p=>{
+      const t=packTotals(per,p,prof);
+      const production=t.waste+t.lab+t.ovh+t.ele;
+      return {kg:p.kg, mat:t.mat, production, packaging:t.tot-t.mat-production, total:t.tot, perKg:p.kg>0?t.tot/p.kg:0};
+    }).sort((a,b)=>a.kg-b.kg);
+    (groups[gk]=groups[gk]||[]).push({label:custLabel(r), perKg:per, packs});
+  });
+  return Object.keys(groups).sort((a,b)=>a.localeCompare(b)).map(g=>({group:g, recipes:groups[g]}));
+}
+const CX_DISC='Costs are ex-works production costs prepared for customer discussion: materials at current standard ingredient prices, production (waste, labour, overheads and energy) at the applicable site rates, and packaging as specified. Figures are indicative and subject to final specification, volumes and ingredient market movement.';
+function cxDate(){ return new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
+function custExportPDF(){
+  const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
+  const data=custExportData(names);
+  const P3=v=>'£'+(+v).toFixed(3);
+  let el=document.getElementById('custDoc'); if(!el){el=document.createElement('div');el.id='custDoc';document.body.appendChild(el);}
+  el.innerHTML=`
+  <div class="cx-hero">
+    <div><h1>Product costing</h1><div class="sub">${data.map(g=>esc(g.group)).join(' · ')}</div></div>
+    <div class="meta">${SHARED?'<img src="/assets/logo-grapefruit.svg" alt="Wilsons">':'<b style="font-size:14pt;color:#fff">Wilsons Pet Food</b>'}Prepared ${cxDate()}<br>Wilsons Pet Food · wilsonspetfood.co.uk</div>
+  </div>
+  ${data.map((g,gi)=>`<div class="cx-group${gi===0?' first':''}">
+    <div class="cx-groupband">${esc(g.group)}</div>
+    ${g.recipes.map(rc=>`<div class="cx-card">
+      <h3>${esc(rc.label)}</h3>
+      <div class="cx-perkg">Materials ${GBP(rc.perKg)}/kg</div>
+      ${rc.packs.length?`<table><thead><tr><th>Pack</th><th>Materials</th><th>Production</th><th>Packaging</th><th>Total cost</th><th>Cost / kg</th></tr></thead>
+      <tbody>${rc.packs.map(p=>`<tr><td>${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td><td>${P3(p.mat)}</td><td>${P3(p.production)}</td><td>${P3(p.packaging)}</td><td class="cx-tot">${P3(p.total)}</td><td>${GBP2(p.perKg)}</td></tr>`).join('')}</tbody></table>`:`<p style="font-size:9pt;color:#6b7c86;margin:0">No pack sizes set yet — materials cost shown per kg.</p>`}
+    </div>`).join('')}
+  </div>`).join('')}
+  <div class="cx-foot">${CX_DISC}<br>Generated by Wilsons HQ · ${cxDate()}</div>`;
+  try{document.getElementById('cxDlg').close();}catch(e){}
+  document.body.classList.add('custprint');
+  const done=()=>{document.body.classList.remove('custprint');window.removeEventListener('afterprint',done);};
+  window.addEventListener('afterprint',done);
+  setTimeout(()=>{window.print(); setTimeout(done,500);},80);
+}
+function custExportXLS(){
+  const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
+  const data=custExportData(names);
+  const NAVY='#143644', CORAL='#e2606c', CREAM='#f7f4ec';
+  const num=`style="mso-number-format:'£ 0\\.000';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
+  const num2=`style="mso-number-format:'£ 0\\.00';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
+  let rows=`
+  <tr><td colspan="7" style="background:${NAVY};color:#fff;font-size:20pt;font-weight:700;padding:16px 12px;font-family:Georgia,serif">WILSONS PET FOOD</td></tr>
+  <tr><td colspan="7" style="background:${NAVY};color:#f6c1c7;font-size:11pt;padding:0 12px 14px">Product costing — prepared ${cxDate()}</td></tr>
+  <tr><td colspan="7" style="padding:6px"></td></tr>`;
+  data.forEach(g=>{
+    rows+=`<tr><td colspan="7" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>
+    <tr>${['Product','Pack','Materials £','Production £','Packaging £','Total cost £','Cost per kg £'].map(h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Product'||h==='Pack'?'left':'right'}">${h}</td>`).join('')}</tr>`;
+    g.recipes.forEach(rc=>{
+      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${esc(rc.label)}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
+      rc.packs.forEach((p,pi)=>{
+        rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${pi===0?esc(rc.label):''}</td>
+        <td style="padding:4px 8px;border-bottom:1px solid #eee">${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td>
+        <td ${num}>${p.mat.toFixed(3)}</td><td ${num}>${p.production.toFixed(3)}</td><td ${num}>${p.packaging.toFixed(3)}</td>
+        <td style="mso-number-format:'£ 0\\.000';text-align:right;font-weight:700;background:${CREAM};padding:4px 8px;border-bottom:1px solid #eee">${p.total.toFixed(3)}</td>
+        <td ${num2}>${p.perKg.toFixed(2)}</td></tr>`;
+      });
+    });
+    rows+=`<tr><td colspan="7" style="padding:6px"></td></tr>`;
+  });
+  rows+=`<tr><td colspan="7" style="font-size:8pt;color:#6b7c86;padding:8px">${CX_DISC}</td></tr>`;
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Wilsons Costing</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table cellspacing="0" style="font-family:Effra,Arial,sans-serif;font-size:10pt">${rows}</table></body></html>`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+html],{type:'application/vnd.ms-excel'}));
+  a.download='Wilsons-costing-'+new Date().toISOString().slice(0,10)+'.xls'; a.click(); URL.revokeObjectURL(a.href);
+  try{document.getElementById('cxDlg').close();}catch(e){}
 }
 
 /* ================= SUPPLIERS ================= */
