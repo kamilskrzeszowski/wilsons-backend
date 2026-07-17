@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v23';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v25';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -31,6 +31,87 @@ try {
 const db = new DatabaseSync(DB_FILE);
 try { db.exec('PRAGMA journal_mode = WAL;'); } catch (e) { /* some filesystems don't support WAL; default journal is fine */ }
 try { db.exec('PRAGMA foreign_keys = ON;'); } catch (e) {}
+
+/* ============================================================================
+ * Microsoft 365 email (Graph API) — OPTIONAL. Completely off until these four
+ * settings are added on Railway. When they're missing, every email call safely
+ * does nothing, so the app runs exactly as before.
+ *   GRAPH_TENANT_ID      — the "Directory (tenant) ID" from the app registration
+ *   GRAPH_CLIENT_ID      — the "Application (client) ID"
+ *   GRAPH_CLIENT_SECRET  — the client secret VALUE (never committed to code)
+ *   MAIL_FROM            — the mailbox HQ sends as, e.g. hq@wilsonspetfood.co.uk
+ *   APP_URL  (optional)  — the live site address, used for buttons/links in emails
+ * Zero dependencies: uses Node's built-in global fetch to talk to Microsoft.
+ * ==========================================================================*/
+const MAIL = {
+  tenant: (process.env.GRAPH_TENANT_ID || '').trim(),
+  clientId: (process.env.GRAPH_CLIENT_ID || '').trim(),
+  clientSecret: (process.env.GRAPH_CLIENT_SECRET || '').trim(),
+  from: (process.env.MAIL_FROM || '').trim(),
+  appUrl: (process.env.APP_URL || '').trim().replace(/\/+$/, ''),
+};
+function mailConfigured() { return !!(MAIL.tenant && MAIL.clientId && MAIL.clientSecret && MAIL.from); }
+// An admin can pause sending from inside the app without touching Railway (meta flag).
+function mailPaused() { try { return db.prepare("SELECT value FROM meta WHERE key='mailPaused'").get()?.value === '1'; } catch (e) { return false; } }
+function mailOn() { return mailConfigured() && !mailPaused(); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+let _graphTok = { val: '', exp: 0 };
+async function graphToken() {
+  if (_graphTok.val && Date.now() < _graphTok.exp - 60000) return _graphTok.val;
+  const body = new URLSearchParams({
+    client_id: MAIL.clientId, client_secret: MAIL.clientSecret,
+    scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials',
+  });
+  const r = await fetch('https://login.microsoftonline.com/' + encodeURIComponent(MAIL.tenant) + '/oauth2/v2.0/token',
+    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) throw new Error(d.error_description || d.error || ('sign-in failed (HTTP ' + r.status + ')'));
+  _graphTok = { val: d.access_token, exp: Date.now() + (d.expires_in || 3600) * 1000 };
+  return _graphTok.val;
+}
+// Send one email. Throws on failure (callers that shouldn't break decide whether to catch).
+async function sendMail(to, subject, html) {
+  if (!mailConfigured()) throw new Error('Email is not set up yet — add the Microsoft 365 settings on Railway first.');
+  const recips = (Array.isArray(to) ? to : [to]).filter(Boolean).map(a => ({ emailAddress: { address: String(a).trim() } }));
+  if (!recips.length) throw new Error('No recipient email address.');
+  const tok = await graphToken();
+  const payload = { message: { subject: subject, body: { contentType: 'HTML', content: html }, toRecipients: recips }, saveToSentItems: true };
+  const r = await fetch('https://graph.microsoft.com/v1.0/users/' + encodeURIComponent(MAIL.from) + '/sendMail',
+    { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (r.status !== 202) { let m = ''; try { m = (await r.json()).error?.message; } catch (e) {} throw new Error(m || ('send failed (HTTP ' + r.status + ')')); }
+  return true;
+}
+// Wilsons-branded HTML shell for every email we send.
+function emailShell(headline, bodyHtml, buttonText, buttonPath) {
+  const btn = (buttonText && MAIL.appUrl)
+    ? `<tr><td style="padding:8px 24px 26px"><a href="${esc(MAIL.appUrl + (buttonPath || '/'))}" style="background:#e2606c;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px;display:inline-block;font-size:15px">${esc(buttonText)}</a></td></tr>` : '';
+  return `<!doctype html><html><body style="margin:0;background:#f2efe6;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#143644">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2efe6;padding:24px 0"><tr><td align="center">
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px -12px rgba(20,54,68,.4)">
+      <tr><td style="background:#143644;padding:18px 24px;color:#fff;font-size:18px;font-weight:700;letter-spacing:.3px">Wilsons HQ</td></tr>
+      <tr><td style="padding:24px 24px 6px;font-size:20px;font-weight:700;color:#143644">${esc(headline)}</td></tr>
+      <tr><td style="padding:4px 24px 8px;font-size:15px;line-height:1.5;color:#4b5f6d">${bodyHtml}</td></tr>
+      ${btn}
+      <tr><td style="padding:14px 24px 22px;border-top:1px solid #eee;color:#8a97a0;font-size:12px">You’re receiving this because you have a Wilsons HQ account. If this wasn’t meant for you, please let the office know.</td></tr>
+    </table>
+  </td></tr></table></body></html>`;
+}
+// Fire-and-forget: someone was assigned a task. Never throws into the task-save path.
+function notifyAssign(info) {
+  if (!mailOn()) return;
+  try {
+    const u = db.prepare('SELECT username, email FROM users WHERE id=?').get(info.assigneeId);
+    if (!u || !u.email) return;
+    const prio = { high: 'High', med: 'Medium', low: 'Low' }[info.prio] || '';
+    const meta = [info.due ? 'Due <b>' + esc(info.due) + '</b>' : '', prio ? 'Priority: ' + esc(prio) : '', info.project ? 'Project: ' + esc(info.project) : ''].filter(Boolean).join(' &nbsp;·&nbsp; ');
+    const body = `<p style="margin:0 0 10px"><b>${esc(info.byName || 'A colleague')}</b> assigned a task to you:</p>
+      <p style="margin:0 0 10px;font-size:16px;color:#143644"><b>${esc(info.title)}</b></p>
+      ${meta ? '<p style="margin:0;color:#6f7b82;font-size:13px">' + meta + '</p>' : ''}`;
+    sendMail(u.email, 'New task for you: ' + info.title, emailShell('A task was assigned to you', body, 'Open Planning', '/planning'))
+      .catch(e => console.log('assignment email failed:', e.message));
+  } catch (e) { console.log('notifyAssign error:', e.message); }
+}
 
 /* ---------------- schema ---------------- */
 db.exec(`
@@ -58,6 +139,7 @@ try { db.exec("ALTER TABLE production ADD COLUMN mince_date TEXT DEFAULT ''"); }
 try { db.exec("ALTER TABLE production ADD COLUMN cook_date TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN perms TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN prefs TEXT DEFAULT ''"); } catch (e) {}   // per-person home-screen preferences
+try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''"); } catch (e) {}   // for Microsoft 365 notifications & reminders
 try { db.exec("ALTER TABLE production ADD COLUMN julian_code TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN best_before TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN filled_date TEXT DEFAULT ''"); } catch (e) {}
@@ -657,7 +739,7 @@ function authUser(req) {
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
   const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
   if (!s || s.expires < Date.now()) return null;
-  const u = db.prepare('SELECT id,username,role,perms,factory FROM users WHERE id=?').get(s.user_id);
+  const u = db.prepare('SELECT id,username,role,perms,factory,email FROM users WHERE id=?').get(s.user_id);
   if (u) { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } }
   return u;
 }
@@ -979,7 +1061,15 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/me') return json(res, 200, { user });
 
       // --- Planning module (tasks/projects/delegation) — guarded so it can never break HQ ---
-      if (planning) { try { if (await planning.handle({ url, method: m, req, res, user, db, json, readBody })) return; } catch (e) { return json(res, 500, { error: 'planning: ' + (e && e.message || e) }); } }
+      // Access is per-account: admins, or accounts ticked for "Planning" in Users → Edit.
+      if (planning) {
+        const isPlanRoute = url === '/api/team' || url.startsWith('/api/projects') || url.startsWith('/api/tasks');
+        if (isPlanRoute) {
+          const canPlan = user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.planning);
+          if (!canPlan) return json(res, 403, { error: 'You don’t have access to Planning. Ask an admin to switch it on for your account.' });
+        }
+        try { if (await planning.handle({ url, method: m, req, res, user, db, json, readBody })) return; } catch (e) { return json(res, 500, { error: 'planning: ' + (e && e.message || e) }); }
+      }
 
       // ---- restore EVERYTHING from an uploaded backup (admins only) ----
       // Accepts the backup .zip (or a bare app.db). The file is safety-checked, the current
@@ -1456,10 +1546,33 @@ const server = http.createServer(async (req, res) => {
       if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
-      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
-      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory) VALUES(?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || ''); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
-      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
+      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory,email FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
+      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory,email) VALUES(?,?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || '', (b.email || '').trim()); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.email !== undefined) db.prepare('UPDATE users SET email=? WHERE id=?').run((b.email || '').trim(), id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
       if (url.startsWith('/api/users/') && m === 'DELETE') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); if (+id === user.id) return json(res, 400, { error: 'cannot delete yourself' }); db.prepare('DELETE FROM users WHERE id=?').run(id); return json(res, 200, { ok: true }); }
+
+      // ---- Microsoft 365 email: status, test-send, pause switch (admins only) ----
+      if (url === '/api/mail/status' && m === 'GET') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        return json(res, 200, { configured: mailConfigured(), paused: mailPaused(), from: MAIL.from || '', appUrl: MAIL.appUrl || '', myEmail: user.email || '' });
+      }
+      if (url === '/api/mail/test' && m === 'POST') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        const b = await readBody(req);
+        const to = (b.to || user.email || '').trim();
+        if (!to) return json(res, 400, { error: 'No address to send to — set your own email on your account first, or type one in.' });
+        if (!mailConfigured()) return json(res, 400, { error: 'Email isn’t set up yet. Add the Microsoft 365 settings on Railway, then redeploy.' });
+        try {
+          await sendMail(to, 'Wilsons HQ test email', emailShell('It works! ✅', '<p style="margin:0">This is a test from Wilsons HQ. If you can read this, Microsoft 365 email is set up correctly and HQ can now send task notifications and reminders.</p>', 'Open Wilsons HQ', '/'));
+          return json(res, 200, { ok: true, to });
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (url === '/api/mail/pause' && m === 'POST') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        const b = await readBody(req);
+        db.prepare("INSERT INTO meta(key,value) VALUES('mailPaused',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(b.paused ? '1' : '0');
+        return json(res, 200, { ok: true, paused: !!b.paused });
+      }
 
       return json(res, 404, { error: 'not found' });
     }
@@ -1471,7 +1584,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
-try { planning = require('./planning.js'); planning.init(db, { now, uid }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
+try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

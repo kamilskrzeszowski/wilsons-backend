@@ -345,7 +345,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v23</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v25</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -399,6 +399,7 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-item.active .ico{color:var(--coral);opacity:1}
   .sb-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:#5f7482;font-weight:700;padding:14px 12px 4px}
   .sb-item .sb-soon{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.1);color:#8fa2ad;border-radius:8px;padding:2px 7px;flex:none}
+  .sb-item .sb-badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;font-size:11.5px;font-weight:800;color:#fff;background:var(--coral-deep,#e2606c);border-radius:11px;display:flex;align-items:center;justify-content:center;flex:none}
   .sb-facpill{margin:0 0 10px}
   .sb-custom{opacity:.55;margin-top:14px}
   .sb-custom:hover{opacity:1}
@@ -1960,6 +1961,40 @@ function refreshAll(){
 const API='';
 let TOKEN=localStorage.getItem('wpm_token')||'';
 let CURRENT_USER=null, KIOSK=false, HOME_CONFIG=null, homeEdit=false;
+/* Planning nudge: my open tasks + how many are due today / overdue (shown as a sidebar badge + Today card) */
+let PLANNING_MINE=[], PLANNING_DUE=0;
+function planToday(){ const t=new Date(); return new Date(t.getFullYear(),t.getMonth(),t.getDate()); }
+function planParse(s){ if(!s) return null; const p=String(s).split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function planDueLabel(s){ const d=planParse(s); if(!d) return ''; const diff=Math.round((d-planToday())/86400000);
+  if(diff<0) return diff===-1?'Yesterday':(Math.abs(diff)+' days ago'); if(diff===0) return 'Today'; if(diff===1) return 'Tomorrow';
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return d.getDate()+' '+M[d.getMonth()]; }
+async function loadPlanningNudge(){
+  if(!CURRENT_USER || !canView('planning')){ PLANNING_MINE=[]; PLANNING_DUE=0; return; }
+  try{
+    const d=await api('/api/tasks'); const me=CURRENT_USER.id; const today=planToday();
+    PLANNING_MINE=(d.tasks||[]).filter(t=>t.assignee===me && t.status!=='done');
+    PLANNING_DUE=PLANNING_MINE.filter(t=>{ const dd=planParse(t.due); return dd && dd<=today; }).length;
+  }catch(e){ PLANNING_MINE=[]; PLANNING_DUE=0; }
+  renderSidebar();
+  if(SB_ACTIVE==='home') fillPlanningCard();
+}
+function fillPlanningCard(){
+  const el=document.getElementById('homePlanning'); if(!el) return;
+  if(!PLANNING_MINE.length){ el.style.display='none'; return; }
+  el.style.display='';
+  const today=planToday();
+  const over=PLANNING_MINE.filter(t=>{ const d=planParse(t.due); return d && d<today; });
+  const tod=PLANNING_MINE.filter(t=>{ const d=planParse(t.due); return d && d.getTime()===today.getTime(); });
+  const rank=t=>{ const d=planParse(t.due); if(!d) return 4e12; return d.getTime(); };
+  const next=PLANNING_MINE.slice().sort((a,b)=>rank(a)-rank(b)).slice(0,4);
+  const chip=(n,txt,col)=> n?`<span class="dash-chip" style="background:${col}1a;color:${col};border-color:${col}55"><span class="dcdot" style="background:${col}"></span>${n} ${txt}</span>`:'';
+  const rows=next.map(t=>{ const d=planParse(t.due); const overdue=d&&d<today; const due=t.due?`<span class="dr-right" style="color:${overdue?'#c0563b':'#6f7b82'}">${escapeHtml(planDueLabel(t.due))}</span>`:'<span class="dr-right" style="color:#b3bcc0">no date</span>';
+    return `<div class="dash-row"><span class="ddot" style="background:${overdue?'#c0563b':(d?'#e0a13f':'#b3bcc0')}"></span><b style="font-weight:600">${escapeHtml(t.title)}</b>${due}</div>`; }).join('');
+  el.innerHTML=`<h4 style="display:flex;align-items:center;gap:8px">Your planning`
+    +`<button class="linkbtn noprint" style="margin-left:auto" onclick="location.href='/planning'">open Planning →</button></h4>`
+    +`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px">${chip(over.length,over.length===1?'overdue':'overdue','#c0563b')}${chip(tod.length,'due today','#e0a13f')}${(!over.length&&!tod.length)?'<span class="muted" style="font-size:13px">Nothing due right now — you’re on top of it.</span>':''}</div>`
+    +rows;
+}
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function pop(html){ document.getElementById('modalInner').innerHTML=html; document.getElementById('modalBg').classList.add('open'); }
 async function api(path,method,body){
@@ -2081,11 +2116,23 @@ async function startApp(){
   if(KIOSK) goFullscreen();
   renderSidebar();
   navTo('home');
+  loadPlanningNudge();
   setSync('● Shared');
   checkVersion();
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v25', date:'16 Jul 2026', notes:[
+    'Email (Microsoft 365) — stage 1. HQ can now send emails through Wilsons’ own Microsoft 365. When someone assigns a Planning task to a colleague, that colleague gets a branded email about it. Everyone can have an email address on their account (Users → Edit), and there’s a new “Email (Microsoft 365)” panel on the Users screen with a Ready/Not-set-up status, a “Send test email” button, and a “Pause all emails” switch.',
+    'This is OFF until connected: it needs a one-time Microsoft 365 app registration (see MICROSOFT-365-EMAIL-SETUP.md) and four settings added on Railway. Until then the app runs exactly as before — no emails are sent, nothing else changes.',
+    'Next in this stage: a daily “what’s on your plate” reminder email, and pulling emails in from Outlook to turn into tasks.'
+  ]},
+  {v:'v24', date:'16 Jul 2026', notes:[
+    'Planning is now on the menu — but only for the accounts you choose. It’s a new permission: go to Users → Edit and tick “Planning (tasks & delegation)” for anyone who should see it (admins always see it). Ticked accounts get a “Planning” item in the sidebar (Today · Planning) — no more typing “/planning”; everyone else won’t see it at all.',
+    'Inside Planning you add your own tasks and projects and assign work to teammates. Anyone appears in the assign list once they have a login and the Planning permission.',
+    'For accounts that can see Planning: the Today screen shows a “Your planning” card (anything overdue or due today, plus your next few tasks), and a red number sits next to Planning in the sidebar counting tasks due today or overdue — so nothing gets forgotten.',
+    'Nothing else changed — production, recipes, KPI, specs and complaints are all untouched. (Email reminders and pulling tasks in from Outlook are the next stage, and need a one-off Microsoft 365 sign-in from Kamil.)'
+  ]},
   {v:'v23', date:'16 Jul 2026', notes:[
     'Recipe Costing fixes: the PAH range recipes had lost their range label (so they were bunched under an “Other” folder) — they’re now put back into Fresh Frozen Dog / Ambient Dog / Fresh Frozen Cat / Ambient Cat, and one mis-typed name (“Ambient Cat Turkey & Duck”) is corrected. Prices, ingredients and pack costs are untouched.',
     'Costing tables no longer jump to the top of the page when you tick a row or edit a value. The customer branded export shows pounds-and-pence (2 decimals) to match the on-screen figures. The second cat pack size is 85g (was 80g).',
@@ -2168,7 +2215,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v23';
+const APP_VERSION='v25';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -2227,7 +2274,8 @@ const ICONS={
   clipboardText:'<path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2"/><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2"/><path d="M9 12h6"/><path d="M9 16h6"/>',
   alert:'<path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"/><path d="M12 16h.01"/>',
   dashboard:'<path d="M4 4h6v8h-6z"/><path d="M4 16h6v4h-6z"/><path d="M14 12h6v8h-6z"/><path d="M14 4h6v4h-6z"/>',
-  mail:'<path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10z"/><path d="M3 7l9 6l9 -6"/>'
+  mail:'<path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10z"/><path d="M3 7l9 6l9 -6"/>',
+  planning:'<path d="M3.5 5.5l1.5 1.5l2.5 -2.5"/><path d="M3.5 11.5l1.5 1.5l2.5 -2.5"/><path d="M3.5 17.5l1.5 1.5l2.5 -2.5"/><path d="M11 6l9 0"/><path d="M11 12l9 0"/><path d="M11 18l9 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 
@@ -2236,6 +2284,7 @@ function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" str
 const SB_SECTIONS={
   production:[
     ['home','Today','home'],
+    ['planning','Planning','planning'],
     ['filling','Filling Sheet','clipboardCheck'],
     ['cooking','Cooking','flame'],
     ['filldash','Filling Dashboard','gauge'],
@@ -2247,6 +2296,7 @@ const SB_SECTIONS={
   ],
   technical:[
     ['home','Today','home'],
+    ['planning','Planning','planning'],
     ['library','Recipe Library','book'],
     ['costing','Recipe Costing','coins'],
     ['specs','Product Specs','clipboardText'],
@@ -2255,6 +2305,7 @@ const SB_SECTIONS={
   ],
   office:[
     ['home','Today','home'],
+    ['planning','Planning','planning'],
     ['kpi','KPI Dashboard','dashboard'],
     ['kpiinput','KPI Daily Input','clipboardText'],
     ['library','Recipe Library','book'],
@@ -2289,7 +2340,7 @@ const SB_ITEMS={}; Object.values(SB_SECTIONS).flat().forEach(it=>{ if(!SB_ITEMS[
 let MENU_LAYOUT=null;
 async function loadMenuLayout(){ try{ const d=await api('/api/menu-layout'); MENU_LAYOUT=(d.layout&&d.layout.v===1)?d.layout:null; }catch(e){ MENU_LAYOUT=null; } }
 function sbSection(mode){
-  if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])) return [SB_ITEMS.home, ...MENU_LAYOUT[mode].filter(k=>k!=='home').map(k=>SB_ITEMS[k]).filter(Boolean)];
+  if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])) return [SB_ITEMS.home, SB_ITEMS.planning, ...MENU_LAYOUT[mode].filter(k=>k!=='home'&&k!=='planning').map(k=>SB_ITEMS[k]).filter(Boolean)];
   return SB_SECTIONS[mode]||[];
 }
 function sbAllowed(list){ return list.filter(it=>it[0]==='home'||canView(it[0])); }
@@ -2321,14 +2372,14 @@ function renderSidebar(){
     } else fh.innerHTML='';
   }
   const items=sbAllowed(sbSection(mode));
-  let html=items.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span></button>`).join('');
+  let html=items.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span>${it[0]==='planning'&&PLANNING_DUE>0?'<span class="sb-badge" title="Tasks due today or overdue">'+PLANNING_DUE+'</span>':''}</button>`).join('');
   if(mode==='office'&&isAdmin()){
     html+='<div class="sb-head">Coming soon</div>'+SB_FUTURE.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span><span class="sb-soon">Soon</span></button>`).join('');
   }
   if(isAdmin()) html+=`<button type="button" class="sb-item sb-custom" onclick="openMenuLayout()">${svg('sliders')}<span>Customise menu…</span></button>`;
   const nav=document.getElementById('sbNav'); if(nav) nav.innerHTML=html;
 }
-function sbGo(v){ sbClose(); navTo(v); }
+function sbGo(v){ if(v==='planning'){ sbClose(); location.href='/planning'; return; } sbClose(); navTo(v); }
 window.sbGo=sbGo;
 /* ===== admin: choose which screens sit in which workspace (applies to everyone) ===== */
 function openMenuLayout(){
@@ -2393,6 +2444,7 @@ const AREAS=[
   {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
   {k:'optimings',label:'Operations timings',edit:true},
   {k:'costing',label:'Recipe Costing (prices & margins)',edit:false},
+  {k:'planning',label:'Planning (tasks & delegation)',edit:false},
   {k:'complaints',label:'Complaints (customer service)',edit:true},
   {k:'kpi',label:'KPI Dashboard (edit = change targets & settings)',edit:true},
   {k:'kpiinput',label:'KPI daily input',edit:true},
@@ -2517,12 +2569,14 @@ function renderHomeMenu(){
       '<div class="dash-head"><div class="dash-greet">'+escapeHtml(dashGreeting())+'</div><div class="dash-date">'+escapeHtml(dashDateLine())+'</div>'+
       (seeStock?'<span class="dash-chip '+chipCls+'"><span class="dcdot"></span>'+escapeHtml(chipTxt)+'</span>':'')+'</div>'+
       (stats?'<div class="dash-stats">'+stats+'</div>':'')+
+      '<div class="dash-panel" id="homePlanning" style="margin-bottom:14px;display:none"></div>'+
       (seeStock
         ?('<div class="dash-2col"><div class="dash-panel dark"><h4>Stock watch</h4>'+attnRows+pkgRows+'</div>'+shortcutsCard+'</div>')
         :('<div style="margin-bottom:14px">'+shortcutsCard+'</div>'))+
       ((canView('kpi')||canView('kpiinput'))?'<div class="dash-sect" style="display:flex;align-items:center;gap:10px">KPIs this week<button class="linkbtn noprint" onclick="editHomeKpis()">✎ choose</button><span style="flex:1"></span><button class="linkbtn noprint" onclick="navTo(\'kpi\')">open the full dashboard →</button></div><iframe id="homeKpiFrame" class="homekpi" title="KPIs"></iframe>':'')+
       (canView('complaints')?'<div class="dash-sect" style="margin-top:16px">Complaints at a glance</div><div class="dash-panel" id="homeComplaints"><p class="muted">Loading…</p></div>':'');
     renderShortcuts();
+    fillPlanningCard(); loadPlanningNudge();
     renderHomeKpiFrame();
     if(canView('complaints')) renderHomeComplaints();
     if(seeProd) dashFillToday();
@@ -4068,15 +4122,43 @@ window.cplExport=cplExport;
 
 async function renderUsers(){
   const root=document.getElementById('rootUsers'); if(!root) return;
-  root.innerHTML=`<div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
-    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>
+  root.innerHTML=`<div id="mailPanel"></div>
+    <div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Email</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody></table></div>
     <div id="usInvites"></div>`;
   document.getElementById('usAdd').onclick=()=>userModal(null);
   document.getElementById('usInvite').onclick=()=>inviteModal();
+  renderMailPanel();
   try{ const rows=await api('/api/users'); window._users=rows;
-    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
-  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="5" class="muted">${escapeHtml(e.message)}</td></tr>`; }
+    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
+  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="6" class="muted">${escapeHtml(e.message)}</td></tr>`; }
   renderInvites();
+}
+/* ---- Microsoft 365 email: status card + test send + pause switch (admin) ---- */
+async function renderMailPanel(){
+  const host=document.getElementById('mailPanel'); if(!host) return;
+  let s; try{ s=await api('/api/mail/status'); }catch(e){ host.innerHTML=''; return; }
+  const ready=s.configured;
+  const badge=ready?(s.paused?'<span class="pill warn">Paused</span>':'<span class="pill ok">Ready</span>'):'<span class="pill out">Not set up</span>';
+  host.innerHTML=`<div class="card" style="padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <b style="font-family:var(--font-display);font-weight:400;text-transform:uppercase;font-size:15px;color:var(--navy)">${svg('mail')} Email (Microsoft 365)</b>
+      ${badge}<span class="spacer"></span>
+      ${ready?`<label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mailPauseChk" ${s.paused?'checked':''}> Pause all emails</label>`:''}
+    </div>
+    ${ready
+      ? `<p class="hint" style="margin:8px 0 10px">HQ sends from <b>${escapeHtml(s.from||'—')}</b>. Staff get an email when a task is assigned to them (they need an email address on their account).</p>
+         <div class="row-flex" style="gap:8px;align-items:center;flex-wrap:wrap">
+           <input id="mailTestTo" type="email" placeholder="${escapeHtml(s.myEmail||'address to test')}" value="${escapeHtml(s.myEmail||'')}" style="max-width:280px">
+           <button class="btn ghost sm" id="mailTestBtn">Send test email</button>
+           <span class="hint" id="mailTestMsg"></span>
+         </div>`
+      : `<p class="hint" style="margin:8px 0 0">Not connected yet. Follow <b>MICROSOFT-365-EMAIL-SETUP.md</b> to register HQ in Microsoft 365, then add the four settings on Railway and redeploy. Until then, everything works as normal — just no emails go out.</p>`}
+  </div>`;
+  const chk=document.getElementById('mailPauseChk');
+  if(chk) chk.onchange=async()=>{ try{ await api('/api/mail/pause','POST',{paused:chk.checked}); renderMailPanel(); }catch(e){ alert(e.message); } };
+  const btn=document.getElementById('mailTestBtn');
+  if(btn) btn.onclick=async()=>{ const to=(document.getElementById('mailTestTo')||{}).value||''; const msg=document.getElementById('mailTestMsg'); msg.textContent='Sending…'; try{ const r=await api('/api/mail/test','POST',{to}); msg.textContent='✓ Sent to '+r.to+' — check the inbox.'; }catch(e){ msg.textContent='✕ '+e.message; } };
 }
 /* ---- account invites: create a link, send it however you like; the person picks their own password ---- */
 async function renderInvites(){
@@ -4153,6 +4235,7 @@ function userModal(id){
      <label class="fld">${u?'Reset password (optional)':'Password'}<input id="uPass" type="text" placeholder="${u?'leave blank to keep':''}"></label>
      <label class="fld">Role<select id="uRole"><option value="staff">staff</option><option value="admin"${u&&u.role==='admin'?' selected':''}>admin (full access)</option></select></label>
      <label class="fld">Factory<select id="uFactory"><option value="">Both / not set</option><option value="ayr"${u&&u.factory==='ayr'?' selected':''}>Ayr — Fresh / Cooked</option><option value="blair"${u&&u.factory==='blair'?' selected':''}>Blair — Cold Pressed</option></select></label>
+     <label class="fld">Email (for notifications)<input id="uEmail" type="email" autocapitalize="none" placeholder="name@wilsonspetfood.co.uk" value="${u&&u.email?escapeHtml(u.email):''}"></label>
    </div>
    <div id="permWrap" style="margin-top:12px">
      <div class="row-flex" style="gap:8px;align-items:center"><b>Access</b><span class="spacer"></span><span class="hint">presets:</span>
@@ -4170,9 +4253,10 @@ function userModal(id){
   document.getElementById('uSave').onclick=async()=>{
     const role=roleSel.value; const perms=role==='admin'?null:collectPerms(); const pass=document.getElementById('uPass').value;
     const factory=(document.getElementById('uFactory')||{}).value||'';
+    const email=(document.getElementById('uEmail')||{}).value||'';
     try{
-      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,factory,password:pass||undefined}); }
-      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms,factory}); }
+      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,factory,email,password:pass||undefined}); }
+      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms,factory,email}); }
       closeModal(); renderUsers();
     }catch(e){ document.getElementById('uMsg').textContent=e.message; }
   };

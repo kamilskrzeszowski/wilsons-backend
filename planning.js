@@ -42,6 +42,17 @@ function init(db, helpers) {
   } catch (e) {}
 }
 
+// Email the assignee that a task was assigned to them — only when it's someone OTHER than the
+// person doing the assigning, and only if server.js provided a notifier. Never throws.
+function notify(db, assigneeId, byUser, t) {
+  try {
+    if (!H.notifyAssign || !assigneeId || assigneeId === byUser.id) return;
+    let project = '';
+    try { if (t.project_id) project = (db.prepare('SELECT name FROM projects WHERE id=?').get(t.project_id) || {}).name || ''; } catch (e) {}
+    H.notifyAssign({ assigneeId: assigneeId, byName: byUser.username, title: t.title, due: t.due || '', prio: t.prio || 'med', project: project });
+  } catch (e) {}
+}
+
 // Returns true if it handled the route, false otherwise. Wrapped in try/catch by server.js.
 async function handle(ctx) {
   const { url, method, req, res, user, db, json, readBody } = ctx;
@@ -86,6 +97,7 @@ async function handle(ctx) {
     const assignee = (b.assignee !== undefined && b.assignee !== null && b.assignee !== '') ? Number(b.assignee) : user.id;
     db.prepare('INSERT INTO tasks(id,title,notes,project_id,assignee,created_by,due,prio,status,site,email_link,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, String(b.title).trim(), b.notes || '', b.project_id || '', assignee, user.id, b.due || '', b.prio || 'med', 'open', b.site || '', b.email_link || '', H.now(), H.now());
+    notify(db, assignee, user, { title: String(b.title).trim(), due: b.due || '', prio: b.prio || 'med', project_id: b.project_id || '' });
     json(res, 200, { id }); return true;
   }
   if (url.startsWith('/api/tasks/') && m === 'PUT') {
@@ -94,7 +106,12 @@ async function handle(ctx) {
     ['title', 'notes', 'project_id', 'due', 'prio', 'status', 'site'].forEach(f => {
       if (b[f] !== undefined) db.prepare('UPDATE tasks SET ' + f + '=? WHERE id=?').run(b[f], id);
     });
-    if (b.assignee !== undefined) db.prepare('UPDATE tasks SET assignee=? WHERE id=?').run((b.assignee === '' || b.assignee === null) ? null : Number(b.assignee), id);
+    if (b.assignee !== undefined) {
+      const na = (b.assignee === '' || b.assignee === null) ? null : Number(b.assignee);
+      db.prepare('UPDATE tasks SET assignee=? WHERE id=?').run(na, id);
+      const t = db.prepare('SELECT title,due,prio,project_id FROM tasks WHERE id=?').get(id) || {};
+      notify(db, na, user, t);
+    }
     if (b.status !== undefined) db.prepare('UPDATE tasks SET done_at=? WHERE id=?').run(b.status === 'done' ? H.now() : '', id);
     db.prepare('UPDATE tasks SET updated=? WHERE id=?').run(H.now(), id);
     json(res, 200, { ok: true }); return true;
