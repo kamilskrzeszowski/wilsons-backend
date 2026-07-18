@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v25';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v26';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -171,6 +171,17 @@ try { db.exec("ALTER TABLE production ADD COLUMN bag_pkg TEXT DEFAULT ''"); } ca
 try { db.exec("ALTER TABLE production ADD COLUMN bag_qty REAL DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE packaging ADD COLUMN map_recipe TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE packaging ADD COLUMN map_pack TEXT DEFAULT ''"); } catch (e) {}
+// v26: recipe version history — a snapshot row every time a recipe's content changes, so past
+// batches can always be traced to the exact recipe they were made with. Additive only.
+db.exec("CREATE TABLE IF NOT EXISTS recipe_versions(id INTEGER PRIMARY KEY, recipe_id TEXT, version INTEGER, brand TEXT, name TEXT, packs TEXT, ingredients TEXT, shelf_months INTEGER, color TEXT, saved TEXT, by TEXT, note TEXT DEFAULT '')");
+db.exec("CREATE INDEX IF NOT EXISTS idx_rv_recipe ON recipe_versions(recipe_id)");
+try { db.exec('ALTER TABLE production ADD COLUMN recipe_version INTEGER DEFAULT 0'); } catch (e) {}
+// v26: costing data safety — every change to a costing_kv key keeps the PREVIOUS value here
+// (who/when), so hand-typed figures (prices etc.) can always be seen and recovered. Additive.
+db.exec("CREATE TABLE IF NOT EXISTS costing_kv_history(id INTEGER PRIMARY KEY, key TEXT, value TEXT, changed TEXT, by TEXT, action TEXT)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_ckh_key ON costing_kv_history(key)");
+// v26: stock rows set by hand in the app are marked edited=1 — future history/stock imports never overwrite them
+try { db.exec('ALTER TABLE stock ADD COLUMN edited INTEGER DEFAULT 0'); } catch (e) {}
 
 /* ---------------- seed (first run only) ---------------- */
 function seedIfEmpty() {
@@ -200,7 +211,9 @@ function importHistory() {
   if (have >= want) return; // already imported at this version or newer
   const insP = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
   const insD = db.prepare('INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)');
-  const upS = db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier) VALUES(?,?,?,?) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder');
+  // v26: a re-import (a future historyVersion bump) must never overwrite stock levels someone
+  // set by hand in the app — those rows carry edited=1 and are skipped.
+  const upS = db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier) VALUES(?,?,?,?) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder WHERE COALESCE(stock.edited,0)=0');
   db.exec('BEGIN');
   try {
     // replace any previously-imported history (only hist=1 rows; your own entries are untouched)
@@ -488,9 +501,7 @@ function ensureRecipeSpecs() {
     const ingNames = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingNames[i.id] = i.name);
     const compOf = ingsJson => {
       let ings = []; try { ings = JSON.parse(ingsJson || '[]'); } catch (e) {}
-      const total = ings.reduce((a, g) => a + (+g.kg || 0), 0) || 1;
-      const parts = ings.slice().sort((a, b) => (+b.kg || 0) - (+a.kg || 0)).map(g => { const pct = (+g.kg || 0) / total * 100; const p = pct >= 1 ? Math.round(pct * 10) / 10 : Math.round(pct * 1000) / 1000; return (ingNames[g.ingId] || g.ingId) + ' (' + p + '%)'; });
-      return parts.length ? parts.join(', ') + '.' : '';
+      return compositionText(ings, id => ingNames[id] || id);
     };
 
     const recipes = db.prepare('SELECT id,brand,name,ingredients,color FROM recipes ORDER BY brand,name').all();
@@ -734,6 +745,17 @@ function uid(p) { return (p || '') + Date.now().toString(36) + crypto.randomByte
 function hashPw(pw, salt) { salt = salt || crypto.randomBytes(16).toString('hex'); return { salt, hash: crypto.scryptSync(pw, salt, 64).toString('hex') }; }
 function verifyPw(pw, salt, hash) { try { return crypto.timingSafeEqual(Buffer.from(crypto.scryptSync(pw, salt, 64).toString('hex')), Buffer.from(hash)); } catch (e) { return false; } }
 function json(res, code, obj) { const b = JSON.stringify(obj); res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(b); }
+// Declared composition text: descending by inclusion, each % rounded (1dp ≥1%, 3dp below), and the
+// LARGEST item nudged so the printed percentages sum to exactly 100 (label reviewers check this).
+function compositionText(ings, nameOf) {
+  const total = (ings || []).reduce((a, g) => a + (+g.kg || 0), 0);
+  if (!total) return '';
+  const sorted = ings.slice().sort((a, b) => (+b.kg || 0) - (+a.kg || 0));
+  const pcts = sorted.map(g => { const pct = (+g.kg || 0) / total * 100; return pct >= 1 ? Math.round(pct * 10) / 10 : Math.round(pct * 1000) / 1000; });
+  const sumOthers = pcts.slice(1).reduce((a, b) => a + b, 0);
+  if (pcts.length) pcts[0] = Math.round((100 - sumOthers) * 1000) / 1000;
+  return sorted.map((g, i) => nameOf(g.ingId) + ' (' + pcts[i] + '%)').join(', ') + '.';
+}
 function authUser(req) {
   const h = req.headers['authorization'] || '';
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
@@ -744,19 +766,122 @@ function authUser(req) {
   return u;
 }
 
+/* ---------------- recipe versions ---------------- */
+// Save a snapshot of a recipe's current content if it differs from the last snapshot.
+// Returns the version number now current for that recipe (or null on any problem).
+function snapshotRecipe(recipeId, by, note) {
+  try {
+    const r = db.prepare('SELECT * FROM recipes WHERE id=?').get(recipeId); if (!r) return null;
+    const last = db.prepare('SELECT version, brand, name, packs, ingredients, shelf_months FROM recipe_versions WHERE recipe_id=? ORDER BY version DESC LIMIT 1').get(recipeId);
+    const same = last && String(last.brand || '') === String(r.brand || '') && String(last.name || '') === String(r.name || '')
+      && String(last.packs || '[]') === String(r.packs || '[]') && String(last.ingredients || '[]') === String(r.ingredients || '[]')
+      && (last.shelf_months == null ? null : +last.shelf_months) === (r.shelf_months == null ? null : +r.shelf_months);
+    if (same) return last.version;
+    const v = (last ? +last.version : 0) + 1;
+    db.prepare('INSERT INTO recipe_versions(recipe_id,version,brand,name,packs,ingredients,shelf_months,color,saved,by,note) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+      .run(r.id, v, r.brand || '', r.name || '', r.packs || '[]', r.ingredients || '[]', r.shelf_months == null ? null : +r.shelf_months, r.color || '', now(), by || '', note || '');
+    return v;
+  } catch (e) { console.log('recipe snapshot failed:', e.message); return null; }
+}
+function currentRecipeVersion(recipeId) {
+  if (!recipeId) return 0;
+  try { const r = db.prepare('SELECT version FROM recipe_versions WHERE recipe_id=? ORDER BY version DESC LIMIT 1').get(recipeId); return r ? +r.version : 0; } catch (e) { return 0; }
+}
+// One-time: give every existing recipe a v1 snapshot so history starts from the current state.
+function seedRecipeVersions() {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key='recipeVersionsV'").get();
+    if (row && +row.value >= 1) return;
+    let n = 0;
+    db.prepare('SELECT id FROM recipes').all().forEach(r => { if (snapshotRecipe(r.id, 'system', 'initial snapshot (v26 upgrade)') != null) n++; });
+    db.prepare("INSERT INTO meta(key,value) VALUES('recipeVersionsV','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+    console.log('Recipe versions: snapshotted ' + n + ' recipe(s) as version 1.');
+  } catch (e) { console.log('recipe versions seed failed:', e.message); }
+}
+
 /* ---------------- computed stock ---------------- */
-function packKgOf(label) { const m = /([\d.]+)\s*(kg|g)/i.exec(label || ''); if (!m) return 0; return m[2].toLowerCase() === 'kg' ? parseFloat(m[1]) : parseFloat(m[1]) / 1000; }
+function packKgOf(label) {
+  const s = String(label || '');
+  // multipacks like "2 x 400g" / "8x380g" are the whole pack's weight, not one pouch
+  const multi = /(\d+)\s*[x×]\s*([\d.]+)\s*(kg|g)\b/i.exec(s);
+  if (multi) return (+multi[1]) * (multi[3].toLowerCase() === 'kg' ? parseFloat(multi[2]) : parseFloat(multi[2]) / 1000);
+  const m = /([\d.]+)\s*(kg|g)\b/i.exec(s); if (!m) return 0;
+  return m[2].toLowerCase() === 'kg' ? parseFloat(m[1]) : parseFloat(m[1]) / 1000;
+}
 // bags consumed at FILL: find the packaging item mapped to a product+size, and adjust its live count
 function bagPkgFor(recipe_id, pack) { if (!recipe_id || !pack) return null; try { return db.prepare("SELECT id FROM packaging WHERE map_recipe=? AND map_pack=?").get(recipe_id, pack) || null; } catch (e) { return null; } }
 function bagAdjust(pkgId, delta) { if (pkgId && delta) db.prepare('UPDATE packaging SET qty=qty+? WHERE id=?').run(delta, pkgId); }
-// ingredients are consumed when a batch is COOKED into finished product (not at fill), computed from recipe % of cooked bags.
-// Historical rows (hist=1) are excluded — the imported opening stock already accounts for them.
+// ingredients are consumed when a batch is COOKED into finished product (not at fill).
+// v26: usage is FROZEN per batch — read from the production_items rows recorded when the batch
+// was filled (with the recipe as it was that day). Editing a recipe now only affects FUTURE
+// batches; past stock never moves. Historical rows (hist=1) stay excluded — the imported opening
+// stock already accounts for them.
 function ingUsedCooked() {
   const used = {};
-  const recipes = {}; db.prepare('SELECT id, ingredients FROM recipes').all().forEach(r => { try { recipes[r.id] = JSON.parse(r.ingredients || '[]'); } catch (e) { recipes[r.id] = []; } });
-  const rows = db.prepare("SELECT recipe_id, pack, qty FROM production WHERE (hist IS NULL OR hist=0) AND cook_date IS NOT NULL AND cook_date <> ''").all();
-  rows.forEach(row => { const ings = recipes[row.recipe_id]; if (!ings || !ings.length) return; const base = ings.reduce((a, li) => a + (+li.kg || 0), 0); if (base <= 0) return; const factor = ((+row.qty || 0) * packKgOf(row.pack)) / base; ings.forEach(li => { used[li.ingId] = (used[li.ingId] || 0) + (+li.kg || 0) * factor; }); });
+  db.prepare("SELECT pi.ing_id, SUM(pi.kg) k FROM production_items pi JOIN production p ON p.id = pi.prod_id WHERE (p.hist IS NULL OR p.hist = 0) AND p.cook_date IS NOT NULL AND p.cook_date <> '' GROUP BY pi.ing_id")
+    .all().forEach(r => { if (r.ing_id) used[r.ing_id] = r.k || 0; });
   return used;
+}
+// Recompute a production row's deduction rows from a recipe (used when the server has to fill a gap).
+function computeDeductions(recipeId, qty, pack) {
+  try {
+    const r = db.prepare('SELECT ingredients FROM recipes WHERE id=?').get(recipeId); if (!r) return [];
+    let ings = []; try { ings = JSON.parse(r.ingredients || '[]'); } catch (e) { return []; }
+    const base = ings.reduce((a, li) => a + (+li.kg || 0), 0); if (base <= 0) return [];
+    const factor = ((+qty || 0) * packKgOf(pack)) / base;
+    return ings.map(li => ({ ing_id: li.ingId, kg: +((+li.kg || 0) * factor).toFixed(4) })).filter(d => d.ing_id);
+  } catch (e) { return []; }
+}
+// One-time v26 migration: freeze stock usage.
+//  1. Any production row (hist=0) that has NO stored deduction rows gets them created now, from the
+//     CURRENT recipe — i.e. exactly the figures the old live calculation was showing. So switching
+//     to frozen usage does not move stock for those rows.
+//  2. Rows that DO have stored deductions now count with their stored (historically true) figures.
+//     Where those differ from the old live calculation (a recipe edited after batches were filled),
+//     the difference is reported to the log and kept in meta['stockFreezeReport'] for review.
+function freezeStockUsage() {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key='stockFreezeV'").get();
+    if (row && +row.value >= 1) return;
+    // OLD method (live recompute from current recipes) — for the before/after report
+    const oldUsed = {};
+    const recipes = {}; db.prepare('SELECT id, ingredients FROM recipes').all().forEach(r => { try { recipes[r.id] = JSON.parse(r.ingredients || '[]'); } catch (e) { recipes[r.id] = []; } });
+    db.prepare("SELECT recipe_id, pack, qty FROM production WHERE (hist IS NULL OR hist=0) AND cook_date IS NOT NULL AND cook_date <> ''").all().forEach(p => {
+      const ings = recipes[p.recipe_id]; if (!ings || !ings.length) return;
+      const base = ings.reduce((a, li) => a + (+li.kg || 0), 0); if (base <= 0) return;
+      const factor = ((+p.qty || 0) * packKgOf(p.pack)) / base;
+      ings.forEach(li => { oldUsed[li.ingId] = (oldUsed[li.ingId] || 0) + (+li.kg || 0) * factor; });
+    });
+    // materialise missing deduction rows (cooked or still in the chill) from the current recipe
+    const ins = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
+    let filled = 0;
+    db.exec('BEGIN');
+    try {
+      db.prepare("SELECT id, recipe_id, pack, qty FROM production WHERE (hist IS NULL OR hist=0) AND recipe_id IS NOT NULL AND recipe_id <> ''").all().forEach(p => {
+        const have = db.prepare('SELECT count(*) c FROM production_items WHERE prod_id=?').get(p.id).c;
+        if (have > 0) return;
+        const ded = computeDeductions(p.recipe_id, p.qty, p.pack);
+        if (!ded.length) return;
+        ded.forEach(d => ins.run(p.id, d.ing_id, d.kg));
+        filled++;
+      });
+      db.prepare("INSERT INTO meta(key,value) VALUES('stockFreezeV','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    // report: which ingredients moved, old vs new
+    const newUsed = ingUsedCooked();
+    const names = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => names[i.id] = i.name);
+    const diffs = [];
+    new Set([...Object.keys(oldUsed), ...Object.keys(newUsed)]).forEach(id => {
+      const a = oldUsed[id] || 0, b = newUsed[id] || 0;
+      if (Math.abs(a - b) > 0.01) diffs.push({ ingredient: names[id] || id, was: +a.toFixed(3), now: +b.toFixed(3), change: +(b - a).toFixed(3) });
+    });
+    db.prepare("INSERT INTO meta(key,value) VALUES('stockFreezeReport',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(JSON.stringify({ when: now(), rowsMaterialised: filled, changes: diffs }));
+    console.log('Stock usage frozen (v26): ' + filled + ' production row(s) had their deductions materialised from the current recipe.');
+    if (diffs.length) { console.log('Stock figures moved to the historically-recorded truth for ' + diffs.length + ' ingredient(s):'); diffs.forEach(d => console.log('  ' + d.ingredient + ': used was ' + d.was + ' kg, now ' + d.now + ' kg (' + (d.change > 0 ? '+' : '') + d.change + ' kg)')); }
+    else console.log('Stock usage frozen with no change to any current stock figure.');
+  } catch (e) { console.log('stock freeze migration failed:', e.message); }
 }
 function stockSnapshot() {
   const ings = db.prepare('SELECT * FROM ingredients ORDER BY name').all();
@@ -794,6 +919,17 @@ function buildBackupXlsx() {
   const ri = [['Recipe', 'Brand', 'Ingredient', 'kg per 100kg']];
   db.prepare('SELECT * FROM recipes').all().forEach(r => { const items = JSON.parse(r.ingredients || '[]'); items.forEach(li => { const ing = db.prepare('SELECT name FROM ingredients WHERE id=?').get(li.ingId); ri.push([r.name, r.brand, ing ? ing.name : li.ingId, li.kg]); }); });
   sheets.push({ name: 'Recipe ingredients', rows: ri });
+  // recipe version history — every change to every recipe, ingredient by ingredient
+  try {
+    const rvNames = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => rvNames[i.id] = i.name);
+    const rv = [['Recipe', 'Brand', 'Version', 'Saved', 'By', 'Note', 'Pack sizes', 'Shelf (months)', 'Ingredient', 'kg']];
+    db.prepare('SELECT * FROM recipe_versions ORDER BY recipe_id, version').all().forEach(v => {
+      let packs = [], ings = []; try { packs = JSON.parse(v.packs || '[]'); } catch (e) {} try { ings = JSON.parse(v.ingredients || '[]'); } catch (e) {}
+      if (!ings.length) rv.push([v.name, v.brand, v.version, v.saved, v.by, v.note || '', packs.join(', '), v.shelf_months != null ? v.shelf_months : '', '', '']);
+      ings.forEach((li, k) => rv.push([k === 0 ? v.name : '', k === 0 ? v.brand : '', k === 0 ? v.version : '', k === 0 ? v.saved : '', k === 0 ? v.by : '', k === 0 ? (v.note || '') : '', k === 0 ? packs.join(', ') : '', k === 0 ? (v.shelf_months != null ? v.shelf_months : '') : '', rvNames[li.ingId] || li.ingId, li.kg]));
+    });
+    sheets.push({ name: 'Recipe versions', rows: rv });
+  } catch (e) {}
   // Pick & Mix traceability
   sheets.push({ name: 'Mixes', rows: [['Date', 'Recipe', 'Mix batch', 'kg', 'By'],
     ...db.prepare('SELECT * FROM mixes ORDER BY date DESC, created DESC').all().map(x => { const r = db.prepare('SELECT name FROM recipes WHERE id=?').get(x.recipe_id); return [x.date, r ? r.name : x.recipe_id, x.batch, x.kg, x.by]; })] });
@@ -1197,13 +1333,27 @@ const server = http.createServer(async (req, res) => {
         if (!canCost) return json(res, 403, { error: 'no costing access' });
         const b = await readBody(req); const list = (b && b.recipes) || [];
         const adopt = !!(b && b.adopt);   // one-time takeover of app-made recipes (Recipe Costing becomes the single place recipes are managed)
+        const renames = (b && Array.isArray(b.renames)) ? b.renames : [];   // [{fromName,fromBrand,toName,toBrand}] — keep the SAME row (and id) on rename
+        const deleted = (b && Array.isArray(b.deleted)) ? b.deleted : [];   // [{name,brand}] — the costing recycle bin; the ONLY deletions sync may make
         const ingByName = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingByName[i.name.trim().toLowerCase()] = i.id);
         // recipes are matched by name + brand together — several brands have a "Chicken"
         const keyOfRec = (name, brand) => String(name || '').trim().toLowerCase() + '|' + String(brand || '').trim().toLowerCase();
-        let created = 0, updated = 0, adopted = 0; const skipped = [];
+        let created = 0, updated = 0, adopted = 0, renamed = 0, removed = 0; const skipped = [];
         db.exec('BEGIN');
         try {
           const byKey = {}; db.prepare('SELECT id, name, brand, source FROM recipes').all().forEach(r => byKey[keyOfRec(r.name, r.brand)] = r);
+          // 1) renames first, in place — the recipe id (and all production history pointing at it) is preserved
+          renames.forEach(rn => {
+            const ex = byKey[keyOfRec(rn.fromName, rn.fromBrand)]; if (!ex || ex.source !== 'costing') return;
+            if (byKey[keyOfRec(rn.toName, rn.toBrand)]) return;   // target name already exists — leave for the upsert to sort out
+            db.prepare('UPDATE recipes SET name=?, brand=?, updated=? WHERE id=?').run(String(rn.toName || '').trim(), String(rn.toBrand || '').trim(), now(), ex.id);
+            delete byKey[keyOfRec(rn.fromName, rn.fromBrand)];
+            ex.name = String(rn.toName || '').trim(); ex.brand = String(rn.toBrand || '').trim();
+            byKey[keyOfRec(ex.name, ex.brand)] = ex;
+            snapshotRecipe(ex.id, user.username, 'renamed in Recipe Costing');
+            renamed++;
+          });
+          // 2) upsert the full pushed list
           list.forEach(rc => {
             const name = String(rc.name || '').trim(); if (!name) return;
             const ings = (rc.ingredients || []).map(g => {
@@ -1216,21 +1366,35 @@ const server = http.createServer(async (req, res) => {
             const ex = byKey[keyOfRec(name, rc.brand)];
             if (ex && ex.source !== 'costing' && !adopt) { skipped.push(name); return; }   // never clobber a hand-made app recipe unless adopting
             if (ex) {
+              const before = db.prepare('SELECT packs, ingredients, brand, color FROM recipes WHERE id=?').get(ex.id);
               db.prepare("UPDATE recipes SET brand=?, packs=?, ingredients=?, updated=?, color=?, source='costing' WHERE id=?")
                 .run(rc.brand || '', JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''), ex.id);
+              const changed = !before || before.packs !== JSON.stringify(packs) || before.ingredients !== JSON.stringify(ings) || (before.brand || '') !== (rc.brand || '');
+              if (changed) snapshotRecipe(ex.id, user.username, 'Recipe Costing sync');
               if (ex.source !== 'costing') adopted++; else updated++;
             } else {
+              const nid = uid('r');
               db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color) VALUES(?,?,?,?,?,?,'costing',?)")
-                .run(uid('r'), rc.brand || '', name, JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''));
+                .run(nid, rc.brand || '', name, JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''));
+              snapshotRecipe(nid, user.username, 'created in Recipe Costing');
+              byKey[keyOfRec(name, rc.brand)] = { id: nid, name, brand: rc.brand || '', source: 'costing' };
               created++;
             }
           });
-          // costing is authoritative for its own recipes: remove synced copies it no longer has
+          // 3) deletions: ONLY what the costing recycle bin explicitly lists (and that this push
+          //    doesn't also contain). The old behaviour — deleting every costing recipe missing from
+          //    the pushed list — could destroy a recipe another user had just created, then recreate
+          //    it later under a new id, orphaning its production history. Version snapshots are kept.
           const pushed = new Set(list.map(rc => keyOfRec(rc.name, rc.brand)));
-          db.prepare("SELECT id,name,brand FROM recipes WHERE source='costing'").all().forEach(r => { if (!pushed.has(keyOfRec(r.name, r.brand))) db.prepare('DELETE FROM recipes WHERE id=?').run(r.id); });
+          deleted.forEach(dl => {
+            const k = keyOfRec(dl.name, dl.brand); if (pushed.has(k)) return;
+            const ex = byKey[keyOfRec(dl.name, dl.brand)]; if (!ex || ex.source !== 'costing') return;
+            db.prepare('DELETE FROM recipes WHERE id=?').run(ex.id);
+            delete byKey[k]; removed++;
+          });
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'sync failed: ' + e.message }); }
-        return json(res, 200, { ok: true, created, updated, adopted, skipped });
+        return json(res, 200, { ok: true, created, updated, adopted, renamed, removed, skipped });
       }
       // ---- version stamp: lets the app confirm the newest code is actually live ----
       if (url === '/api/version' && m === 'GET') return json(res, 200, { version: APP_VERSION });
@@ -1254,11 +1418,8 @@ const server = http.createServer(async (req, res) => {
         const r = db.prepare('SELECT * FROM recipes WHERE lower(name)=?').get(name) || db.prepare("SELECT * FROM recipes WHERE lower(brand || ' ' || name)=?").get(name);
         if (!r) return json(res, 404, { error: 'recipe not found' });
         let ings = []; try { ings = JSON.parse(r.ingredients || '[]'); } catch (e) {}
-        const total = ings.reduce((a, g) => a + (+g.kg || 0), 0) || 1;
         const names = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => names[i.id] = i.name);
-        const parts = ings.slice().sort((a, b) => (+b.kg || 0) - (+a.kg || 0))
-          .map(g => { const pct = (+g.kg || 0) / total * 100; const p = pct >= 1 ? Math.round(pct * 10) / 10 : Math.round(pct * 1000) / 1000; return (names[g.ingId] || g.ingId) + ' (' + p + '%)'; });
-        return json(res, 200, { name: r.name, brand: r.brand, composition: parts.join(', ') + '.' });
+        return json(res, 200, { name: r.name, brand: r.brand, composition: compositionText(ings, id => names[id] || id) });
       }
 
       // ---- complaints log (customer service) ----
@@ -1323,12 +1484,50 @@ const server = http.createServer(async (req, res) => {
         const b = await readBody(req); const d = (b && b.data) || {};
         const up = db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated');
         const del = db.prepare('DELETE FROM costing_kv WHERE key=?');
+        const cur = db.prepare('SELECT value FROM costing_kv WHERE key=?');
+        // safety net: keep the previous value of every key we change (last 25 per key)
+        const hist = db.prepare('INSERT INTO costing_kv_history(key,value,changed,by,action) VALUES(?,?,?,?,?)');
+        const prune = db.prepare('DELETE FROM costing_kv_history WHERE key=? AND id NOT IN (SELECT id FROM costing_kv_history WHERE key=? ORDER BY id DESC LIMIT 25)');
         db.exec('BEGIN');
         try {
-          Object.keys(d).forEach(k => { if (!/^wpf_[a-z]+$/.test(k)) return; if (d[k] == null) del.run(k); else up.run(k, String(d[k]), now()); });
+          Object.keys(d).forEach(k => {
+            if (!/^wpf_[a-z]+$/.test(k)) return;
+            const prev = cur.get(k); const v = d[k];
+            if (v == null) {
+              if (prev) { hist.run(k, prev.value, now(), user.username, 'delete'); prune.run(k, k); del.run(k); }
+            } else if (typeof v === 'object' && v.__merge) {
+              // MERGE save: apply only the entries this client actually changed. A browser holding a
+              // stale copy of e.g. the price list can no longer wipe entries others added meanwhile.
+              let obj = {}; try { obj = prev ? JSON.parse(prev.value) : {}; } catch (e) { obj = {}; }
+              if (!obj || typeof obj !== 'object' || Array.isArray(obj)) obj = {};
+              Object.keys(v.set || {}).forEach(n => { obj[n] = v.set[n]; });
+              (Array.isArray(v.del) ? v.del : []).forEach(n => { delete obj[n]; });
+              const nv = JSON.stringify(obj);
+              if (!prev || prev.value !== nv) {
+                if (prev) { hist.run(k, prev.value, now(), user.username, 'merge'); prune.run(k, k); }
+                up.run(k, nv, now());
+              }
+            } else {
+              const nv = String(v);
+              if (!prev || prev.value !== nv) {
+                if (prev) { hist.run(k, prev.value, now(), user.username, 'replace'); prune.run(k, k); }
+                up.run(k, nv, now());
+              }
+            }
+          });
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true });
+      }
+      // costing change history (admins): what changed, when, by whom — for recovery after a bad save
+      if (url === '/api/costing-history' && m === 'GET') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        const q = new URLSearchParams((req.url.split('?')[1] || ''));
+        const key = q.get('key') || '';
+        const rows = key
+          ? db.prepare('SELECT id,key,changed,by,action,LENGTH(value) size,value FROM costing_kv_history WHERE key=? ORDER BY id DESC LIMIT 25').all(key)
+          : db.prepare('SELECT id,key,changed,by,action,LENGTH(value) size FROM costing_kv_history ORDER BY id DESC LIMIT 100').all();
+        return json(res, 200, { history: rows });
       }
       if (url === '/api/logout' && m === 'POST') { const h = req.headers['authorization'] || ''; db.prepare('DELETE FROM sessions WHERE token=?').run(h.slice(7)); return json(res, 200, { ok: true }); }
 
@@ -1360,7 +1559,8 @@ const server = http.createServer(async (req, res) => {
       // stock settings (opening / reorder / supplier)
       if (url === '/api/stock' && m === 'PUT') {
         const b = await readBody(req); if (!b || !b.ing_id) return json(res, 400, { error: 'ing_id required' });
-        db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier) VALUES(?,?,?,?) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder,supplier=excluded.supplier')
+        // edited=1 marks this as a HAND-SET value — no future seed/history import may overwrite it
+        db.prepare('INSERT INTO stock(ing_id,opening,reorder,supplier,edited) VALUES(?,?,?,?,1) ON CONFLICT(ing_id) DO UPDATE SET opening=excluded.opening,reorder=excluded.reorder,supplier=excluded.supplier,edited=1')
           .run(b.ing_id, +b.opening || 0, +b.reorder || 0, b.supplier || '');
         return json(res, 200, { ok: true });
       }
@@ -1369,13 +1569,16 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/production' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all());
       if (url === '/api/production' && m === 'POST') {
         const b = await readBody(req); const lines = b.lines || [];
-        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const ins = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,recipe_version,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           lines.forEach(l => { const id = uid('p');
-            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, l.stackId || '', (l.stackComplete == null ? 1 : (l.stackComplete ? 1 : 0)), +l.trays || 0, user.username, now());
-            (l.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
+            ins.run(id, b.date, l.recipe_id, l.product, l.pack, +l.qty, +l.kg, l.batch || '', l.basket || '', l.mince || '', l.cook || '', l.julian || '', l.bestBefore || '', l.filled || '', l.tempStart || '', l.tempFinish || '', l.fillStart || '', l.fillFinish || '', l.retort || '', +l.operators || 0, l.stackId || '', (l.stackComplete == null ? 1 : (l.stackComplete ? 1 : 0)), +l.trays || 0, currentRecipeVersion(l.recipe_id), user.username, now());
+            // frozen deductions: what this batch consumed, recorded now and never recomputed.
+            // The client normally sends them; if it can't, the server fills them in from the recipe.
+            const ded = (Array.isArray(l.deductions) && l.deductions.length) ? l.deductions : computeDeductions(l.recipe_id, +l.qty, l.pack);
+            ded.forEach(d => insItem.run(id, d.ing_id, +d.kg));
             // bags off stock — only when this comes from the Filling Sheet, and only if the product+size is mapped to a bag
             if (b.fromFill) { const pk = bagPkgFor(l.recipe_id, l.pack); if (pk) { const bags = +l.qty || 0; bagAdjust(pk.id, -bags); db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(pk.id, bags, id); } }
           });
@@ -1401,9 +1604,18 @@ const server = http.createServer(async (req, res) => {
           // re-apply bag deduction only if this row was a fill deduction to begin with
           let nbp = '', nbq = 0; if (ex.bag_pkg) { const pk = bagPkgFor(b.recipe_id || '', b.pack || ''); if (pk) { nbq = +b.qty || 0; nbp = pk.id; bagAdjust(pk.id, -nbq); } }
           db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(nbp, nbq, id);
-          db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
-          const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
-          (b.deductions || []).forEach(d => insItem.run(id, d.ing_id, +d.kg));
+          // frozen deductions: replace when the edit supplies them (recipe re-picked);
+          // otherwise keep the stored figures, scaled if the bag count changed.
+          if (Array.isArray(b.deductions) && b.deductions.length) {
+            db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
+            const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
+            b.deductions.forEach(d => insItem.run(id, d.ing_id, +d.kg));
+            if (b.recipe_id) db.prepare('UPDATE production SET recipe_version=? WHERE id=?').run(currentRecipeVersion(b.recipe_id), id);
+          } else {
+            const oldQty = +ex.qty || 0, newQty = +b.qty || 0;
+            if (oldQty > 0 && newQty > 0 && Math.abs(newQty - oldQty) > 1e-9)
+              db.prepare('UPDATE production_items SET kg = ROUND(kg * ?, 4) WHERE prod_id=?').run(newQty / oldQty, id);
+          }
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'write failed' }); }
         return json(res, 200, { ok: true });
@@ -1416,6 +1628,7 @@ const server = http.createServer(async (req, res) => {
         const b = await readBody(req); if (!b.id) return json(res, 400, { error: 'id required' });
         const v = (b.shelfMonths === '' || b.shelfMonths == null) ? null : (+b.shelfMonths || 0);
         db.prepare('UPDATE recipes SET shelf_months=? WHERE id=?').run(v, b.id);
+        snapshotRecipe(b.id, user.username, 'shelf life changed');
         return json(res, 200, { ok: true });
       }
       // drag-reorder: set a manual sequence on production rows (order of ids = new order)
@@ -1440,14 +1653,21 @@ const server = http.createServer(async (req, res) => {
         const get = db.prepare('SELECT * FROM production WHERE id=?');
         const upWhole = db.prepare('UPDATE production SET cook_date=?, retort=? WHERE id=?');
         const upRemain = db.prepare('UPDATE production SET qty=?, kg=? WHERE id=?');
-        const insSplit = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const insSplit = db.prepare('INSERT INTO production(id,date,recipe_id,product,pack,qty,kg,batch,basket,mince_date,cook_date,julian_code,best_before,filled_date,temp_start,temp_finish,fill_start,fill_finish,retort,operators,stack_id,stack_complete,trays,recipe_version,by,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
         db.exec('BEGIN');
         try {
           items.forEach(it => { const row = get.get(it.id); if (!row) return; const take = Math.min(+it.bags || 0, row.qty); if (take <= 0) return;
             if (take >= row.qty) { upWhole.run(cd, rt, row.id); }
             else { const kgPer = row.qty ? row.kg / row.qty : 0; const nid = uid('p');
-              insSplit.run(nid, row.date, row.recipe_id, row.product, row.pack, take, +(kgPer * take).toFixed(3), row.batch, row.basket, row.mince_date, cd, row.julian_code, row.best_before, row.filled_date, row.temp_start, row.temp_finish, row.fill_start, row.fill_finish, rt, row.operators, row.stack_id, row.stack_complete, row.trays, user.username, now());
+              insSplit.run(nid, row.date, row.recipe_id, row.product, row.pack, take, +(kgPer * take).toFixed(3), row.batch, row.basket, row.mince_date, cd, row.julian_code, row.best_before, row.filled_date, row.temp_start, row.temp_finish, row.fill_start, row.fill_finish, rt, row.operators, row.stack_id, row.stack_complete, row.trays, row.recipe_version || 0, user.username, now());
               upRemain.run(row.qty - take, +(row.kg - kgPer * take).toFixed(3), row.id);
+              // frozen deductions travel with the bags: the cooked part takes its share,
+              // the remainder keeps the rest — so cooked usage counts the moment it cooks.
+              const frac = take / row.qty;
+              db.prepare('SELECT ing_id, kg FROM production_items WHERE prod_id=?').all(row.id)
+                .forEach(pi => insItem.run(nid, pi.ing_id, +((+pi.kg || 0) * frac).toFixed(4)));
+              db.prepare('UPDATE production_items SET kg = ROUND(kg * ?, 4) WHERE prod_id=?').run(1 - frac, row.id);
               if (row.bag_pkg) { db.prepare('UPDATE production SET bag_pkg=?, bag_qty=? WHERE id=?').run(row.bag_pkg, take, nid); db.prepare('UPDATE production SET bag_qty=? WHERE id=?').run((+row.bag_qty || 0) - take, row.id); } }
           });
           db.exec('COMMIT');
@@ -1541,8 +1761,17 @@ const server = http.createServer(async (req, res) => {
 
       // recipes (ingredients/packs stored as JSON)
       if (url === '/api/recipes' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM recipes').all().map(r => ({ ...r, packs: JSON.parse(r.packs || '[]'), ingredients: JSON.parse(r.ingredients || '[]') })));
-      if (url === '/api/recipes' && m === 'POST') { const b = await readBody(req); const id = b.id || uid('r'); db.prepare('INSERT INTO recipes(id,brand,name,packs,ingredients,updated) VALUES(?,?,?,?,?,?)').run(id, b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now()); return json(res, 200, { ok: true, id }); }
-      if (url.startsWith('/api/recipes/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); db.prepare('UPDATE recipes SET brand=?,name=?,packs=?,ingredients=?,updated=? WHERE id=?').run(b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now(), id); return json(res, 200, { ok: true }); }
+      if (url === '/api/recipes' && m === 'POST') { const b = await readBody(req); const id = b.id || uid('r'); db.prepare('INSERT INTO recipes(id,brand,name,packs,ingredients,updated) VALUES(?,?,?,?,?,?)').run(id, b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now()); snapshotRecipe(id, user.username, 'created'); return json(res, 200, { ok: true, id }); }
+      if (url.startsWith('/api/recipes/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); db.prepare('UPDATE recipes SET brand=?,name=?,packs=?,ingredients=?,updated=? WHERE id=?').run(b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now(), id); snapshotRecipe(id, user.username, 'edited'); return json(res, 200, { ok: true }); }
+      // version history for one recipe (traceability: what changed, when, by whom)
+      if (url === '/api/recipe-versions' && m === 'GET') {
+        const q = new URLSearchParams((req.url.split('?')[1] || ''));
+        const rid = q.get('recipe_id') || '';
+        const rows = db.prepare('SELECT version, brand, name, packs, ingredients, shelf_months, saved, by, note FROM recipe_versions WHERE recipe_id=? ORDER BY version DESC').all(rid)
+          .map(v => { let packs = [], ings = []; try { packs = JSON.parse(v.packs || '[]'); } catch (e) {} try { ings = JSON.parse(v.ingredients || '[]'); } catch (e) {}
+            return { version: v.version, brand: v.brand, name: v.name, packs, ingredients: ings, shelf_months: v.shelf_months, saved: v.saved, by: v.by, note: v.note }; });
+        return json(res, 200, { recipe_id: rid, versions: rows });
+      }
       if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
@@ -1584,6 +1813,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
+seedRecipeVersions(); freezeStockUsage();   // v26: recipe version history + frozen per-batch stock usage
 try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}

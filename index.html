@@ -1069,7 +1069,7 @@ function renderLibrary(){
   const host=document.getElementById('libraryBody'); host.innerHTML='';
   const brands=[...new Set(VREC().map(r=>r.brand))];
   brands.forEach(br=>{
-    const list=VREC().filter(r=>r.brand===br);
+    const list=VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name));
     const head=document.createElement('div'); head.className='brand-head';
     const proc=PROCESS[br]||'';
     head.innerHTML=`<span class="dot" style="background:${BRAND_COLORS[br]||recipeColorOf(list[0])}"></span>
@@ -1102,10 +1102,47 @@ function showRecipe(id){
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn sm" onclick="closeModal();gotoMix('${r.id}')">Open mixing sheet</button>
       <button class="btn ghost sm" onclick="recipeDetails('${r.id}')">Set details</button>
+      <button class="btn ghost sm" onclick="recipeVersions('${r.id}')">Version history</button>
       <button class="btn ghost sm" onclick="closeModal();gotoEdit('${r.id}')">Edit in Recipe Costing</button>
     </div>`;
   document.getElementById('modalBg').classList.add('open');
 }
+/* Version history: every saved change to a recipe, newest first, with what changed between versions.
+   Past batches record the version they were made with, so any batch can be traced to its exact recipe. */
+async function recipeVersions(id){
+  const r=byId(id); if(!r) return;
+  let data; try{ data=await api('/api/recipe-versions?recipe_id='+encodeURIComponent(id)); }
+  catch(e){ alert('Could not load version history: '+e.message); return; }
+  const vs=(data.versions||[]);   // newest first from the server
+  const nameOf=iid=>{ const x=state.ingredients.find(i=>i.id===iid); return x?x.name:iid; };
+  const mapOf=v=>{ const m={}; (v.ingredients||[]).forEach(li=>{ if(li.ingId) m[li.ingId]=(m[li.ingId]||0)+(parseFloat(li.kg)||0); }); return m; };
+  const blocks=vs.map((v,ix)=>{
+    const prev=vs[ix+1];   // the version before this one (list is newest-first)
+    let changes=[];
+    if(prev){
+      const a=mapOf(prev), b=mapOf(v);
+      Object.keys(b).forEach(k=>{ if(!(k in a)) changes.push('+ '+nameOf(k)+' ('+fmt(b[k])+' kg)'); });
+      Object.keys(a).forEach(k=>{ if(!(k in b)) changes.push('− '+nameOf(k)+' ('+fmt(a[k])+' kg)'); });
+      Object.keys(b).forEach(k=>{ if((k in a)&&a[k]!==b[k]) changes.push(nameOf(k)+' '+fmt(a[k])+' → '+fmt(b[k])+' kg'); });
+      if((prev.packs||[]).join(', ')!==(v.packs||[]).join(', ')) changes.push('Pack sizes: '+((prev.packs||[]).join(', ')||'—')+' → '+((v.packs||[]).join(', ')||'—'));
+      if(prev.name!==v.name||prev.brand!==v.brand) changes.push('Name: '+prev.brand+' — '+prev.name+' → '+v.brand+' — '+v.name);
+      if((prev.shelf_months??null)!==(v.shelf_months??null)) changes.push('Shelf life: '+(prev.shelf_months??'default')+' → '+(v.shelf_months??'default')+' months');
+    }
+    const ings=(v.ingredients||[]).map(li=>'<tr><td>'+escapeHtml(nameOf(li.ingId))+'</td><td class="num">'+fmt(li.kg)+'</td></tr>').join('');
+    return `<details ${ix===0?'open':''} style="border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px">
+      <summary style="cursor:pointer;font-weight:600">Version ${v.version}${ix===0?' <span class="pill ok">current</span>':''} · ${escapeHtml((v.saved||'').slice(0,10))} · ${escapeHtml(v.by||'')}${v.note?' · <span class="muted">'+escapeHtml(v.note)+'</span>':''}</summary>
+      ${changes.length?'<div style="margin:8px 0 4px"><b style="font-size:12px">Changed from v'+prev.version+':</b><ul style="margin:4px 0 0 18px;font-size:12.5px">'+changes.map(c=>'<li>'+escapeHtml(c)+'</li>').join('')+'</ul></div>':(prev?'<p class="muted" style="margin:6px 0 2px;font-size:12px">Only name/colour details changed.</p>':'<p class="muted" style="margin:6px 0 2px;font-size:12px">First recorded version.</p>')}
+      <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Full ingredient list (${(v.ingredients||[]).length})</summary>
+        <table style="margin-top:6px"><thead><tr><th>Ingredient</th><th class="num">kg</th></tr></thead><tbody>${ings}</tbody></table></details>
+    </details>`;
+  }).join('');
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <h3 style="margin:0">Version history — ${escapeHtml(r.brand+' — '+r.name)}</h3>
+      <span><button class="btn ghost sm" onclick="showRecipe('${id}')">Back</button> <button class="btn ghost sm" onclick="closeModal()">Close ✕</button></span></div>
+    <p class="hint" style="margin:6px 0 10px">A new version is saved automatically whenever the recipe changes (from Recipe Costing or anywhere else). Batches record the version they were filled with, so past production always traces to the exact recipe used.</p>
+    ${blocks||'<p class="muted">No versions recorded yet — the first snapshot is taken when the app next starts or the recipe is next saved.</p>'}`);
+}
+window.recipeVersions=recipeVersions;
 function recipeDetails(id){
   const r=byId(id); if(!r) return; const allow=editingAllowed();
   const cur=(r.shelf_months!=null&&r.shelf_months!=='')?r.shelf_months:'';
@@ -1135,7 +1172,10 @@ function isoDate(t){ return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.
 function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function addDays(t,n){ const x=new Date(t.getFullYear(),t.getMonth(),t.getDate()); x.setDate(x.getDate()+n); return x; }
 function dispDate(t){ return t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
-function packSizeKg(label){ const m=/([\d.]+)\s*(kg|g)/i.exec(label||''); if(!m) return null; return m[2].toLowerCase()==='kg'? parseFloat(m[1]) : parseFloat(m[1])/1000; }
+function packSizeKg(label){ const s=String(label||'');
+  const multi=/(\d+)\s*[x×]\s*([\d.]+)\s*(kg|g)\b/i.exec(s);   // "2 x 400g" = 0.8 kg, not 0.4
+  if(multi) return (+multi[1])*(multi[3].toLowerCase()==='kg'? parseFloat(multi[2]) : parseFloat(multi[2])/1000);
+  const m=/([\d.]+)\s*(kg|g)\b/i.exec(s); if(!m) return null; return m[2].toLowerCase()==='kg'? parseFloat(m[1]) : parseFloat(m[1])/1000; }
 function weekObj(){ const k=isoDate(planWeek); if(!state.weekPlans[k]) state.weekPlans[k]={days:{}}; const w=state.weekPlans[k]; if(!w.days) w.days={}; if(!w.ops) w.ops={}; return w; }
 function dayJobs(idx){ const w=weekObj(); if(!w.days[idx]) w.days[idx]=[]; return w.days[idx]; }
 function dayOps(idx){ const w=weekObj(); return +(w.ops[idx])||2; }
@@ -1192,7 +1232,7 @@ function renderPalette(){
   const q=(document.getElementById('paletteSearch').value||'').toLowerCase().trim();
   const host=document.getElementById('paletteList'); host.innerHTML='';
   [...new Set(VREC().map(r=>r.brand))].forEach(br=>{
-    const list=VREC().filter(r=>r.brand===br && (!q || r.name.toLowerCase().includes(q) || br.toLowerCase().includes(q)));
+    const list=VREC().filter(r=>r.brand===br && (!q || r.name.toLowerCase().includes(q) || br.toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name));
     if(!list.length) return;
     const h=document.createElement('h5'); h.textContent=br; host.appendChild(h);
     list.forEach(r=>{
@@ -1207,7 +1247,7 @@ function renderPalette(){
 function renderBoard(){
   const board=document.getElementById('weekBoard'); board.innerHTML='';
   const recipeOpts='<option value="">+ add…</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>
-    '<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join('');
+    '<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join('');
   for(let idx=0;idx<5;idx++){
     const date=addDays(planWeek,idx);
     const jobs=dayJobs(idx);
@@ -1533,7 +1573,7 @@ function fillRecipeSelect(sel){
   sel.innerHTML='';
   [...new Set(VREC().map(r=>r.brand))].forEach(br=>{
     const og=document.createElement('optgroup'); og.label=br;
-    VREC().filter(r=>r.brand===br).forEach(r=>{ const o=document.createElement('option'); o.value=r.id; o.textContent=r.name; og.appendChild(o); });
+    VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name)).forEach(r=>{ const o=document.createElement('option'); o.value=r.id; o.textContent=r.name; og.appendChild(o); });
     sel.appendChild(og);
   });
 }
@@ -1928,6 +1968,7 @@ async function reloadRecipesLive(){
     const rows=await api('/api/recipes');
     if(Array.isArray(rows)){
       state.recipes=rows.map(r=>Object.assign({},r,{packs:r.packs||[],ingredients:r.ingredients||[]}));
+      snapServer();   // the pulled recipes are already on the server — without this, the next save() tried to re-create them and every save failed until a reload
       refreshAll(); renderForTab(SB_ACTIVE||'home');
     }
   }catch(err){ /* stay on current data if the fetch fails */ }
@@ -1995,7 +2036,9 @@ function fillPlanningCard(){
     +`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px">${chip(over.length,over.length===1?'overdue':'overdue','#c0563b')}${chip(tod.length,'due today','#e0a13f')}${(!over.length&&!tod.length)?'<span class="muted" style="font-size:13px">Nothing due right now — you’re on top of it.</span>':''}</div>`
     +rows;
 }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+/* today's LOCAL calendar date. (toISOString() is UTC — during British Summer Time it still says
+   "yesterday" between midnight and 1am, which put the wrong date and Julian code on baskets.) */
+function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function pop(html){ document.getElementById('modalInner').innerHTML=html; document.getElementById('modalBg').classList.add('open'); }
 async function api(path,method,body){
   const h={'Content-Type':'application/json'}; if(TOKEN) h['Authorization']='Bearer '+TOKEN;
@@ -2122,6 +2165,16 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v26', date:'18 Jul 2026', notes:[
+    'Full correctness audit — every calculation checked and the bugs found are fixed (details in AUDIT-FINDINGS.md).',
+    'Best-before dates: filling on the 29th/30th/31st no longer spills the date into the wrong month — 31 Aug + 18 months is now end of February, not 2 March. Shelf life stays 12 months (18 for Green Pantry) with the per-recipe override unchanged.',
+    'Julian codes & dates: baskets recorded just after midnight during British Summer Time no longer get the previous day’s date or batch code.',
+    'Stock history is now FROZEN: each batch permanently records what it consumed (with the recipe as it was that day). Editing a recipe only affects future batches — past stock never moves again. Existing records were locked in at their current figures; any differences were reported in the server log.',
+    'Recipe VERSIONS: every change to a recipe is snapshotted automatically. Open a recipe in the Recipe Library → “Version history” to see every version, what changed, when and by whom. New batches record the version they were made with.',
+    'Recipe Costing: recipes with unpriced ingredients are now clearly flagged as PROVISIONAL (they used to be silently costed as if those ingredients were free) — on the recipe, the Products table and the branded customer export. Renaming a recipe no longer breaks its link to past production. The costing backup file now includes cost profiles and categories.',
+    'KPI dashboard: “Total Despatched” now includes Blair despatch (it was silently ignored); the £/kg, rejects-% and absence-rate KPIs are now calculated as period totals (total £ ÷ total kg) instead of an average of daily rates, which overstated them on uneven weeks; fiscal weeks reset each August; the “+ add standard change” button on Settings works.',
+    'Weekly plan saving: a save no longer fails silently after Recipe Costing pushes a recipe change mid-session.'
+  ]},
   {v:'v25', date:'16 Jul 2026', notes:[
     'Email (Microsoft 365) — stage 1. HQ can now send emails through Wilsons’ own Microsoft 365. When someone assigns a Planning task to a colleague, that colleague gets a branded email about it. Everyone can have an email address on their account (Users → Edit), and there’s a new “Email (Microsoft 365)” panel on the Users screen with a Ready/Not-set-up status, a “Send test email” button, and a “Pause all emails” switch.',
     'This is OFF until connected: it needs a one-time Microsoft 365 app registration (see MICROSOFT-365-EMAIL-SETUP.md) and four settings added on Railway. Until then the app runs exactly as before — no emails are sent, nothing else changes.',
@@ -2215,7 +2268,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v25';
+const APP_VERSION='v26';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -2629,9 +2682,9 @@ document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.c
 
 function reloadStock(){ return api('/api/stock').then(s=>{ state.stock=s; }); }
 function deductionsFor(r,bags,pack){ const mix=bags*packSizeKg(pack); const base=baseKg(r)||100; return (r.ingredients||[]).map(li=>({ing_id:li.ingId,kg:+( mix*(+li.kg||0)/base ).toFixed(4)})); }
-function recSelectOptions(sel){ return '<option value="">— choose —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join(''); }
+function recSelectOptions(sel){ return '<option value="">— choose —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join(''); }
 function ingSelectOptions(){ return [...state.ingredients].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${i.id}">${escapeHtml(i.name)}</option>`).join(''); }
-function prodSelectOptions(sel){ return '<option value="">— choose product —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join(''); }
+function prodSelectOptions(sel){ return '<option value="">— choose product —</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>'<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${escapeHtml(r.brand+' — '+r.name)}</option>`).join('')+'</optgroup>').join(''); }
 
 /* ===== numeric keypad ===== */
 let _kpTarget=null,_kpBuf='';
@@ -2653,14 +2706,20 @@ let fillBasket=null, _fillTimer=null;
 function persistFill(){ try{ if(fillBasket && canEdit('filling')) localStorage.setItem('wpm_fillbasket', JSON.stringify(fillBasket)); }catch(e){} }
 function restoreFill(){ try{ const s=localStorage.getItem('wpm_fillbasket'); if(s){ const b=JSON.parse(s); if(b && typeof b==='object' && 'lines' in b) return b; } }catch(e){} return null; }
 function dropFill(){ try{ localStorage.removeItem('wpm_fillbasket'); }catch(e){} }
-function julianToday(){ const d=new Date(); const s=new Date(d.getFullYear(),0,0); const day=Math.floor((d-s)/86400000); return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }
+function julianToday(){ const d=new Date(); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const s=new Date(d.getFullYear(),0,1); const day=Math.round((t-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }   // Math.round absorbs the 1-hour DST offset that made the code a day out just after midnight in summer
 function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
 function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function exitFullscreen(){ try{ if(document.fullscreenElement && document.exitFullscreen){ const p=document.exitFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
 function hhmm(iso){ if(!iso)return''; try{ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return ''; } }
 function fmtDur(ms){ if(ms<0)ms=0; const s=Math.floor(ms/1000); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60; const pad=n=>String(n).padStart(2,'0'); return (h?h+':':'')+pad(m)+':'+pad(ss); }
-function addMonths(iso,m){ if(!iso)return''; const d=new Date(iso+'T00:00:00'); if(isNaN(d))return''; d.setMonth(d.getMonth()+m); return isoL(d); }
+/* add whole months for best-before. When the start day doesn't exist in the target month
+   (e.g. 31 Aug + 18 months → February), CLAMP to the last day of that month — never spill into
+   the month after (31 Aug + 18mo = 28/29 Feb, not 2 Mar). */
+function addMonths(iso,m){ if(!iso)return''; const d=new Date(iso+'T00:00:00'); if(isNaN(d))return'';
+  const day=d.getDate(); d.setDate(1); d.setMonth(d.getMonth()+m);
+  const last=new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  d.setDate(Math.min(day,last)); return isoL(d); }
 function shelfMonthsOf(r){ if(r&&r.shelf_months!=null&&r.shelf_months!=='') return +r.shelf_months; return (r&&r.brand==='Green Pantry')?18:12; }
 function bbForRecipe(r,filled){ return addMonths(filled,shelfMonthsOf(r)); }
 function signedTemp(mag,sign){ mag=(mag==null?'':(''+mag)).trim().replace(/^[-+]/,''); if(!mag)return''; return (sign==='-'?'-':'')+mag; }
@@ -3334,7 +3393,7 @@ async function undoProd(){ const e=prodUndo.pop(); if(!e){ updateUndoBtn(); retu
 }
 window.undoProd=undoProd;
 function isoL(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
-function packGrams(p){ const m=/([\d.]+)\s*kg/i.exec(p||''); if(m) return parseFloat(m[1])*1000; const g=/([\d.]+)\s*g/i.exec(p||''); return g?parseFloat(g[1]):0; }
+function packGrams(p){ const kg=packSizeKg(p); return kg?Math.round(kg*1000):0; }
 function prRangeBounds(){
   const preset=document.getElementById('prRange').value;
   const t=new Date(); const d=new Date(t.getFullYear(),t.getMonth(),t.getDate());
@@ -3519,7 +3578,7 @@ function editProd(id){
      <label class="fld">Fill finish<input id="epFF" value="${escapeHtml(p.fill_finish||'')}" style="width:130px"></label>
    </div>
    <label class="fld" style="margin-top:8px">Recompute stock from recipe (optional)<select id="epRec">${recOpts}</select></label>
-   <p class="hint">If a recipe is set, <b>kg</b> and the stock deduction are recalculated from Bags × bag size. Leave as “none” to just edit the figures (no stock change).</p>
+   <p class="hint">If a recipe is set, <b>kg</b> and the stock deduction are recalculated from Bags × bag size. Leave as “none” to just edit the figures — the batch keeps its recorded ingredient usage (scaled if you change the bag count).</p>
    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" id="epSave">Save changes</button><button class="btn ghost" onclick="closeModal()">Cancel</button><span class="hint" id="epMsg"></span></div>`);
   document.getElementById('epSave').onclick=async()=>{
     const recId=document.getElementById('epRec').value; const r=recId?byId(recId):null;
@@ -3793,7 +3852,7 @@ async function renderHomeComplaints(){
   const host=document.getElementById('homeComplaints'); if(!host) return;
   if(!COMPLAINTS){ try{ COMPLAINTS=await api('/api/complaints'); }catch(e){ host.innerHTML='<p class="muted">Could not load complaints.</p>'; return; } }
   const p=getPrefs(); const range=p.cRange||'30'; const types=p.cTypes||[];
-  const today=new Date(); const iso=d=>d.toISOString().slice(0,10);
+  const today=new Date(); const iso=d=>isoL(d);
   let from='';
   if(range==='month') from=iso(today).slice(0,8)+'01';
   else if(range==='year') from=iso(today).slice(0,4)+'-01-01';
@@ -3845,7 +3904,7 @@ const KPI_TEXT_FIELDS=new Set(['Reason — Ayr volume','Reason — Blair volume'
 /* friendly hints under the labour boxes */
 const KPI_HINTS={'Labour Hours Ayr Fill':'mince & pack','Labour Hours Ayr Cook':'cooking','Labour Hours Despatch':'Ayr despatch','Labour Hours Blair':'cold press production','Labour Hours Blair Despatch':'cold press despatch','Despatched Internally (kg)':'Ayr despatch kg'};
 let KPIRAW=null, kpiDate=null, kpiSaving=false;
-function kpiYesterday(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function kpiYesterday(){ const d=new Date(); d.setDate(d.getDate()-1); return isoL(d); }
 async function renderKpiInput(){
   const root=document.getElementById('rootKpiInput'); if(!root) return;
   if(!canEdit('kpiinput')&&!canEdit('kpi')&&!isAdmin()){ root.innerHTML='<p class="muted">You have view-only KPI access — ask an admin for the "KPI daily input" permission to enter numbers.</p>'; return; }
@@ -3862,7 +3921,7 @@ function kpiDayHasData(iso){ const i=(KPIRAW.dates||[]).indexOf(iso); if(i<0) re
 function drawKpiForm(){
   const root=document.getElementById('rootKpiInput'); if(!root) return;
   /* last 7 days at a glance: filled or missing */
-  const chips=[]; for(let n=1;n<=7;n++){ const d=new Date(); d.setDate(d.getDate()-n); const iso=d.toISOString().slice(0,10);
+  const chips=[]; for(let n=1;n<=7;n++){ const d=new Date(); d.setDate(d.getDate()-n); const iso=isoL(d);
     const has=kpiDayHasData(iso);
     chips.push(`<button class="btn ghost sm" style="${iso===kpiDate?'border-color:var(--coral);font-weight:700;':''}" onclick="kpiDate='${iso}';drawKpiForm();kpiAutoFill()">${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric'})} ${has?'<span style="color:#2e8b6f">●</span>':'<span style="color:#c0563b">○</span>'}</button>`); }
   const blocks=KPI_GROUPS.map(([title,cols])=>`
@@ -3909,7 +3968,7 @@ async function kpiAutoFill(){
   }catch(e){}
   try{
     const d=new Date(kpiDate+'T00:00:00'); const dow=(d.getDay()+6)%7;
-    const mon=new Date(d); mon.setDate(d.getDate()-dow); const wk=mon.toISOString().slice(0,10);
+    const mon=new Date(d); mon.setDate(d.getDate()-dow); const wk=isoL(mon);
     const plan=(state.weekPlans||{})[wk];
     if(plan&&plan.days){ const items=plan.days[String(dow)]||plan.days[dow]||[];
       const kg=items.reduce((a,it)=>a+Object.values(it.alloc||{}).reduce((s,v)=>s+(+v||0),0),0);

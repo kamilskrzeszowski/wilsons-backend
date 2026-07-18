@@ -340,33 +340,42 @@ const fmt = (v, uom, opts={}) => {
 const parseDate = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
 const monthKey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
 const monthLabel = d => d.toLocaleString("en-GB",{month:"short",year:"2-digit"});
+/* fiscal year runs 1 Aug – 31 Jul. v26: weeks and the year period now RESET each August
+   (they used to count on forever from Aug 2025, so FY27 data would have been mislabelled). */
+function fyStartOf(d){ const y = d.getMonth()>=7 ? d.getFullYear() : d.getFullYear()-1; return new Date(y,7,1); }
+function fyInfoOf(d){ const s=fyStartOf(d); const y2=s.getFullYear()+1;
+  return { key:"FY"+String(y2).slice(-2), label:"FY "+String(y2).slice(-2)+" (Aug "+String(s.getFullYear()).slice(-2)+"–Jul "+String(y2).slice(-2)+")", start:s }; }
 function fiscalWeek(d) {
-  const fyStart = new Date(2025,7,1);
-  const days = Math.floor((d - fyStart) / 86400000);
-  if (days < 3) return { wk:1, label:"Wk 1 (Aug 1–3)" };
-  const wk2start = new Date(2025,7,4);
-  const wk = 2 + Math.floor((d - wk2start)/86400000/7);
-  const start = new Date(wk2start.getTime() + (wk-2)*7*86400000);
-  const end = new Date(start.getTime() + 6*86400000);
+  const fyStart = fyStartOf(d);
   const f = x => x.toLocaleString("en-GB",{day:"numeric",month:"short"});
+  // week 1 = 1 Aug to the first Sunday; week 2 starts the first Monday (Math.round absorbs DST offsets)
+  const dow = (fyStart.getDay()+6)%7;                       // 0 = Monday
+  const wk2start = new Date(fyStart); wk2start.setDate(fyStart.getDate() + (dow===0?7:7-dow));
+  if (d < wk2start) { const e=new Date(wk2start); e.setDate(e.getDate()-1); return { wk:1, label:`Wk 1 (${f(fyStart)}–${f(e)})` }; }
+  const wk = 2 + Math.floor(Math.round((d - wk2start)/86400000)/7);
+  const start = new Date(wk2start); start.setDate(wk2start.getDate() + (wk-2)*7);
+  const end = new Date(start); end.setDate(start.getDate() + 6);
   return { wk, label:`Wk ${wk} (${f(start)}–${f(end)})` };
 }
 function buildPeriods() {
   const dates = DATA.dates.map(parseDate);
-  const months = {}, weeks = {};
+  const months = {}, weeks = {}, years = {};
+  let ord = 0;
   dates.forEach((d,i) => {
     const mk = monthKey(d);
     if(!months[mk]) months[mk]={key:mk,label:monthLabel(d),idx:[]};
     months[mk].idx.push(i);
-    const fw = fiscalWeek(d); const wk = "W"+fw.wk;
-    if(!weeks[wk]) weeks[wk]={key:wk,label:fw.label,idx:[]};
+    const fy = fyInfoOf(d);
+    const fw = fiscalWeek(d); const wk = fy.key+"-W"+fw.wk;
+    if(!weeks[wk]) weeks[wk]={key:wk,label:fw.label,idx:[],ord:fy.start.getTime()+fw.wk};
     weeks[wk].idx.push(i);
+    if(!years[fy.key]) years[fy.key]={key:fy.key,label:fy.label,idx:[]};
+    years[fy.key].idx.push(i);
   });
-  const allIdx = dates.map((_,i)=>i);
   return {
-    week: Object.values(weeks).sort((a,b)=>parseInt(a.key.slice(1))-parseInt(b.key.slice(1))),
+    week: Object.values(weeks).sort((a,b)=>a.ord-b.ord),
     month: Object.values(months),
-    year: [{key:"FY26",label:"FY 26 (Aug 25–Jul 26)",idx:allIdx}]
+    year: Object.values(years)
   };
 }
 function aggregate(values, idx, agg) {
@@ -374,6 +383,16 @@ function aggregate(values, idx, agg) {
   if (!vs.length) return null;
   if (agg === "mean") return vs.reduce((s,v)=>s+v,0)/vs.length;
   return vs.reduce((s,v)=>s+v,0);
+}
+/* v26: rate KPIs (£/kg, rejects %, absence %) aggregate as TOTAL ÷ TOTAL over the period, not an
+   average of daily rates — averaging over-weighted tiny days (a £200/250kg Friday used to drag a
+   week's £0.21/kg up to £0.32/kg). KPIs carrying num/den arrays use them; everything else as before. */
+function aggKpi(k, idx) {
+  if (k.num && k.den) {
+    const n = aggregate(k.num, idx, "sum"), d = aggregate(k.den, idx, "sum");
+    return (n == null || d == null || d === 0) ? null : n / d;
+  }
+  return aggregate(k.actual, idx, k.agg);
 }
 function rag(actual, target, direction, kind) {
   if (kind === "variance") {
@@ -467,13 +486,23 @@ function buildData(){
   const absRate = G("Absence Hours").map((ab,i)=> pct(ab, denom(i)));
   const holUse  = G("Holiday Hours").map((ho,i)=> pct(ho, denom(i)));
   const rejPct  = G("Fresh/Cooked Rejects (kg)").map((rj,i)=> pct(rj, G("Fresh/Cooked Produced (kg)")[i]));
+  /* numerator/denominator pairs for the rate KPIs — periods aggregate these as total ÷ total (see aggKpi) */
+  const denomArr = RAW.dates.map((_,i)=> denom(i));
+  const RATIOS = {
+    "Cold Press Labour £/kg":   {num:sB, den:numArr("Cold Pressed Produced (kg)")},
+    "Fresh/Cooked Labour £/kg": {num:sA, den:numArr("Fresh/Cooked Produced (kg)")},
+    "Despatch Labour £/kg":     {num:sD, den:numArr("Despatched Internally (kg)")},
+    "Fresh/Cooked Rejects %":        {num:numArr("Fresh/Cooked Rejects (kg)"), den:numArr("Fresh/Cooked Produced (kg)")},
+    "Absenteeism Rate":              {num:numArr("Absence Hours"), den:denomArr},
+    "Holiday Usage":                 {num:numArr("Holiday Hours"), den:denomArr}
+  };
   const computed = {
     "Accidents":G("Accidents"), "Riddors":G("Riddors"), "Near Miss Incidents":G("Near Miss Incidents"),
     "Customer Complaints":addA(G("D2C Complaints"),G("Trade Complaints")), "D2C Complaints":G("D2C Complaints"), "Trade Complaints":G("Trade Complaints"), "Amazon Complaints":G("Amazon Complaints"),
     "Total Labour Spend":sT, "Cold Press Labour \u00a3/kg":divA(sB,G("Cold Pressed Produced (kg)")),
     "Fresh/Cooked Labour \u00a3/kg":divA(sA,G("Fresh/Cooked Produced (kg)")), "Despatch Labour \u00a3/kg":divA(sD,G("Despatched Internally (kg)")),
     "Cold Pressed Produced":G("Cold Pressed Produced (kg)"), "Fresh/Cooked Produced":G("Fresh/Cooked Produced (kg)"),
-    "Total Despatched":addA(G("Despatched Internally (kg)"),G("Despatched 3PL (kg)")), "Fresh/Cooked Rejects %":rejPct,
+    "Total Despatched":addA(addA(G("Despatched Internally (kg)"),G("Despatched Blair (kg)")),G("Despatched 3PL (kg)")), "Fresh/Cooked Rejects %":rejPct,   // v26: Blair despatch was silently missing from the total
     "Training Hours Completed":G("Training Hours"), "Absenteeism Rate":absRate, "Holiday Usage":holUse,
     "Orders Late >24hrs (DC2)":G("Orders Late >24hrs (DC2)"), "Orders Late >48hrs (Trade)":G("Orders Late >48hrs (Trade)"),
     "Trade Sales (Indep/Multis)":G("Trade Sales \u00a3 (Indep/Multis)"), "New Customers":G("New Customers"),
@@ -502,7 +531,8 @@ function buildData(){
     else if (volTargetKPI[m.name]) target = volTargetKPI[m.name];
     else if (budgets[m.name]) target = budgets[m.name];
     else { target = RAW.dates.map(iso=>{ const tv = targetFor(m.name, iso); return tv==null?0:tv; }); }
-    return {group:m.group,name:m.name,uom:m.uom,agg:m.agg,kind:m.kind,direction:m.direction,actual,target};
+    const rt = RATIOS[m.name];
+    return {group:m.group,name:m.name,uom:m.uom,agg:m.agg,kind:m.kind,direction:m.direction,actual,target,num:rt&&rt.num,den:rt&&rt.den};
   });
   DATA = {dates:RAW.dates, kpis};
   PERIODS = buildPeriods();
@@ -591,7 +621,7 @@ function renderSummary() {
   const period = getPeriod();
   const visible = displayedKpis();
   const ragCounts = { green:0, amber:0, red:0, grey:0 };
-  visible.forEach(k => { ragCounts[rag(aggregate(k.actual,period.idx,k.agg), aggregate(k.target,period.idx,k.agg), k.direction, k.kind)]++; });
+  visible.forEach(k => { ragCounts[rag(aggKpi(k,period.idx), aggregate(k.target,period.idx,k.agg), k.direction, k.kind)]++; });
   document.getElementById("summary").innerHTML = `
     <div class="card"><div class="label">Period</div><div class="val">${period.label}</div><div class="sub">${period.idx.length} day${period.idx.length===1?"":"s"}</div></div>
     <div class="card" style="border-color:rgba(34,197,94,.4)"><div class="label">On Track</div><div class="val" style="color:var(--green)">${ragCounts.green}</div><div class="sub">at or beating target</div></div>
@@ -605,7 +635,7 @@ function renderGrid() {
   const visible = displayedKpis();
   document.getElementById("empty").style.display = visible.length ? "none" : "block";
   visible.forEach((k, idx) => {
-    const a = aggregate(k.actual, period.idx, k.agg), t = aggregate(k.target, period.idx, k.agg);
+    const a = aggKpi(k, period.idx), t = aggregate(k.target, period.idx, k.agg);
     const status = rag(a, t, k.direction, k.kind), dpct = deltaPct(a, t);
     const card = document.createElement("div"); card.className = "kpi " + status;
     card.setAttribute("draggable","true"); card.dataset.name = k.name;
@@ -628,7 +658,7 @@ function renderGrid() {
     card.addEventListener("dragleave", () => card.classList.remove("dragover"));
     card.addEventListener("drop", (e) => { e.preventDefault(); card.classList.remove("dragover"); reorderKpi(dragName, k.name); });
     grid.appendChild(card);
-    const trend = periods.map(p => aggregate(k.actual, p.idx, k.agg));
+    const trend = periods.map(p => aggKpi(k, p.idx));
     new Chart(card.querySelector(`#spark-${idx}`), {
       type:"line",
       data:{ labels: periods.map(p=>p.key), datasets:[{ data:trend, borderColor:isVar?"#f59e0b":"#f37d89",
@@ -646,7 +676,7 @@ function openDetail(k) {
     (isVar ? " · Variance: positive = over budget, negative = under budget" : ` · Higher is ${k.direction==="higher"?"better":"worse"}`);
   document.getElementById("modalDesc").textContent = desc;
   const labels = periods.map(p => p.label);
-  const actuals = periods.map(p => aggregate(k.actual, p.idx, k.agg));
+  const actuals = periods.map(p => aggKpi(k, p.idx));
   const targets = periods.map(p => aggregate(k.target, p.idx, k.agg));
   if (charts.modal) charts.modal.destroy();
   const datasets = isVar
@@ -669,7 +699,7 @@ function renderMiniStrip(){
   const picks=(KPI_QS.get('pick')||'').split('||').filter(Boolean);   // URLSearchParams has already decoded the names
   const list=(picks.length? picks.map(n=>DATA.kpis.find(k=>k.name===n)).filter(Boolean) : DATA.kpis.filter(k=>SETTINGS.visible[k.name]!==false).slice(0,6));
   host.innerHTML=list.map(k=>{
-    const a=aggregate(k.actual,period.idx,k.agg), t=aggregate(k.target,period.idx,k.agg);
+    const a=aggKpi(k,period.idx), t=aggregate(k.target,period.idx,k.agg);
     const status=rag(a,t,k.direction,k.kind);
     const isVar=k.kind==='variance';
     const cls=isVar&&a!==null?(a>0?'pos':a<0?'neg':''):'';
@@ -778,11 +808,12 @@ function renderSettings(){
 
   v.querySelectorAll("[data-add]").forEach(b=> b.onclick = ()=>{
     const site=b.getAttribute("data-add");
-  v.querySelectorAll("[data-stdadd]").forEach(b=> b.onclick=()=>{ const k=b.dataset.stdadd; SETTINGS.allowance=SETTINGS.allowance||{}; (SETTINGS.allowance[k]=SETTINGS.allowance[k]||[]).push({from:new Date().toISOString().slice(0,10),gbpkg:0}); renderSettings(); });
     SETTINGS.rates = readRates();           // capture current edits for all sites
     SETTINGS.rates[site].push({from:"2026-06-01",rate:16.8});
     renderSettings();
   });
+  // v26: this was accidentally nested inside the handler above, so "+ add standard change" never worked
+  v.querySelectorAll("[data-stdadd]").forEach(b=> b.onclick=()=>{ const k=b.dataset.stdadd; readSettingsFromDom(); SETTINGS.allowance=SETTINGS.allowance||{}; (SETTINGS.allowance[k]=SETTINGS.allowance[k]||[]).push({from:new Date().toISOString().slice(0,10),gbpkg:0}); renderSettings(); });
   v.querySelectorAll("[data-remove]").forEach(b=> b.onclick = ()=>{
     const [site,i]=b.getAttribute("data-remove").split("|");
     SETTINGS.rates = readRates();           // capture current edits for all sites

@@ -220,7 +220,7 @@ dialog .btn{margin-top:8px;margin-right:8px}
     <button class="databtn" onclick="exportAllData()" title="Download every costing figure as one file — a backup you can keep">⤓ Save data</button>
     <button class="databtn" onclick="importAllData()" title="Load a costing data file saved earlier (replaces the current costing figures; production data is never affected)">⤒ Load data</button>
     <span id="costSync" class="syncstate" style="display:none"></span>
-    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v23</span>
+    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v26</span>
   </nav>
 </header>
 <main id="main"></main>
@@ -286,8 +286,37 @@ let KV = {};            // in-memory copy of the shared data
 let _dirty = {};        // keys changed here, waiting to be saved
 let _saveT = null;
 function kvGet(k){ if(SHARED) return (k in KV)?KV[k]:null; try{return localStorage.getItem(k)}catch(e){return null} }
-function kvSet(k,v){ if(SHARED){ KV[k]=String(v); _dirty[k]=1; scheduleSave(); } else { try{localStorage.setItem(k,v)}catch(e){} } }
+/* Keys that are simple name→value maps are saved as MERGE operations: only the entries this
+   browser actually changed are sent, and the server folds them into its copy. Without this, a
+   browser holding a stale copy (a tab open overnight, a tablet waking from sleep) that saved one
+   price would overwrite the WHOLE list — silently wiping prices other people had typed since. */
+const MERGE_KEYS=new Set(['wpf_prices','wpf_ship','wpf_supnames','wpf_renames','wpf_tilecolors','wpf_reccat','wpf_recprofile','wpf_reccost']);
+function kvSet(k,v){
+  if(!SHARED){ try{localStorage.setItem(k,v)}catch(e){} return; }
+  if(MERGE_KEYS.has(k)){
+    let oldO=null,newO=null;
+    try{ oldO=JSON.parse(KV[k]||'{}'); }catch(e){ oldO={}; }
+    try{ newO=JSON.parse(String(v)); }catch(e){ newO=null; }
+    if(oldO&&typeof oldO==='object'&&!Array.isArray(oldO)&&newO&&typeof newO==='object'&&!Array.isArray(newO)){
+      const m=(_dirty[k]&&typeof _dirty[k]==='object')?_dirty[k]:{set:{},del:[]};
+      Object.keys(newO).forEach(n=>{ if(JSON.stringify(oldO[n])!==JSON.stringify(newO[n])){ m.set[n]=newO[n]; const di=m.del.indexOf(n); if(di>=0)m.del.splice(di,1); } });
+      Object.keys(oldO).forEach(n=>{ if(!(n in newO)){ if(m.del.indexOf(n)<0)m.del.push(n); delete m.set[n]; } });
+      KV[k]=String(v); _dirty[k]=m; scheduleSave(); return;
+    }
+  }
+  KV[k]=String(v); _dirty[k]=1; scheduleSave();
+}
 function kvRemove(k){ if(SHARED){ delete KV[k]; _dirty[k]=1; scheduleSave(); } else { try{localStorage.removeItem(k)}catch(e){} } }
+/* the payload for a save: merge ops for map keys, whole values for everything else */
+function dirtyPayload(){
+  const data={};
+  Object.keys(_dirty).forEach(k=>{
+    const m=_dirty[k];
+    if(m&&typeof m==='object') data[k]={__merge:1,set:m.set,del:m.del};
+    else data[k]=(k in KV)?KV[k]:null;
+  });
+  return data;
+}
 async function kvApi(method,body){
   const r = await fetch('/api/costing',{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},body:body?JSON.stringify(body):undefined});
   if(!r.ok) throw new Error('HTTP '+r.status);
@@ -297,11 +326,13 @@ function setSyncState(s,msg){ const el=document.getElementById('costSync'); if(!
 function scheduleSave(){ setSyncState('saving','Saving…'); clearTimeout(_saveT); _saveT=setTimeout(saveDirty,600); }
 async function saveDirty(){
   const keys=Object.keys(_dirty); if(!keys.length) return;
-  const data={}; keys.forEach(k=>{ data[k]=(k in KV)?KV[k]:null; });
+  const data=dirtyPayload();
   try{ await kvApi('PUT',{data}); keys.forEach(k=>delete _dirty[k]); setSyncState('saved','● Shared'); }
   catch(e){ setSyncState('offline','Save failed — retrying'); clearTimeout(_saveT); _saveT=setTimeout(saveDirty,4000); }
 }
-window.addEventListener('beforeunload',()=>{ if(SHARED&&Object.keys(_dirty).length){ try{ navigator.sendBeacon&&saveDirty(); }catch(e){} } });
+window.addEventListener('beforeunload',()=>{ if(SHARED&&Object.keys(_dirty).length){ try{
+  fetch('/api/costing',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},body:JSON.stringify({data:dirtyPayload()}),keepalive:true});   // keepalive lets the save finish even as the tab closes
+}catch(e){} } });
 /* warn before refresh / closing the tab while a recipe is being edited */
 window.addEventListener('beforeunload',e=>{ if(typeof view!=='undefined' && view==='builder' && typeof builderDirty!=='undefined' && builderDirty){ e.preventDefault(); e.returnValue=''; } });
 /* pick up other people's changes every 15s (skipped while you're mid-edit) */
@@ -362,7 +393,11 @@ const store = {
   get costProfiles(){ try{const v=JSON.parse(kvGet('wpf_costprofiles')); if(Array.isArray(v)) return v;}catch(e){} return JSON.parse(JSON.stringify(DEFAULT_COST_PROFILES)); },
   set costProfiles(v){ kvSet('wpf_costprofiles', JSON.stringify(v)) },
   get recipeProfile(){ try{return JSON.parse(kvGet('wpf_recprofile')||'{}')}catch(e){return{}} },   // recipe name -> profile id ('' = standard)
-  set recipeProfile(v){ kvSet('wpf_recprofile', JSON.stringify(v)) }
+  set recipeProfile(v){ kvSet('wpf_recprofile', JSON.stringify(v)) },
+  /* renames waiting to be told to the app, so the app renames its recipe row IN PLACE
+     (same id — production history and plans stay linked). Cleared after a successful sync. */
+  get pendingRenames(){ try{const v=JSON.parse(kvGet('wpf_pendrenames')||'[]'); return Array.isArray(v)?v:[];}catch(e){return[]} },
+  set pendingRenames(v){ kvSet('wpf_pendrenames', JSON.stringify(v)) }
 };
 const DEFAULT_COST_PROFILES = [
   {id:'freshamb', name:'Fresh Frozen / Ambient', items:[
@@ -463,6 +498,25 @@ function recipeCost(r, mode){
   },0);
   return sub/(r.batchSize||1000);
 }
+/* Ingredients in a recipe that carry NO price (they'd silently be costed at £0.00).
+   Any recipe with these is PROVISIONAL — flagged on the recipe, the Products table and
+   the branded customer export, so an understated cost can never look final. */
+function recipeUnpriced(r, mode){
+  const out=[];
+  (r.ingredients||[]).forEach(i=>{
+    const fb = r.custom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? 0);
+    const p = linePrice(i.name, fb, mode).p;
+    if(!(p>0)) out.push(dispName(i.name));
+  });
+  return out;
+}
+function unpricedBanner(list){
+  if(!list.length) return '';
+  return `<div style="background:#fdf0e7;border:1px solid #e7c3ab;color:#9c4a1f;border-radius:10px;padding:9px 13px;margin:0 0 12px;font-size:13px">
+    ⚠ <b>Provisional costing</b> — ${list.length} ingredient${list.length===1?' has':'s have'} no price and count as £0.00:
+    <b>${list.slice(0,6).map(esc).join(', ')}${list.length>6?' +'+(list.length-6)+' more':''}</b>.
+    Set prices on the <b>Ingredients</b> tab (or log a purchase) and this recipe reprices automatically.</div>`;
+}
 /* full cost build-up for one pack of a recipe.
    Items with std:true apply automatically; others only if selected on the pack.
    basis: 'pct' = % of materials, 'kg' = £ × pack kg, 'pack' = £ per pack. */
@@ -500,7 +554,8 @@ function packTotals(perKg, p, prof){
 }
 
 /* ---------- whole-app data backup (all costing figures saved in this browser) ---------- */
-const WPF_KEYS=['wpf_custom','wpf_prices','wpf_purchases','wpf_ship','wpf_costitems','wpf_supdb','wpf_tilecolors','wpf_recedits','wpf_reccost','wpf_renames','wpf_supnames','wpf_customings'];
+const WPF_KEYS=['wpf_custom','wpf_prices','wpf_purchases','wpf_ship','wpf_costitems','wpf_supdb','wpf_tilecolors','wpf_recedits','wpf_reccost','wpf_renames','wpf_supnames','wpf_customings',
+  'wpf_categories','wpf_reccat','wpf_deleted','wpf_costprofiles','wpf_recprofile'];   // v26: these five were missing, so a Save-data backup silently lost categories, the recycle bin, cost profiles & profile assignments
 function exportAllData(){
   const o={__wilsonsCosting:1, exported:new Date().toISOString()};
   WPF_KEYS.forEach(k=>{ const v=kvGet(k); if(v!=null) o[k]=v; });
@@ -557,15 +612,16 @@ let prodFilter='', prodCatFilter='', prodBrandFilter='';
 function prodBrandOf(name){ const r=findRecipe(name); return (r&&r.brand)||costingBrandOf(name); }
 function productRows(){
   const out=[];
-  allRecipes()
+  allRecipes().slice().sort((a,b)=>a.name.localeCompare(b.name))
     .filter(r=>!prodCatFilter || catOf(r.name)===prodCatFilter)
     .filter(r=>!prodBrandFilter || ((r.brand||costingBrandOf(r.name))===prodBrandFilter))
     .forEach(r=>{
     const st = rcState(r.name);
     const per = recipeCost(r, recMode);
-    if(!st.packs.length){ out.push({name:r.name, none:true}); }
+    const unp = recipeUnpriced(r, recMode);
+    if(!st.packs.length){ out.push({name:r.name, none:true, unp}); }
     else st.packs.forEach(p=>{
-      out.push({name:r.name, pid:p.id, kg:p.kg, sell:p.sell, sellTrade:p.sellTrade, ...packTotals(per, p, profileFor(r.name))});
+      out.push({name:r.name, pid:p.id, kg:p.kg, sell:p.sell, sellTrade:p.sellTrade, unp, ...packTotals(per, p, profileFor(r.name))});
     });
   });
   return out;
@@ -604,7 +660,7 @@ function productsView(){
     const key = p.name+'||'+p.pid;
     const selTd = selCol?`<td class="no-print"><input type="checkbox" ${prodSel.has(key)?'checked':''} onchange="toggleProdSel('${esc(key).replace(/'/g,"\\'")}')"></td>`:'';
     if(CH==='both') return `<tr${g}>${selTd}
-      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}</td>
+      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
       <td class="num">${NUM(p.kg)}</td>
       <td class="num"><b>${GBP2(p.d2c.tot)}</b></td>
       <td class="num">${sellInput(p,'sell',p.sell)}</td>
@@ -616,7 +672,7 @@ function productsView(){
     const sellField = CH==='d2c'?'sell':'sellTrade';
     const sellVal = CH==='d2c'?p.sell:p.sellTrade;
     return `<tr${g}>${selTd}
-      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}</td>
+      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
       <td class="num">${NUM(p.kg)}</td><td class="num">${GBP2(p.mat)}</td><td class="num">${GBP2(p.waste)}</td>
       <td class="num">${GBP2(p.lab)}</td><td class="num">${GBP2(p.ovh)}</td><td class="num">${GBP2(p.ele)}</td>
       <td class="num">${GBP2((p.other - p.d2c.extras) + c.extras)}</td><td class="num"><b>${GBP2(c.tot)}</b></td>
@@ -747,30 +803,43 @@ function downloadXlsx(filename, sheetName, rows){
 }
 
 /* ================= INGREDIENTS ================= */
-let ingFilter='', ingSort={col:null,dir:1}, ING_VIEW=[];
+let ingFilter='', ingProcFilter='', ingSort={col:null,dir:1}, ING_VIEW=[];
+/* which recipes use each ingredient (keyed by the ingredient's ORIGINAL name, like recipe lines) */
+function ingUsageMap(){
+  const m={};
+  allRecipes().forEach(r=>{ (r.ingredients||[]).forEach(li=>{ if(li.name) (m[li.name]=m[li.name]||[]).push(r); }); });
+  return m;
+}
 function ingRows(){
+  const usage=ingUsageMap();
   return allIngs().map(i=>{
     const base = ingBase(i.name);
     const ship = ingShip(i.name);
     const target = targetPrice(i.name);
     const actual = actualPrice(i.name);
     const variance = (target&&actual!=null) ? (actual-target)/target : null;
-    return {...i, key:i.name, disp:dispName(i.name), sup:supOf(i), base, ship, shipT: ship*1000, target, actual, variance, nPurch: ingPurchases(i.name).length};
+    const recs = usage[i.name]||[];
+    const procs = [...new Set(recs.map(r=>catName(catOf(r.name))||'—'))].sort().join(' + ');
+    return {...i, key:i.name, disp:dispName(i.name), sup:supOf(i), base, ship, shipT: ship*1000, target, actual, variance, nPurch: ingPurchases(i.name).length,
+      recs, nRecs:recs.length, procs: procs||'—'};
   });
 }
 function ingredientsView(){
   let rows = ingRows().filter(i=>i.disp.toLowerCase().includes(ingFilter.toLowerCase()) || (i.sup||'').toLowerCase().includes(ingFilter.toLowerCase()));
+  if(ingProcFilter) rows = rows.filter(i=> ingProcFilter==='__unused' ? !i.nRecs : i.recs.some(r=>catOf(r.name)===ingProcFilter));
   if(ingSort.col){
     rows=[...rows].sort((a,b)=>{const va=a[ingSort.col],vb=b[ingSort.col];
       if(typeof va==='string'||typeof vb==='string') return ingSort.dir*String(va??'').localeCompare(String(vb??''));
       return ingSort.dir*((va??-1e18)-(vb??-1e18));});
+  } else {
+    rows=[...rows].sort((a,b)=>a.disp.localeCompare(b.disp));   // always alphabetical unless a column is chosen
   }
   ING_VIEW = rows;
   const suppliers = [...new Set(ingRows().map(i=>i.sup).filter(Boolean))].sort();
-  const cols=[['disp','Ingredient'],['sup','Supplier'],['base','Target £/kg (ex del.)'],['ship','Delivery £/kg'],['shipT','Delivery £/t'],['target','Target £/kg delivered'],['actual','Actual £/kg delivered'],['variance','Variance'],['nPurch','Purchases'],['monthlyUsageKg','Usage kg/mo']];
+  const cols=[['disp','Ingredient'],['sup','Supplier'],['procs','Used in (process)'],['nRecs','Recipes'],['base','Target £/kg (ex del.)'],['ship','Delivery £/kg'],['shipT','Delivery £/t'],['target','Target £/kg delivered'],['actual','Actual £/kg delivered'],['variance','Variance'],['nPurch','Purchases'],['monthlyUsageKg','Usage kg/mo']];
   const body = rows.map((i,x)=>{
     const vcol = i.variance==null?'':(i.variance>0.0005?'style="color:var(--warn);font-weight:600"':(i.variance<-0.0005?'style="color:var(--ok);font-weight:600"':''));
-    return `<tr><td class="pname"><input type="text" value="${esc(i.disp)}" style="width:100%;min-width:190px;text-align:left;font-weight:500" onchange="ingEditName(${x},this.value)">${i.custom?'<span class="tag-custom">custom</span>':''}</td>
+    return `<tr><td class="pname"><input type="text" value="${esc(i.disp)}" style="width:100%;min-width:190px;text-align:left;font-weight:500" onchange="ingEditName(${x},this.value)"></td>
     <td>${(()=>{
       const quotes = store.supplierDB.filter(e=>e.ing===i.key);
       const names = [...new Set([i.sup, ...quotes.map(e=>e.supplier)])].filter(Boolean);
@@ -781,6 +850,8 @@ function ingredientsView(){
         <option value="__new">+ add a supplier…</option>
       </select>`;
     })()}</td>
+    <td style="white-space:nowrap;font-size:12px">${esc(i.procs)}</td>
+    <td class="num"><button class="btn small ${i.nRecs?'':'ghost'}" title="Show the recipes this ingredient is used in" onclick="viewIngRecipes(${x})">${i.nRecs||'—'}${i.nRecs?' ▸':''}</button></td>
     <td class="num"><input type="number" step="0.001" value="${i.base!=null?(+i.base).toFixed(3):''}" onchange="ingSetPrice(${x},this.value)"></td>
     <td class="num"><input type="number" step="0.001" value="${(+i.ship).toFixed(3)}" onchange="ingSetShip(${x},this.value)"></td>
     <td class="num">${GBP2(i.shipT)}</td>
@@ -802,6 +873,11 @@ function ingredientsView(){
   </div>
   <div class="toolbar">
     <input type="text" id="ingSearch" placeholder="Search ingredients or suppliers…" value="${esc(ingFilter)}" oninput="ingFilter=this.value;refresh()">
+    <select onchange="ingProcFilter=this.value;refresh()" title="Show only ingredients used in this process">
+      <option value="">All processes</option>
+      ${catList().map(c=>`<option value="${esc(c.id)}"${ingProcFilter===c.id?' selected':''}>Used in ${esc(c.name)}</option>`).join('')}
+      <option value="__unused"${ingProcFilter==='__unused'?' selected':''}>Not used in any recipe</option>
+    </select>
     <button class="btn accent no-print" onclick="viewPurchases('')">+ Log a purchase</button>
     <button class="btn ghost" onclick="exportIngredients()">Export CSV</button>
     <button class="btn ghost no-print" onclick="resetPrices()">Reset targets</button>
@@ -823,6 +899,24 @@ function ingredientsView(){
   <p class="muted" style="margin-top:10px">The <b>Supplier</b> dropdown lists every supplier quoting for that ingredient (from the Suppliers tab) — picking one sets the target price and delivery to that supplier's quote, and every recipe and product reprices automatically. <b>Actual £/kg</b> is the weighted average delivered cost of logged purchases.</p>`;
 }
 function sortIng(col){ ingSort = ingSort.col===col?{col,dir:-ingSort.dir}:{col,dir:1}; refresh(); }
+/* which recipes use this ingredient — with the process and the kg per batch, click through to the recipe */
+function viewIngRecipes(x){
+  const i=ING_VIEW[x]; if(!i) return;
+  const recs=(i.recs||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const dlg=document.getElementById('ingUseDlg')||(()=>{ const d=document.createElement('dialog'); d.id='ingUseDlg'; d.style.cssText='border:none;border-radius:14px;padding:0;max-width:620px;width:94%;max-height:80vh'; document.body.appendChild(d); return d; })();
+  dlg.innerHTML=`<div style="padding:20px 22px;overflow-y:auto;max-height:calc(80vh - 40px)">
+    <h2 style="margin:0 0 4px">${esc(i.disp)}</h2>
+    <p class="muted" style="margin:0 0 14px">Used in <b>${recs.length}</b> recipe${recs.length===1?'':'s'}${i.procs&&i.procs!=='—'?' · '+esc(i.procs):''}.</p>
+    ${recs.length?`<table><thead><tr><th>Recipe</th><th>Process</th><th class="num">kg / batch</th><th class="num">% of mix</th><th class="no-print"></th></tr></thead><tbody>
+      ${recs.map(r=>{ const li=(r.ingredients||[]).find(g=>g.name===i.key); const tot=(r.ingredients||[]).reduce((a,g)=>a+(+g.kg||0),0);
+        return `<tr><td class="pname">${esc(r.name)}</td><td>${esc(catName(catOf(r.name))||'—')}</td>
+          <td class="num">${NUM(li?+li.kg:null)}</td><td class="num">${li&&tot>0?fmtPct((+li.kg||0)/tot*100):'—'}</td>
+          <td class="no-print"><button class="btn small" onclick="document.getElementById('ingUseDlg').close();show('recipeDetail','${esc(r.name).replace(/'/g,"\\'")}')">Open</button></td></tr>`; }).join('')}
+      </tbody></table>`:'<p class="muted">Not used in any recipe yet.</p>'}
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="document.getElementById('ingUseDlg').close()">Close</button></div></div>`;
+  if(!dlg.open) dlg.showModal();
+}
+window.viewIngRecipes=viewIngRecipes;
 function ingEditName(x,val){
   const i = ING_VIEW[x]; val = val.trim();
   if(!val){ refresh(); return; }
@@ -910,8 +1004,8 @@ function setShip(name,val){
 }
 function resetPrices(){ if(confirm('Reset all edited target prices and delivery costs back to spreadsheet values?')){store.priceOverrides={};store.shipOverrides={};refresh();} }
 function exportIngredients(){
-  downloadCSV('wilsons-ingredients.csv',[['Ingredient','Supplier','Target £/kg ex delivery','Delivery £/kg','Delivery £/tonne','Target £/kg delivered','Actual £/kg delivered (avg of purchases)','Variance %','Purchases','Monthly usage kg'],
-   ...ingRows().map(i=>[i.disp,i.sup,i.base,i.ship,i.shipT,i.target,i.actual!=null?i.actual.toFixed(4):'',i.variance!=null?(i.variance*100).toFixed(2):'',i.nPurch,i.monthlyUsageKg])]);
+  downloadCSV('wilsons-ingredients.csv',[['Ingredient','Supplier','Used in (process)','Recipes','Target £/kg ex delivery','Delivery £/kg','Delivery £/tonne','Target £/kg delivered','Actual £/kg delivered (avg of purchases)','Variance %','Purchases','Monthly usage kg'],
+   ...ingRows().sort((a,b)=>a.disp.localeCompare(b.disp)).map(i=>[i.disp,i.sup,i.procs,i.nRecs,i.base,i.ship,i.shipT,i.target,i.actual!=null?i.actual.toFixed(4):'',i.variance!=null?(i.variance*100).toFixed(2):'',i.nPurch,i.monthlyUsageKg])]);
 }
 
 /* ================= PURCHASES ================= */
@@ -920,7 +1014,7 @@ function viewPurchases(name){ purFilter=name||''; show('purchases'); }
 function purchasesView(){
   const all = [...store.purchases].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
   const rows = all.filter(p=>dispName(p.ing).toLowerCase().includes(purFilter.toLowerCase()));
-  const opts = allIngs().map(i=>`<option value="${esc(dispName(i.name))}">`).join('');
+  const opts = allIngs().map(i=>dispName(i.name)).sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
   const totSpend = rows.reduce((a,p)=>a+p.kg*(p.perKg+(p.delPerKg||0)),0);
   const totKg = rows.reduce((a,p)=>a+p.kg,0);
   const today = new Date().toISOString().slice(0,10);
@@ -1073,8 +1167,17 @@ async function syncRecipesToApp(adopt){
       packs:(rcState(r.name).packs||[]).map(p=>+p.kg).filter(Boolean),
       ingredients:(r.ingredients||[]).map(i=>({name:dispName(i.name), kg:+i.kg||0})).filter(i=>i.name&&i.kg>0)
     }));
-    const r=await fetch('/api/costing-recipe-sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},body:JSON.stringify(adopt?{recipes,adopt:true}:{recipes})});
+    /* deletions are EXPLICIT (the recycle bin), sent every sync — the server no longer deletes
+       "anything missing from the push", which could destroy a recipe another user had just made */
+    const deleted=store.deletedRecipes.map(d=>({
+      name:(d.appName!=null?d.appName:(d.data&&d.data.appName)||d.name),
+      brand:(d.brand!=null?d.brand:(d.data&&d.data.brand)||costingBrandOf(d.name))
+    }));
+    const renames=store.pendingRenames;
+    const r=await fetch('/api/costing-recipe-sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},
+      body:JSON.stringify(Object.assign({recipes,deleted,renames},adopt?{adopt:true}:{}))});
     if(!r.ok) throw new Error('HTTP '+r.status);
+    if(renames.length) store.pendingRenames=[];   // applied in place on the server — done
     /* tell the main app to refresh its Recipe Library / Mixing Sheets straight away (no browser reload) */
     try{ parent.postMessage({recipesSynced:true},'*'); }catch(err){}
   }catch(e){ console.warn('recipe sync to app failed:', e.message); }
@@ -1158,7 +1261,7 @@ function recipeTileHTML(r){
     <div class="band" style="background:${c}"><h3>${esc(label)}</h3></div>
     <div class="body">
       <div class="catlabel">${esc(catName(catOf(r.name))||'—')}</div>
-      <div class="big">${GBP(std)}<span> / kg standard</span></div>
+      <div class="big">${GBP(std)}<span> / kg standard</span>${recipeUnpriced(r,'std').length?' <span title="Provisional — has unpriced ingredients" style="font-size:15px;color:#c0554f">⚠</span>':''}</div>
       <div class="kv"><span>Actual (purchases)</span><b>${hasAct?GBP(act):'—'}</b></div>
       <div class="kv"><span>Ingredients</span><b>${r.ingredients.length}</b></div>
       <div class="kv"><span>Batch size</span><b>${NUM(r.batchSize)} kg</b></div>
@@ -1178,7 +1281,8 @@ function recipesView(){
   const searching = recFilter.trim()!=='';
   const cats=catList();
   const matchR = allRecipes().filter(r=>r.name.toLowerCase().includes(recFilter.toLowerCase()))
-    .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter);
+    .filter(r=>!recCatFilter || catOf(r.name)===recCatFilter)
+    .sort((a,b)=>a.name.localeCompare(b.name));
   const top=libPath[0]||null, sub=libPath[1]||null, rng=libPath[2]||null;
   const g=LIB_GROUPS.find(x=>x.id===top); const s=g&&g.subs.find(x=>x.id===sub);
   // recipes within the current top (+sub) — used to spot ranges and to list a leaf
@@ -1232,7 +1336,8 @@ function recipesView(){
     if(un) tiles.push(folderTileHTML('#8a8175','Other',null,un,`libGo('${top}','${sub}','__none__')`));
     body=`<div class="grid">${tiles.join('')}</div>`;
   } else {
-    body= leafList.length ? `<div class="grid">${leafList.map(recipeTileHTML).join('')}</div>`
+    const sortedLeaf=leafList.slice().sort((a,b)=>custLabel(a).localeCompare(custLabel(b)));   // tiles always alphabetical
+    body= sortedLeaf.length ? `<div class="grid">${sortedLeaf.map(recipeTileHTML).join('')}</div>`
                       : `<p class="muted" style="padding:20px">No recipes in this folder yet.</p>`;
   }
   const bin = (!searching && libPath.length===0) ? deletedRecipesView() : '';
@@ -1352,6 +1457,8 @@ function recipeDetailView(name){
       <button class="btn ghost" onclick="window.print()">Print</button>
     </span>
   </div>
+  ${unpricedBanner(recipeUnpriced(r, recMode))}
+  ${Math.abs(totKg-(r.batchSize||0))>0.01?`<div style="background:#fdf3df;border:1px solid #e5d3a1;color:#7a5c10;border-radius:10px;padding:9px 13px;margin:0 0 12px;font-size:13px">⚠ Ingredient weights total <b>${NUM(totKg)} kg</b> but the batch size is <b>${NUM(r.batchSize)} kg</b> — the £/kg figure is spread over the batch size, so it's ${totKg<r.batchSize?'understated':'overstated'} until the weights and batch size agree. Edit the recipe to fix.</div>`:''}
   <div class="two-col">
     <div>${table}<p class="muted" style="margin-top:8px">Batch size ${NUM(r.batchSize)} kg &middot; all prices include delivery &middot; waste is applied in the pack costing${anyFallback?' &middot; * no purchases logged yet — standard cost used':''}</p></div>
     ${summary}
@@ -1626,16 +1733,17 @@ function custExportData(names){
     const r=findRecipe(n); if(!r) return;
     const gk=(r.brand||costingBrandOf(r.name))+(r.range?' — '+r.range:'');
     const per=recipeCost(r,'std'), prof=profileFor(r.name), st=rcState(r.name);
+    const unp=recipeUnpriced(r,'std');
     const packs=(st.packs||[]).map(p=>{
       const t=packTotals(per,p,prof);
       const production=t.waste+t.lab+t.ovh+t.ele;
       return {kg:p.kg, mat:t.mat, production, packaging:t.tot-t.mat-production, total:t.tot, perKg:p.kg>0?t.tot/p.kg:0};
     }).sort((a,b)=>a.kg-b.kg);
-    (groups[gk]=groups[gk]||[]).push({label:custLabel(r), perKg:per, packs});
+    (groups[gk]=groups[gk]||[]).push({label:custLabel(r), perKg:per, packs, unpriced:unp.length});
   });
   return Object.keys(groups).sort((a,b)=>a.localeCompare(b)).map(g=>({group:g, recipes:groups[g]}));
 }
-const CX_DISC='Costs are ex-works production costs prepared for customer discussion: materials at current standard ingredient prices, production (waste, labour, overheads and energy) at the applicable site rates, and packaging as specified. Figures are indicative and subject to final specification, volumes and ingredient market movement.';
+const CX_DISC='Costs are ex-works production costs prepared for customer discussion: materials at current standard ingredient prices, production (waste, labour, overheads and energy) at the applicable site rates, and packaging as specified. Figures are indicative and subject to final specification, volumes and ingredient market movement. Lines marked PROVISIONAL contain ingredients not yet priced — those ingredients are excluded from the figures shown and the final cost will be higher.';
 function cxDate(){ return new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
 function custExportPDF(){
   const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
@@ -1650,7 +1758,7 @@ function custExportPDF(){
   ${data.map((g,gi)=>`<div class="cx-group${gi===0?' first':''}">
     <div class="cx-groupband">${esc(g.group)}</div>
     ${g.recipes.map(rc=>`<div class="cx-card">
-      <h3>${esc(rc.label)}</h3>
+      <h3>${esc(rc.label)}${rc.unpriced?' <span style="font-size:8.5pt;color:#b4231f;font-weight:700">· PROVISIONAL — '+rc.unpriced+' ingredient price'+(rc.unpriced===1?'':'s')+' outstanding</span>':''}</h3>
       <div class="cx-perkg">Materials ${GBP(rc.perKg)}/kg</div>
       ${rc.packs.length?`<table><thead><tr><th>Pack</th><th>Materials</th><th>Production</th><th>Packaging</th><th>Total cost</th><th>Cost / kg</th></tr></thead>
       <tbody>${rc.packs.map(p=>`<tr><td>${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td><td>${P3(p.mat)}</td><td>${P3(p.production)}</td><td>${P3(p.packaging)}</td><td class="cx-tot">${P3(p.total)}</td><td>${GBP2(p.perKg)}</td></tr>`).join('')}</tbody></table>`:`<p style="font-size:9pt;color:#6b7c86;margin:0">No pack sizes set yet — materials cost shown per kg.</p>`}
@@ -1677,9 +1785,10 @@ function custExportXLS(){
     rows+=`<tr><td colspan="7" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>
     <tr>${['Product','Pack','Materials £','Production £','Packaging £','Total cost £','Cost per kg £'].map(h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Product'||h==='Pack'?'left':'right'}">${h}</td>`).join('')}</tr>`;
     g.recipes.forEach(rc=>{
-      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${esc(rc.label)}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(2)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
+      const lbl=esc(rc.label)+(rc.unpriced?` <span style="color:#b4231f;font-size:8pt">(PROVISIONAL — ${rc.unpriced} unpriced)</span>`:'');
+      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${lbl}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(2)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
       rc.packs.forEach((p,pi)=>{
-        rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${pi===0?esc(rc.label):''}</td>
+        rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${pi===0?lbl:''}</td>
         <td style="padding:4px 8px;border-bottom:1px solid #eee">${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td>
         <td ${num}>${p.mat.toFixed(2)}</td><td ${num}>${p.production.toFixed(2)}</td><td ${num}>${p.packaging.toFixed(2)}</td>
         <td style="mso-number-format:'£ 0\\.00';text-align:right;font-weight:700;background:${CREAM};padding:4px 8px;border-bottom:1px solid #eee">${p.total.toFixed(2)}</td>
@@ -1705,7 +1814,7 @@ function suppliersView(){
     .sort((a,b)=>a.supplier.localeCompare(b.supplier)||a.ingDisp.localeCompare(b.ingDisp));
   SUP_VIEW = rows;
   const suppliers = [...new Set(db.map(e=>e.supplier))].sort();
-  const ingOpts = allIngs().map(i=>`<option value="${esc(dispName(i.name))}">`).join('');
+  const ingOpts = allIngs().map(i=>dispName(i.name)).sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
   let lastSup='';
   const body = rows.map((e,x)=>{
     const g = e.supplier!==lastSup ? ' class="group-start"' : '';
@@ -1819,6 +1928,7 @@ function deleteRecipe(name){
   const isBuiltin = DATA.recipes.some(x=>x.name===name);
   const bin = store.deletedRecipes;
   bin.unshift({ name, kind:isBuiltin?'builtin':'custom', at:new Date().toISOString(),
+    appName:(r.appName!=null?r.appName:r.name), brand:(r.brand||costingBrandOf(r.name)),   // the app-side identity, so sync can delete the right recipe row explicitly
     data: isBuiltin ? null : (store.customRecipes.find(x=>x.name===name)||null),
     edit: store.recipeEdits[name]||null,
     packs: store.recipeCosting[name]||null,
@@ -1889,7 +1999,7 @@ function revertRecipe(name){
  scheduleRecipeSync(); }
 function builderView(){
   if(!draft) return '';
-  const opts = allIngs().map(i=>`<option value="${esc(dispName(i.name))}">`).join('');
+  const opts = allIngs().map(i=>dispName(i.name)).sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
   const totKg0 = draft.ingredients.reduce((a,i)=>a+(i.kg||0),0);
   const rows = draft.ingredients.map((i,idx)=>`<tr data-r="${idx}">
     <td><input class="wide" list="inglist" value="${esc(dispName(i.name))}" placeholder="Type or pick an ingredient…" oninput="draftIngName(${idx},this.value)" onchange="draftIngName(${idx},this.value,true)"></td>
@@ -1921,7 +2031,7 @@ function builderView(){
     <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" oninput="draft.batchSize=parseFloat(this.value)||1000;builderDirty=true;recalcBuilder()"></label>
     <select onchange="if(this.value){openBuilder(this.value)}" class="no-print">
       <option value="">Start from existing recipe…</option>
-      ${allRecipes().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
+      ${allRecipes().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}
     </select>
   </div>
   <div class="two-col">
@@ -1993,6 +2103,18 @@ function saveDraft(){
     brand:(draft.brand||'').trim(), appName:draft.appName||undefined, range:draft.range||undefined,
     batchSize:draft.batchSize||1000, wastePct:draft.wastePct??0.05,
     ingredients:ings.map(i=>({name:keyOf(i.name),kg:i.kg,perKg:i.perKg}))};
+  /* if this edit changes the recipe's app-side identity (name or brand), queue an IN-PLACE rename —
+     the app keeps the same recipe row and id, so production history and plans stay linked */
+  if(draft.editing && (wasCustom || (wasStock && newName===draft.editing))){
+    const oldRec=findRecipe(draft.editing);
+    if(oldRec){
+      const oldN=oldRec.appName||oldRec.name, oldB=oldRec.brand||costingBrandOf(oldRec.name);
+      const newN=rec.appName||rec.name,       newB=rec.brand||costingBrandOf(rec.name);
+      if(oldN!==newN || oldB!==newB){
+        const pr=store.pendingRenames; pr.push({fromName:oldN,fromBrand:oldB,toName:newN,toBrand:newB}); store.pendingRenames=pr;
+      }
+    }
+  }
   if(wasStock && newName===draft.editing){
     /* editing a spreadsheet recipe in place — saved as an override, can be reverted */
     const e = store.recipeEdits; e[newName]=rec; store.recipeEdits=e;
