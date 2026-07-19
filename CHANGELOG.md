@@ -2,6 +2,20 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v32 — 19 July 2026
+**Planning: monthly schedule view (Phase 1 item 5) + Phase 2 in-app reminders** — built together in one session (see `PLANNING-ROADMAP.md`).
+
+**Schedule view:**
+- A new **Schedule tab**: a month grid (prev/next/Today navigation) showing a count badge on any day with something due — one-off tasks and recurring routines together — so it's easy to see at a glance if too much lands on one day. Tap a day for the full list; tap a real task to open it, or a routine that hasn't generated its task yet to jump straight to that routine's edit sheet.
+- **New server route, `GET /api/schedule?from=&to=`** — returns real tasks due in the range plus computed routine occurrences. No new logic duplicated: occurrences are computed by reusing the exact same `firstDueOnOrAfter`/`nextDueAfter` rule-walk the scheduler itself already uses, just over whatever span the visible month needs — so there's only one copy of the date-rule logic in the whole app, not two.
+- Occurrences are de-duplicated against already-generated real tasks (so a day never double-counts the same routine), and — **a correctness fix found during browser testing, not by the automated API tests** (which only ever queried future ranges) — occurrences are **never synthesised for dates before today**. A past day either has a real generated task or it doesn't; showing a "this should have happened" marker on a day before the routine even existed was actively misleading, not just redundant. Regression-tested with a mixed past/future range.
+
+**Phase 2 — in-app reminders:**
+- The existing "Your planning" card on the Today dashboard (v24) now also shows a **"due soon" (next 3 days)** count alongside overdue/due today, and lists up to 6 upcoming tasks instead of 4.
+- **New opt-in browser notification**: a "🔔 Notify me" button on the same card. Turn it on once (asks browser permission, no server involved) and get a native notification when something on your own list is due today — checked at most once per calendar day, using the app's existing local-date helper (never `toISOString()`, which is UTC and would misfire right around a BST midnight — the same class of bug this app has fixed before). No server, no email, no new dependency.
+- **A real bug found and fixed during browser testing:** the notification code called a `toast()` helper that doesn't exist in `index.html` (it was only ever defined in `planning.html`) — every click on "Notify me" silently threw `ReferenceError: toast is not defined`. Fixed by switching to `alert()`, matching this file's actual, exclusively-used feedback convention (85 existing call sites) rather than introducing a second, inconsistent feedback pattern.
+- Verified: 12 assertions against the real `/api/schedule` endpoint (date-range filtering, weekly/monthly occurrence correctness, paused-routine exclusion, dedup, single-day ranges, graceful defaults) + 4 more for the past-date fix; the "delete planning.js, HQ still boots" guard re-test; and a full browser walkthrough of the schedule grid, day sheet, month navigation, the digest, and the notification opt-in/off/blocked paths (including directly exercising the once-per-day guard and the due-today filtering logic).
+
 ## v31 — 19 July 2026
 **Planning: Phase 1.3 — subtasks, search/filter, sort, snooze** (see `PLANNING-ROADMAP.md`).
 - **Subtasks/checklist.** Any task can have a checklist — add a step, tick it off, remove it. Each action is instant (like the main done-checkbox) so nothing is lost if you close the task without hitting "Save changes". A small progress badge ("1/2") shows on the task in every list once it has steps.

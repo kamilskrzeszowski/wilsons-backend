@@ -160,6 +160,22 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .menu .mi:hover{background:var(--bg);}
 .menu .mi .tick{margin-left:auto;color:#2f7d57;}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:var(--navy);color:#fff;padding:11px 17px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:40;box-shadow:0 12px 30px -8px rgba(0,0,0,.4);}
+/* Schedule (month view, v32) */
+.sched-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.sched-nav{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;color:var(--slate);flex:none;}
+.sched-title{font-family:var(--fd);font-size:17px;color:var(--navy);flex:1;text-align:center;}
+.sched-today{font-size:12px;font-weight:700;color:var(--coral-deep);cursor:pointer;flex:none;}
+.sched-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;}
+.sched-dow span{text-align:center;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;}
+.sched-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.sched-cell{aspect-ratio:1;border-radius:10px;background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;}
+.sched-cell.out{opacity:.35;}
+.sched-cell.today{border-color:var(--navy);border-width:2px;}
+.sched-cell .dn{font-size:12.5px;font-weight:700;color:var(--ink);}
+.sched-cell .cnt{font-size:10px;font-weight:700;color:#fff;background:var(--coral-deep);border-radius:8px;padding:1px 6px;min-width:14px;text-align:center;}
+.sched-legend{margin-top:12px;font-size:12px;color:var(--muted);}
+.day-item{display:flex;align-items:center;gap:10px;padding:8px 2px;}
+.day-item .dtxt{flex:1;font-size:14px;color:var(--slate);}
 </style>
 </head>
 <body>
@@ -279,10 +295,18 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   <button class="go" data-act="saveproj">Save project</button>
 </div>
 
+<div class="scrim" id="day-scrim" data-act="closeday"></div>
+<div class="sheet" id="day-sheet">
+  <span class="cancel" data-act="closeday">Close</span>
+  <h3 id="day-heading">Day</h3>
+  <div id="day-list"></div>
+</div>
+
 <script>
 const PAL=['#143644','#e2606c','#007985','#7a3b8f','#3f7d3f','#c0563b','#e0a13f','#4b5f6d'];
 const PRIO={high:{l:'High',c:'#c0563b'},med:{l:'Medium',c:'#e0a13f'},low:{l:'Low',c:'#4b5f6d'}};
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MON_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const SITES=[['','No site'],['blairgowrie','Blairgowrie'],['drongan','Drongan']];
 const TOKEN=(new URLSearchParams(location.search).get('token'))||localStorage.getItem('wpm_token')||'';
@@ -299,7 +323,7 @@ function dueLabel(s){if(!s)return '';const d=parseD(s);if(!d)return '';const dif
 function titlecase(u){return String(u||'').replace(/[._-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());}
 function initials(u){const p=String(u||'?').replace(/[._-]/g,' ').trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||(p[0]||'')[1]||'')).toUpperCase();}
 
-const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null,editingProject:null,search:'',filterProject:'',filterAssignee:''};
+const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null,editingProject:null,search:'',filterProject:'',filterAssignee:'',schedYear:null,schedMonth:null,schedData:null,schedLoadedKey:null,schedLoading:false};
 
 async function api(path,method,body){
   const r=await fetch(path,{method:method||'GET',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),body:body?JSON.stringify(body):undefined});
@@ -409,9 +433,9 @@ function routineCard(rt){
 function grp(title,rows,danger){if(!rows.length)return '';return '<div class="grp"><div class="lbl'+(danger?' danger':'')+'">'+title+'</div>'+rows.join('')+'</div>';}
 
 function render(){
-  const defs=[['mine','My work'],['team','Team'],['waiting','Waiting on'],['projects','Projects'],['routines','Routines']];
+  const defs=[['mine','My work'],['team','Team'],['waiting','Waiting on'],['projects','Projects'],['schedule','Schedule'],['routines','Routines']];
   $('#tabs').innerHTML=defs.map(d=>'<div class="t'+(state.tab===d[0]?' on':'')+'" data-act="tab" data-x="'+d[0]+'">'+d[1]+'</div>').join('');
-  $('#filterbar').style.display=state.tab==='routines'?'none':'flex';
+  $('#filterbar').style.display=(state.tab==='routines'||state.tab==='schedule')?'none':'flex';
   let h='',sub='';
   const vis=visibleTasks();
   const filtered=!!(state.search||state.filterProject||state.filterAssignee);
@@ -447,6 +471,9 @@ function render(){
         +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')
         +'<div class="practs"><span class="pract" data-act="editproj" data-id="'+k+'">Edit</span><span class="pract danger" data-act="archiveproj" data-id="'+k+'">Delete</span></div></div>';
     }).join('')+'<div class="newproj" data-act="newproj">+ New project</div>';
+  }else if(state.tab==='schedule'){
+    sub='A month at a glance — tap a day to see what’s due.';
+    h=renderScheduleTab();
   }else{
     sub='Jobs that repeat on their own — daily, weekly or monthly. Generated tasks show a '+String.fromCharCode(0x21bb)+' mark.';
     h=state.templates.length?state.templates.map(routineCard).join(''):'<div class="empty">No routines yet.<br>Tap <b>+ New routine</b> to set up something that repeats — a weekly line clean, a monthly stock count.</div>';
@@ -561,6 +588,76 @@ async function archiveProject(id){
   try{await api('/api/projects/'+encodeURIComponent(id),'PUT',{status:'archived'});await load();toast('Project deleted');}catch(e){toast(e.message);}
 }
 
+/* ---------------- schedule (month view, v32) ----------------
+ * Read-only — a plotted view of due dates, not a drag-and-drop calendar. Routine occurrences are
+ * computed server-side (GET /api/schedule) by walking the same rule engine the scheduler itself
+ * uses, over whatever range the visible month grid needs — so there's no second copy of the date
+ * logic to keep in sync with planning.js. */
+function schedInit(){
+  if(state.schedYear==null){const t=new Date();state.schedYear=t.getFullYear();state.schedMonth=t.getMonth();}
+}
+function monthGridDates(year,month0){
+  const first=new Date(year,month0,1);
+  const gridStart=new Date(year,month0,1-first.getDay());
+  const days=[];
+  for(let i=0;i<42;i++){const d=new Date(gridStart);d.setDate(gridStart.getDate()+i);days.push(d);}
+  return days;
+}
+async function loadSchedule(){
+  const days=monthGridDates(state.schedYear,state.schedMonth);
+  const key=state.schedYear+'-'+state.schedMonth;
+  try{
+    const r=await api('/api/schedule?from='+isoDateClient(days[0])+'&to='+isoDateClient(days[41]));
+    state.schedData={tasks:r.tasks||[],occurrences:r.occurrences||[]};
+  }catch(e){state.schedData={tasks:[],occurrences:[]};}
+  state.schedLoadedKey=key;state.schedLoading=false;
+  if(state.tab==='schedule')render();
+}
+function schedItemsFor(dateIso){
+  const d=state.schedData||{tasks:[],occurrences:[]};
+  return {tasks:d.tasks.filter(t=>t.due===dateIso),occ:d.occurrences.filter(o=>o.date===dateIso)};
+}
+function renderScheduleTab(){
+  schedInit();
+  const key=state.schedYear+'-'+state.schedMonth;
+  if(state.schedLoadedKey!==key){
+    if(!state.schedLoading){state.schedLoading=true;loadSchedule();}
+    return '<div class="empty" style="padding:40px 0">Loading…</div>';
+  }
+  const days=monthGridDates(state.schedYear,state.schedMonth);
+  const todayIso=todayISOClient();
+  const head='<div class="sched-head"><span class="sched-nav" data-act="schedprev">&#8249;</span>'
+    +'<span class="sched-title">'+MON_FULL[state.schedMonth]+' '+state.schedYear+'</span>'
+    +'<span class="sched-today" data-act="schedtoday">Today</span>'
+    +'<span class="sched-nav" data-act="schednext">&#8250;</span></div>';
+  const dow='<div class="sched-dow">'+DOW.map(d=>'<span>'+d+'</span>').join('')+'</div>';
+  const cells=days.map(d=>{
+    const iso=isoDateClient(d);
+    const inMonth=d.getMonth()===state.schedMonth;
+    const {tasks,occ}=schedItemsFor(iso);
+    const n=tasks.length+occ.length;
+    return '<div class="sched-cell'+(inMonth?'':' out')+(iso===todayIso?' today':'')+'" data-act="openday" data-x="'+iso+'">'
+      +'<span class="dn">'+d.getDate()+'</span>'+(n?'<span class="cnt">'+n+'</span>':'')+'</div>';
+  }).join('');
+  return head+dow+'<div class="sched-grid">'+cells+'</div>'
+    +'<div class="sched-legend">Tap a day to see what’s due — the '+String.fromCharCode(0x21bb)+' mark is a routine that hasn’t generated its task yet.</div>';
+}
+function schedNav(dir){
+  if(dir==='today'){const t=new Date();state.schedYear=t.getFullYear();state.schedMonth=t.getMonth();}
+  else{state.schedMonth+=dir;if(state.schedMonth<0){state.schedMonth=11;state.schedYear--;}else if(state.schedMonth>11){state.schedMonth=0;state.schedYear++;}}
+  render();
+}
+function openDaySheet(dateIso){
+  const {tasks,occ}=schedItemsFor(dateIso);
+  const d=parseD(dateIso);
+  $('#day-heading').textContent=d?(d.getDate()+' '+MON_FULL[d.getMonth()]+' '+d.getFullYear()):dateIso;
+  const taskRows=tasks.map(taskRow).join('');
+  const occRows=occ.map(o=>'<div class="day-item" data-act="editroutine" data-id="'+o.template_id+'"><span class="repeat-ico" title="Routine — not generated yet">&#8635;</span><span class="dtxt">'+esc(o.title)+'</span>'+avA(o.assignee,'mini-av')+'</div>').join('');
+  $('#day-list').innerHTML=(taskRows+occRows)||'<div class="empty" style="padding:20px 0">Nothing due this day.</div>';
+  $('#day-scrim').classList.add('on');$('#day-sheet').classList.add('on');
+}
+function closeDaySheet(){$('#day-scrim').classList.remove('on');$('#day-sheet').classList.remove('on');}
+
 /* ---------------- routine sheet (create / edit a recurring task) ---------------- */
 const DOW_UI=[['sun','Sun'],['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat']];
 let rtDow=new Set(['mon']); // which weekly days are ticked while the sheet is open
@@ -579,6 +676,7 @@ function updateRepeatSubrows(){
   $('#rt-monthly-row').classList.toggle('on',t==='monthly');
 }
 function openRoutineSheet(id){
+  closeDaySheet(); // can be triggered from a schedule day's list of routine occurrences
   state.editingRoutine=id||null;
   const rt=id?state.templates.find(x=>x.id===id):null;
   $('#rt-heading').textContent=rt?'Edit routine':'New routine';
@@ -657,6 +755,7 @@ function renderStatusPill(t){
 }
 function openTaskDetail(id){
   const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  closeDaySheet(); // can be triggered from a schedule day's list — don't leave two sheets stacked
   state.openTask=id;
   $('#td-title').value=t.title;
   $('#td-notes').value=t.notes||'';
@@ -782,6 +881,11 @@ document.addEventListener('click',function(e){
   else if(a==='addchecklist'){addChecklistItem();}
   else if(a==='toggleclitem'){toggleChecklistItem(Number(x));}
   else if(a==='rmclitem'){removeChecklistItem(Number(x));}
+  else if(a==='schedprev'){schedNav(-1);}
+  else if(a==='schednext'){schedNav(1);}
+  else if(a==='schedtoday'){schedNav('today');}
+  else if(a==='openday'){openDaySheet(x);}
+  else if(a==='closeday'){closeDaySheet();}
 });
 $('#rt-type').addEventListener('change',updateRepeatSubrows);
 $('#td-comment').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();postComment();}});

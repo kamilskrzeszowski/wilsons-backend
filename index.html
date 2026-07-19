@@ -2018,23 +2018,64 @@ async function loadPlanningNudge(){
   }catch(e){ PLANNING_MINE=[]; PLANNING_DUE=0; }
   renderSidebar();
   if(SB_ACTIVE==='home') fillPlanningCard();
+  maybeNotifyDueToday();
 }
 function fillPlanningCard(){
   const el=document.getElementById('homePlanning'); if(!el) return;
   if(!PLANNING_MINE.length){ el.style.display='none'; return; }
   el.style.display='';
   const today=planToday();
+  const soonCutoff=new Date(today); soonCutoff.setDate(soonCutoff.getDate()+3);
   const over=PLANNING_MINE.filter(t=>{ const d=planParse(t.due); return d && d<today; });
   const tod=PLANNING_MINE.filter(t=>{ const d=planParse(t.due); return d && d.getTime()===today.getTime(); });
+  const soon=PLANNING_MINE.filter(t=>{ const d=planParse(t.due); return d && d>today && d<=soonCutoff; });
   const rank=t=>{ const d=planParse(t.due); if(!d) return 4e12; return d.getTime(); };
-  const next=PLANNING_MINE.slice().sort((a,b)=>rank(a)-rank(b)).slice(0,4);
+  const next=PLANNING_MINE.slice().sort((a,b)=>rank(a)-rank(b)).slice(0,6);
   const chip=(n,txt,col)=> n?`<span class="dash-chip" style="background:${col}1a;color:${col};border-color:${col}55"><span class="dcdot" style="background:${col}"></span>${n} ${txt}</span>`:'';
   const rows=next.map(t=>{ const d=planParse(t.due); const overdue=d&&d<today; const due=t.due?`<span class="dr-right" style="color:${overdue?'#c0563b':'#6f7b82'}">${escapeHtml(planDueLabel(t.due))}</span>`:'<span class="dr-right" style="color:#b3bcc0">no date</span>';
     return `<div class="dash-row"><span class="ddot" style="background:${overdue?'#c0563b':(d?'#e0a13f':'#b3bcc0')}"></span><b style="font-weight:600">${escapeHtml(t.title)}</b>${due}</div>`; }).join('');
   el.innerHTML=`<h4 style="display:flex;align-items:center;gap:8px">Your planning`
-    +`<button class="linkbtn noprint" style="margin-left:auto" onclick="location.href='/planning'">open Planning →</button></h4>`
-    +`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px">${chip(over.length,over.length===1?'overdue':'overdue','#c0563b')}${chip(tod.length,'due today','#e0a13f')}${(!over.length&&!tod.length)?'<span class="muted" style="font-size:13px">Nothing due right now — you’re on top of it.</span>':''}</div>`
+    +`<button class="linkbtn noprint" id="planNotifyBtn" style="margin-left:auto" onclick="toggleNotifyOptIn()"></button>`
+    +`<button class="linkbtn noprint" onclick="location.href='/planning'">open Planning →</button></h4>`
+    +`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px">${chip(over.length,over.length===1?'overdue':'overdue','#c0563b')}${chip(tod.length,'due today','#e0a13f')}${chip(soon.length,'due soon','#4b5f6d')}${(!over.length&&!tod.length&&!soon.length)?'<span class="muted" style="font-size:13px">Nothing due right now — you’re on top of it.</span>':''}</div>`
     +rows;
+  renderNotifyBtn();
+}
+/* Phase 2 (v32): opt-in browser notification when something's due today. No server, no dependency
+ * — the Notification API only. Never fires more than once per LOCAL calendar day (guarded via
+ * todayISO() below, not toISOString() — see the BST note on that function). */
+const NOTIFY_OPT_KEY='planNotifyOptIn', NOTIFY_LAST_KEY='planNotifyLastDate';
+function notifyOptedIn(){ return localStorage.getItem(NOTIFY_OPT_KEY)==='1'; }
+function renderNotifyBtn(){
+  const b=document.getElementById('planNotifyBtn'); if(!b) return;
+  const supported='Notification' in window;
+  b.style.display=supported?'':'none';
+  b.textContent=notifyOptedIn()?'🔔 Notifications on':'🔔 Notify me';
+  b.title=notifyOptedIn()?'Click to turn off':'Get a browser notification when something’s due today';
+}
+async function toggleNotifyOptIn(){
+  if(!('Notification' in window)){ alert('This browser doesn’t support notifications.'); return; }
+  if(notifyOptedIn()){ localStorage.removeItem(NOTIFY_OPT_KEY); renderNotifyBtn(); return; }
+  if(Notification.permission==='denied'){ alert('Notifications are blocked for this site — check your browser’s site settings.'); return; }
+  const perm=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+  if(perm!=='granted'){ alert('Notifications weren’t allowed.'); return; }
+  localStorage.setItem(NOTIFY_OPT_KEY,'1');
+  renderNotifyBtn();
+  alert('You’ll get a browser notification here when something’s due today.');
+  maybeNotifyDueToday();
+}
+function maybeNotifyDueToday(){
+  if(!notifyOptedIn()||!('Notification' in window)||Notification.permission!=='granted')return;
+  const today=todayISO();
+  if(localStorage.getItem(NOTIFY_LAST_KEY)===today)return; // already nudged once today
+  const dueToday=PLANNING_MINE.filter(t=>t.due===today);
+  if(!dueToday.length)return;
+  try{
+    const body=dueToday.length===1?dueToday[0].title:(dueToday.length+' tasks due today, incl. “'+dueToday[0].title+'”');
+    const n=new Notification('Wilsons HQ — due today',{body:body,icon:'/assets/logo-grapefruit.svg'});
+    n.onclick=()=>{window.focus();location.href='/planning';};
+    localStorage.setItem(NOTIFY_LAST_KEY,today);
+  }catch(e){}
 }
 /* today's LOCAL calendar date. (toISOString() is UTC — during British Summer Time it still says
    "yesterday" between midnight and 1am, which put the wrong date and Julian code on baskets.) */
@@ -2165,6 +2206,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v32', date:'19 Jul 2026', notes:[
+    'Planning: a new Schedule tab — a month calendar showing what’s due each day (both one-off tasks and recurring routines), so it’s easy to spot a day with too much landing on it at once. Tap a day to see exactly what’s due; tap a task to open it, or a not-yet-created routine occurrence to jump to that routine.',
+    'Today dashboard: "Your planning" now also shows a "due soon" count (next 3 days) alongside overdue/due today, and lists a few more upcoming tasks at a glance.',
+    'Today dashboard: an opt-in "🔔 Notify me" button on the planning card — turn it on once and get a browser notification when something’s due today (checked once per day; no email, nothing sent anywhere).'
+  ]},
   {v:'v31', date:'19 Jul 2026', notes:[
     'Planning: subtasks (a checklist on any task) — break a job into steps, tick them off one at a time. Each task in a list now shows a small progress badge (e.g. "1/2") when it has steps.',
     'Planning: search and filter. A search box and Project/Assignee filters now sit above every task list, narrowing My work, Team, Waiting on and Projects together — handy once the list gets long.',
@@ -2294,7 +2340,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v31';
+const APP_VERSION='v32';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

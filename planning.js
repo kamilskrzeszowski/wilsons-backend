@@ -400,6 +400,38 @@ async function handle(ctx) {
     json(res, 200, { ok: true }); return true;
   }
 
+  // Schedule view (v32): everything due in a date range — real tasks, plus routine occurrences
+  // that haven't been generated into a real task yet. Read-only; the calendar grid is client-side.
+  if (url === '/api/schedule' && m === 'GET') {
+    const q = new URLSearchParams(req.url.split('?')[1] || '');
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(q.get('from') || '') ? q.get('from') : todayISOLocal();
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(q.get('to') || '') ? q.get('to') : from;
+    const tasks = db.prepare('SELECT * FROM tasks WHERE due >= ? AND due <= ? ORDER BY due').all(from, to);
+    const occurrences = [];
+    // Occurrences depend only on the rule + the requested range, not on the template's own
+    // next_due bookmark (that's just the scheduler's "next one to generate" pointer) — so this
+    // reuses the exact same rule-walk functions the scheduler itself uses, just over a wider span.
+    // NEVER synthesise an occurrence before today, though: a past date either has a real generated
+    // task (already covered by `tasks` above) or it doesn't — a virtual "this should have happened"
+    // marker on a past day the routine may not have even existed for yet would just be misleading.
+    try {
+      const today = todayISOLocal();
+      const occFrom = from > today ? from : today;
+      if (occFrom <= to) {
+        const templates = db.prepare('SELECT * FROM task_templates WHERE active=1').all();
+        templates.forEach(t => {
+          let d = firstDueOnOrAfter(t.rule, occFrom);
+          while (d && d <= to) {
+            const alreadyGenerated = tasks.some(x => x.template_id === t.id && x.due === d);
+            if (!alreadyGenerated) occurrences.push({ date: d, template_id: t.id, title: t.title, assignee: t.assignee, project_id: t.project_id || '', prio: t.prio || 'med' });
+            d = nextDueAfter(t.rule, d);
+          }
+        });
+      }
+    } catch (e) { console.log('planning schedule: occurrence walk failed:', e.message); }
+    json(res, 200, { tasks, occurrences }); return true;
+  }
+
   return false;
 }
 

@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v31';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v32';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -1241,7 +1241,7 @@ const server = http.createServer(async (req, res) => {
       // --- Planning module (tasks/projects/delegation) — guarded so it can never break HQ ---
       // Access is per-account: admins, or accounts ticked for "Planning" in Users → Edit.
       if (planning) {
-        const isPlanRoute = url === '/api/team' || url.startsWith('/api/projects') || url.startsWith('/api/tasks') || url.startsWith('/api/task-templates');
+        const isPlanRoute = url === '/api/team' || url === '/api/schedule' || url.startsWith('/api/projects') || url.startsWith('/api/tasks') || url.startsWith('/api/task-templates');
         if (isPlanRoute) {
           const canPlan = user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.planning);
           if (!canPlan) return json(res, 403, { error: 'You don’t have access to Planning. Ask an admin to switch it on for your account.' });
