@@ -2,6 +2,17 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v31 — 19 July 2026
+**Planning: Phase 1.3 — subtasks, search/filter, sort, snooze** (see `PLANNING-ROADMAP.md`).
+- **Subtasks/checklist.** Any task can have a checklist — add a step, tick it off, remove it. Each action is instant (like the main done-checkbox) so nothing is lost if you close the task without hitting "Save changes". A small progress badge ("1/2") shows on the task in every list once it has steps.
+  - **New, additive-only data:** `tasks.checklist` (JSON array of `{text, done}`) — a column, not a new table, since a task's checklist is small and only ever loaded with the task itself. No new routes: the existing `PUT /api/tasks/:id` now also accepts a `checklist` array.
+  - The activity log describes exactly what changed — "Added checklist item…", "Checked off…", "Unchecked…", "Removed a checklist item" — computed by diffing the old and new list server-side, the same way an edit to any other field already gets a specific description.
+- **Search and filter.** A search box plus Project/Assignee dropdowns now sit above every task list (My work, Team, Waiting on, Projects) and narrow all of them together. Entirely client-side against the data already loaded.
+- **Sort by due.** Tasks with a due date now list soonest-first within each group (previously: newest-added-first, regardless of date).
+- **Snooze.** Tap a task's due-date chip for a quick menu — Tomorrow / Next week / Pick a date / Clear — instead of opening the full task to change one date. A task with no due date shows a small "+ Due" chip with the same menu. "Pick a date" opens the existing task-detail date field rather than reinventing a picker.
+- **A real correctness point worth recording:** the existing `PUT /api/tasks/:id` was written for single-purpose callers (the checkbox sends only `{status}`; the assign popup sends only `{assignee}`). Checklist edits need to resend the *whole* array every time (add/remove/toggle all rewrite it), so the same no-op-detection discipline from the v29 task-detail work applies here too: resending an unchanged checklist logs nothing and touches nothing, verified with a live before/after test — including the case of another field changing in the same request while the checklist itself doesn't.
+- Verified: 15 assertions against the real module (add/toggle/remove/no-op-resend/blank-text-filtering, all with exact activity text), the "delete planning.js, does HQ still boot" guard re-test, and a full browser walkthrough of every new control.
+
 ## v30 — 19 July 2026
 **Planning: project edit + delete** (a gap in the original v20 Planning build — Kamil could create a project but never rename, recolour, re-note or remove one).
 - **"+ New project" is now a proper form** (name, colour swatch, notes), not a bare browser text prompt — and the same form is reused to **Edit** an existing project.

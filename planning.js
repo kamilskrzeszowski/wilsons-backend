@@ -38,6 +38,10 @@ function init(db, helpers) {
   // v28: which routine (if any) generated this task — so it can be shown with a repeat marker,
   // and so the scheduler can tell "have I already made today's copy of this routine?"
   try { db.exec("ALTER TABLE tasks ADD COLUMN template_id TEXT DEFAULT ''"); } catch (e) {}
+  // v31: subtasks/checklist — a JSON array of {text,done}, e.g. '[{"text":"Order totes","done":false}]'.
+  // A JSON column (not a separate table) since a task's checklist is small, always loaded with the
+  // task itself, and never queried independently — exactly the case the roadmap flagged as fine for this.
+  try { db.exec("ALTER TABLE tasks ADD COLUMN checklist TEXT DEFAULT ''"); } catch (e) {}
   // v28: recurring/routine task templates. `rule` is a small string the server understands:
   //   'daily'  |  'weekly:mon,thu'  (any of sun/mon/tue/wed/thu/fri/sat)  |  'monthly:15'  |  'monthly:last'
   // `next_due` is the next date (YYYY-MM-DD, UK local) this routine should generate a task for.
@@ -113,6 +117,28 @@ function fieldChangeText(db, field, newVal) {
     return 'project to ' + (p ? p.name : newVal);
   }
   return EDIT_FIELD_LABEL[field] || field;
+}
+function parseChecklist(raw) {
+  try { const a = JSON.parse(raw || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+// Describes a checklist change in plain English by diffing old vs new. Handles the three ways the
+// client ever actually changes a checklist (add one item, remove one item, toggle one item's done
+// state) with a specific line; anything odd (e.g. two changes landing in one PUT) falls back to a
+// generic line rather than guessing.
+function checklistChangeText(before, after) {
+  if (after.length > before.length) {
+    const added = after.slice(before.length);
+    return added.length === 1 ? ('Added checklist item “' + added[0].text + '”') : ('Added ' + added.length + ' checklist items');
+  }
+  if (after.length < before.length) {
+    return before.length - after.length === 1 ? 'Removed a checklist item' : ('Removed ' + (before.length - after.length) + ' checklist items');
+  }
+  for (let i = 0; i < after.length; i++) {
+    if (before[i] && after[i] && before[i].done !== after[i].done) {
+      return (after[i].done ? 'Checked off “' : 'Unchecked “') + after[i].text + '”';
+    }
+  }
+  return 'Updated checklist';
 }
 
 /* ---------------- recurring routines: date engine ----------------
@@ -281,6 +307,15 @@ async function handle(ctx) {
       if (b[f] !== undefined) db.prepare('UPDATE tasks SET ' + f + '=? WHERE id=?').run(b[f], id);
     });
     if (editedFields.length) logActivity(db, id, user.id, 'edit', 'Updated ' + editedFields.map(f => fieldChangeText(db, f, b[f])).join(', '));
+    if (b.checklist !== undefined) {
+      const newList = Array.isArray(b.checklist) ? b.checklist.map(it => ({ text: String((it || {}).text || '').trim(), done: !!(it || {}).done })).filter(it => it.text) : [];
+      const newJson = JSON.stringify(newList);
+      if (newJson !== (before.checklist || '[]')) {
+        const oldList = parseChecklist(before.checklist);
+        db.prepare('UPDATE tasks SET checklist=? WHERE id=?').run(newJson, id);
+        logActivity(db, id, user.id, 'edit', checklistChangeText(oldList, newList));
+      }
+    }
     if (b.assignee !== undefined) {
       const na = (b.assignee === '' || b.assignee === null) ? null : Number(b.assignee);
       const priorAssignee = (before.assignee === null || before.assignee === undefined) ? null : before.assignee;

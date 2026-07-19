@@ -33,6 +33,9 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .tabs .t{white-space:nowrap;padding:8px 15px;border-radius:20px;font-size:14px;font-weight:600;color:var(--slate);background:transparent;cursor:pointer;}
 .tabs .t.on{background:var(--navy);color:#fff;}
 .section{padding:8px 16px 20px;}
+.filterbar{display:flex;gap:8px;padding:2px 16px 10px;flex-wrap:wrap;}
+.filterbar input{flex:2;min-width:140px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-family:var(--fb);font-size:14px;background:#fff;outline:none;}
+.filterbar select{flex:1;min-width:112px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-family:var(--fb);font-size:13.5px;background:#fff;outline:none;color:var(--slate);}
 .grp{margin-top:14px;}
 .grp .lbl{font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:6px 4px;}
 .grp .lbl.danger{color:var(--p-high);}
@@ -47,8 +50,10 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .task .meta{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap;}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:8px;}
 .pill.proj{color:#fff;}
-.pill.due{background:var(--chip);color:var(--slate);}
+.pill.due{background:var(--chip);color:var(--slate);cursor:pointer;}
 .pill.due.over{background:#f8e3de;color:var(--p-high);}
+.pill.due.nodate{opacity:.55;}
+.pill.cl{background:var(--chip);color:var(--slate);}
 .pdot{width:9px;height:9px;border-radius:50%;flex:none;}
 .assignee{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:20px;padding:3px 10px 3px 3px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--slate);}
 .assignee .av{width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;}
@@ -138,6 +143,17 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .td-commentrow{display:flex;gap:8px;margin-top:4px;padding:10px 0 4px;}
 .td-commentrow input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-family:var(--fb);font-size:15px;background:#fbfaf6;outline:none;}
 .td-commentgo{background:var(--navy);color:#fff;border-radius:11px;padding:0 16px;display:flex;align-items:center;font-weight:700;font-size:13.5px;cursor:pointer;flex:none;}
+.cl-item{display:flex;align-items:center;gap:10px;padding:7px 2px;}
+.cl-check{width:19px;height:19px;border-radius:50%;border:2px solid var(--p-none);flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;}
+.cl-item.done .cl-check{background:#2f7d57;border-color:#2f7d57;}
+.cl-item.done .cl-check:before{content:'\2713';}
+.cl-text{flex:1;font-size:14px;color:var(--ink);}
+.cl-item.done .cl-text{text-decoration:line-through;color:#9aa6ab;}
+.cl-rm{color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:0 4px;}
+.cl-empty{color:var(--muted);font-size:13px;padding:2px 0 4px;}
+.cl-addrow{display:flex;gap:8px;margin-top:6px;}
+.cl-addrow input{flex:1;border:1px solid var(--line);border-radius:11px;padding:10px 12px;font-family:var(--fb);font-size:14px;background:#fbfaf6;outline:none;}
+.cl-addgo{background:var(--chip);color:var(--slate);border-radius:11px;padding:0 14px;display:flex;align-items:center;font-weight:700;font-size:13px;cursor:pointer;flex:none;}
 .menu{position:fixed;background:#fff;border-radius:14px;padding:6px;box-shadow:0 14px 40px -10px rgba(20,54,68,.4),0 0 0 1px var(--line);z-index:30;min-width:200px;}
 .menu .cap{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;padding:6px 11px 4px;}
 .menu .mi{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;cursor:pointer;font-size:14px;}
@@ -157,6 +173,11 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 <div class="wrap">
   <div class="head"><h1>Planning</h1><p id="sub">Loading…</p></div>
   <div class="tabs" id="tabs"></div>
+  <div class="filterbar" id="filterbar">
+    <input id="search-box" placeholder="Search tasks…">
+    <select id="filter-project"></select>
+    <select id="filter-assignee"></select>
+  </div>
   <div class="section" id="section"></div>
 </div>
 <button class="fab" data-act="add"><b>+</b>Add task</button>
@@ -229,6 +250,13 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   <textarea id="td-notes" rows="3" placeholder="Add any detail…"></textarea>
   <button class="go" data-act="savetask">Save changes</button>
 
+  <label>Checklist</label>
+  <div id="td-checklist"></div>
+  <div class="cl-addrow">
+    <input id="td-cl-new" placeholder="Add a step…">
+    <span class="cl-addgo" data-act="addchecklist">Add</span>
+  </div>
+
   <div class="td-divider"></div>
   <div class="td-acthead">Activity</div>
   <div id="td-activity"></div>
@@ -271,7 +299,7 @@ function dueLabel(s){if(!s)return '';const d=parseD(s);if(!d)return '';const dif
 function titlecase(u){return String(u||'').replace(/[._-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());}
 function initials(u){const p=String(u||'?').replace(/[._-]/g,' ').trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||(p[0]||'')[1]||'')).toUpperCase();}
 
-const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null,editingProject:null};
+const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null,editingProject:null,search:'',filterProject:'',filterAssignee:''};
 
 async function api(path,method,body){
   const r=await fetch(path,{method:method||'GET',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),body:body?JSON.stringify(body):undefined});
@@ -291,8 +319,18 @@ async function load(){
     state.tasks=tk.tasks||[];
     state.templates=rt.templates||[];
     $('#who').innerHTML='<span class="av" style="background:'+(state.team[state.me.id]?state.team[state.me.id].color:'#e2606c')+'">'+esc(initials(state.me.username))+'</span>'+esc(titlecase(state.me.username));
+    populateFilterBar();
     render();
   }catch(e){if(e.message!=='signin')$('#section').innerHTML='<div class="empty">Couldn’t load — '+esc(e.message)+'.<br><a href="/">Sign in to Wilsons HQ</a></div>';}
+}
+// Populated from load() only (not render()) so a tab switch or optimistic toggle never resets
+// what the user already typed/picked — these controls hold state independent of the redraw cycle.
+function populateFilterBar(){
+  $('#filter-project').innerHTML='<option value="">All projects</option>'+state.porder.map(k=>'<option value="'+k+'">'+esc(state.projects[k].name)+(state.projects[k].status==='archived'?' (archived)':'')+'</option>').join('');
+  $('#filter-assignee').innerHTML='<option value="">Everyone</option>'+state.torder.map(k=>'<option value="'+k+'">'+esc(person(k).short)+'</option>').join('');
+  $('#filter-project').value=state.filterProject;
+  $('#filter-assignee').value=state.filterAssignee;
+  $('#search-box').value=state.search;
 }
 
 function person(id){return state.team[id]||{name:'Unassigned',short:'Unassigned',color:'#b3bcc0',av:'?'};}
@@ -308,8 +346,26 @@ function projectOptionsFor(currentId){
   if(currentId&&!ids.includes(currentId)&&state.projects[currentId])ids.push(currentId);
   return ids.map(k=>'<option value="'+k+'"'+(currentId===k?' selected':'')+'>'+esc(state.projects[k].name)+(state.projects[k].status==='archived'?' (archived)':'')+'</option>').join('');
 }
-function dueHtml(s){if(!s)return '';return '<span class="pill due'+(isOver(s)?' over':'')+'">'+esc(dueLabel(s))+'</span>';}
+function dueHtml(s,id){
+  if(!s)return '<span class="pill due nodate" data-act="snooze" data-id="'+id+'">+ Due</span>';
+  return '<span class="pill due'+(isOver(s)?' over':'')+'" data-act="snooze" data-id="'+id+'">'+esc(dueLabel(s))+'</span>';
+}
 const isDone=t=>t.status==='done';
+function parseChecklist(t){try{const a=JSON.parse((t&&t.checklist)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}}
+function checklistPill(t){
+  const list=parseChecklist(t);if(!list.length)return '';
+  return '<span class="pill cl">'+list.filter(i=>i.done).length+'/'+list.length+'</span>';
+}
+// Phase 1.3: search box + project/assignee filter chips, shared across every task-list tab.
+function visibleTasks(){
+  const q=state.search.trim().toLowerCase();
+  return state.tasks.filter(t=>
+    (!q||t.title.toLowerCase().includes(q))
+    &&(!state.filterProject||t.project_id===state.filterProject)
+    &&(!state.filterAssignee||t.assignee===Number(state.filterAssignee))
+  );
+}
+function sortByDue(arr){return arr.slice().sort((a,b)=>{if(!a.due&&!b.due)return 0;if(!a.due)return 1;if(!b.due)return -1;return a.due<b.due?-1:a.due>b.due?1:0;});}
 
 function taskRow(t){
   const mine=t.assignee===state.me.id;
@@ -317,7 +373,7 @@ function taskRow(t){
   return '<div class="task'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'
     +'<div class="check" data-act="toggle" data-id="'+t.id+'"></div>'
     +'<div class="body"><div class="title">'+fromRoutine+esc(t.title)+'</div>'
-    +'<div class="meta">'+prioDot(t.prio)+projPill(t.project_id)+dueHtml(t.due)
+    +'<div class="meta">'+prioDot(t.prio)+projPill(t.project_id)+dueHtml(t.due,t.id)+checklistPill(t)
     +'<span class="assignee'+(mine?' mine':'')+'" data-act="assign" data-id="'+t.id+'">'+avA(t.assignee)+esc(person(t.assignee).short)+'</span>'
     +'</div></div></div>';
 }
@@ -355,33 +411,37 @@ function grp(title,rows,danger){if(!rows.length)return '';return '<div class="gr
 function render(){
   const defs=[['mine','My work'],['team','Team'],['waiting','Waiting on'],['projects','Projects'],['routines','Routines']];
   $('#tabs').innerHTML=defs.map(d=>'<div class="t'+(state.tab===d[0]?' on':'')+'" data-act="tab" data-x="'+d[0]+'">'+d[1]+'</div>').join('');
+  $('#filterbar').style.display=state.tab==='routines'?'none':'flex';
   let h='',sub='';
+  const vis=visibleTasks();
+  const filtered=!!(state.search||state.filterProject||state.filterAssignee);
   if(state.tab==='mine'){
     sub='Everything on your plate, across every project.';
-    const mine=state.tasks.filter(t=>t.assignee===state.me.id);
-    const over=mine.filter(t=>!isDone(t)&&t.due&&isOver(t.due)).map(taskRow);
+    const mine=vis.filter(t=>t.assignee===state.me.id);
+    const over=sortByDue(mine.filter(t=>!isDone(t)&&t.due&&isOver(t.due))).map(taskRow);
     const tod=mine.filter(t=>!isDone(t)&&isToday(t.due)).map(taskRow);
-    const soon=mine.filter(t=>!isDone(t)&&t.due&&!isOver(t.due)&&!isToday(t.due)).map(taskRow);
+    const soon=sortByDue(mine.filter(t=>!isDone(t)&&t.due&&!isOver(t.due)&&!isToday(t.due))).map(taskRow);
     const nod=mine.filter(t=>!isDone(t)&&!t.due).map(taskRow);
     const done=mine.filter(isDone).map(taskRow);
     h=grp('Overdue',over,true)+grp('Today',tod)+grp('Coming up',soon)+grp('No date',nod)+grp('Done',done);
-    if(!h)h='<div class="empty">Nothing on your plate yet.<br>Tap <b>+ Add task</b> to start.</div>';
+    if(!h)h='<div class="empty">'+(filtered?'No tasks match.':'Nothing on your plate yet.<br>Tap <b>+ Add task</b> to start.')+'</div>';
   }else if(state.tab==='team'){
     sub='Who’s working on what — your whole team at a glance.';
     h=state.torder.map(k=>{
-      const ts=state.tasks.filter(t=>t.assignee===k);const open=ts.filter(t=>!isDone(t));const p=person(k);
+      const ts=vis.filter(t=>t.assignee===k);const open=ts.filter(t=>!isDone(t));const p=person(k);
       return '<div class="person"><div class="ph">'+avA(k)+'<div><div class="pn">'+esc(p.name)+'</div><div class="pr">'+esc(p.role||'Team')+'</div></div><div class="cnt"><b>'+open.length+'</b><span>open</span></div></div>'
-        +'<div class="plist">'+(ts.length?ts.map(t=>'<div class="pt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'"><span class="smallcheck" data-act="toggle" data-id="'+t.id+'"></span>'+prioDot(t.prio)+'<span class="ptt">'+esc(t.title)+'</span>'+(t.due?'<span class="ptd">'+esc(dueLabel(t.due))+'</span>':'')+'</div>').join(''):'<div class="pt"><span class="ptd">No tasks assigned.</span></div>')+'</div></div>';
+        +'<div class="plist">'+(ts.length?ts.map(t=>'<div class="pt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'"><span class="smallcheck" data-act="toggle" data-id="'+t.id+'"></span>'+prioDot(t.prio)+'<span class="ptt">'+esc(t.title)+'</span>'+(t.due?'<span class="ptd">'+esc(dueLabel(t.due))+'</span>':'')+'</div>').join(''):'<div class="pt"><span class="ptd">'+(filtered?'No matching tasks.':'No tasks assigned.')+'</span></div>')+'</div></div>';
     }).join('');
     if(!state.torder.length)h='<div class="empty">No team members yet — invite people from the Users screen in Wilsons HQ.</div>';
   }else if(state.tab==='waiting'){
     sub='Tasks you’ve delegated — what you’re waiting on, and from whom.';
-    const del=state.tasks.filter(t=>t.created_by===state.me.id&&t.assignee!==state.me.id&&!isDone(t));
-    h=del.length?'<div class="grp">'+del.map(taskRow).join('')+'</div>':'<div class="empty">You haven’t delegated anything open.<br>Assign a task to a colleague and it’ll appear here.</div>';
+    const del=sortByDue(vis.filter(t=>t.created_by===state.me.id&&t.assignee!==state.me.id&&!isDone(t)));
+    h=del.length?'<div class="grp">'+del.map(taskRow).join('')+'</div>':'<div class="empty">'+(filtered?'No tasks match.':'You haven’t delegated anything open.<br>Assign a task to a colleague and it’ll appear here.')+'</div>';
   }else if(state.tab==='projects'){
     sub='Every project, with progress and who owns each piece.';
-    h=activeProjectIds().map(k=>{
-      const pr=state.projects[k];const ts=state.tasks.filter(t=>t.project_id===k);const done=ts.filter(isDone).length;const pct=ts.length?Math.round(done/ts.length*100):0;
+    const pids=state.filterProject?activeProjectIds().filter(k=>k===state.filterProject):activeProjectIds();
+    h=pids.map(k=>{
+      const pr=state.projects[k];const ts=vis.filter(t=>t.project_id===k);const done=ts.filter(isDone).length;const pct=ts.length?Math.round(done/ts.length*100):0;
       return '<div class="project"><div class="prh"><span class="swatch" style="background:'+(pr.color||'#6f7b82')+'"></span><div><div class="prn">'+esc(pr.name)+'</div><div class="prm">'+esc(pr.meta||'')+'</div></div><div class="cnt" style="margin-left:auto;text-align:right"><b style="font-size:16px;color:var(--navy)">'+done+'/'+ts.length+'</b></div></div>'
         +'<div class="bar"><i style="width:'+pct+'%;background:'+(pr.color||'#6f7b82')+'"></i></div>'
         +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')
@@ -435,6 +495,36 @@ async function setAssignee(id,k){
   t.assignee=Number(k);render();
   try{await api('/api/tasks/'+encodeURIComponent(id),'PUT',{assignee:Number(k)});toast(Number(k)===state.me.id?'Now yours':('Assigned to '+person(Number(k)).short));}catch(e){toast(e.message);load();}
 }
+/* ---------------- snooze (v31) — a quick way to push/set a due date without opening the full
+ * detail sheet, exactly like the assignee popup is a quick way to reassign. "Pick a date" opens
+ * the detail sheet instead of reinventing a date picker — it already has a proper one. ---------------- */
+function openSnooze(id,x,y){
+  const t=state.tasks.find(t=>t.id===id);if(!t)return;closeMenu();
+  const mn=document.createElement('div');mn.className='menu';
+  let rows='<div class="cap">Due date</div>'
+    +'<div class="mi" data-act="snoozepick" data-id="'+id+'" data-x="tomorrow">Tomorrow</div>'
+    +'<div class="mi" data-act="snoozepick" data-id="'+id+'" data-x="nextweek">Next week</div>'
+    +'<div class="mi" data-act="snoozepick" data-id="'+id+'" data-x="pick">Pick a date…</div>';
+  if(t.due)rows+='<div class="mi" data-act="snoozepick" data-id="'+id+'" data-x="clear">Clear due date</div>';
+  mn.innerHTML=rows;
+  document.body.appendChild(mn);state.menu=mn;
+  const mw=210,mh=mn.offsetHeight;let L=Math.min(x,window.innerWidth-mw-10),T=y+8;if(T+mh>window.innerHeight-10)T=Math.max(10,y-mh-8);
+  mn.style.left=Math.max(10,L)+'px';mn.style.top=T+'px';
+}
+async function snoozePick(id,kind){
+  closeMenu();
+  if(kind==='pick'){openTaskDetail(id);setTimeout(()=>{const f=$('#td-due');if(f)f.focus();},150);return;}
+  const t=state.tasks.find(t=>t.id===id);if(!t)return;
+  let due='';
+  if(kind==='tomorrow'){const d=new Date();d.setDate(d.getDate()+1);due=isoDateClient(d);}
+  else if(kind==='nextweek'){const d=new Date();d.setDate(d.getDate()+7);due=isoDateClient(d);}
+  else if(kind!=='clear')return;
+  t.due=due;render();
+  try{
+    await api('/api/tasks/'+encodeURIComponent(id),'PUT',{due:due});
+    if(state.openTask===id)await refreshActivity(id);
+  }catch(e){toast(e.message);load();}
+}
 /* ---------------- project sheet (create / edit / archive) ---------------- */
 let prColor=PAL[0]; // colour currently selected while the project sheet is open
 function renderSwatches(){
@@ -474,7 +564,8 @@ async function archiveProject(id){
 /* ---------------- routine sheet (create / edit a recurring task) ---------------- */
 const DOW_UI=[['sun','Sun'],['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat']];
 let rtDow=new Set(['mon']); // which weekly days are ticked while the sheet is open
-function todayISOClient(){const t=new Date();return t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());}
+function isoDateClient(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function todayISOClient(){return isoDateClient(new Date());}
 function fillRoutineMonthDays(){
   $('#rt-mday').innerHTML=Array.from({length:31},(_,i)=>i+1).map(n=>'<option value="'+n+'">'+ordinal(n)+'</option>').join('')+'<option value="last">Last day of the month</option>';
 }
@@ -575,6 +666,8 @@ function openTaskDetail(id){
   $('#td-due').value=t.due||'';
   $('#td-site').innerHTML=SITES.map(([v,l])=>'<option value="'+v+'"'+(t.site===v?' selected':'')+'>'+esc(l)+'</option>').join('');
   renderStatusPill(t);
+  renderChecklist(t);
+  $('#td-cl-new').value='';
   $('#td-activity').innerHTML='<div class="empty" style="padding:20px 0">Loading…</div>';
   $('#td-comment').value='';
   $('#td-scrim').classList.add('on');$('#td-sheet').classList.add('on');
@@ -582,6 +675,43 @@ function openTaskDetail(id){
   refreshActivity(id);
 }
 function closeTaskDetail(){state.openTask=null;$('#td-scrim').classList.remove('on');$('#td-sheet').classList.remove('on');}
+/* ---------------- checklist / subtasks (v31) — each action is instant, not batched with Save,
+ * so ticking items behaves like the main done-checkbox (persists immediately, no lost progress
+ * if the sheet is closed without hitting "Save changes"). ---------------- */
+function renderChecklist(t){
+  const list=parseChecklist(t);
+  $('#td-checklist').innerHTML=list.length?list.map((it,i)=>
+    '<div class="cl-item'+(it.done?' done':'')+'"><span class="cl-check" data-act="toggleclitem" data-x="'+i+'"></span><span class="cl-text">'+esc(it.text)+'</span><span class="cl-rm" data-act="rmclitem" data-x="'+i+'">&times;</span></div>'
+  ).join(''):'<div class="cl-empty">No steps yet.</div>';
+}
+async function saveChecklist(id,list){
+  try{
+    await api('/api/tasks/'+encodeURIComponent(id),'PUT',{checklist:list});
+    const t=state.tasks.find(x=>x.id===id);
+    if(t){t.checklist=JSON.stringify(list);if(state.openTask===id)renderChecklist(t);}
+    if(state.openTask===id)await refreshActivity(id);
+    render();
+  }catch(e){toast(e.message);}
+}
+function toggleChecklistItem(idx){
+  const id=state.openTask;const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const list=parseChecklist(t);if(!list[idx])return;
+  list[idx]=Object.assign({},list[idx],{done:!list[idx].done});
+  saveChecklist(id,list);
+}
+function addChecklistItem(){
+  const id=state.openTask;const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const text=$('#td-cl-new').value.trim();if(!text)return;
+  const list=parseChecklist(t);list.push({text:text,done:false});
+  $('#td-cl-new').value='';
+  saveChecklist(id,list);
+}
+function removeChecklistItem(idx){
+  const id=state.openTask;const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const list=parseChecklist(t);if(!list[idx])return;
+  list.splice(idx,1);
+  saveChecklist(id,list);
+}
 async function refreshActivity(id){
   try{
     const r=await api('/api/tasks/'+encodeURIComponent(id)+'/activity');
@@ -620,7 +750,7 @@ async function postComment(){
 
 document.addEventListener('click',function(e){
   const el=e.target.closest('[data-act]');
-  if(state.menu&&!e.target.closest('.menu')&&!(el&&el.dataset.act==='assign'))closeMenu();
+  if(state.menu&&!e.target.closest('.menu')&&!(el&&(el.dataset.act==='assign'||el.dataset.act==='snooze')))closeMenu();
   if(!el)return;
   const a=el.dataset.act,id=el.dataset.id,x=el.dataset.x;
   if(a==='tab'){state.tab=x;render();}
@@ -630,6 +760,8 @@ document.addEventListener('click',function(e){
   else if(a==='save'){save();}
   else if(a==='assign'){e.stopPropagation();const r=el.getBoundingClientRect();openAssign(id,r.left,r.bottom);}
   else if(a==='setassignee'){setAssignee(id,x);}
+  else if(a==='snooze'){e.stopPropagation();const r=el.getBoundingClientRect();openSnooze(id,r.left,r.bottom);}
+  else if(a==='snoozepick'){snoozePick(id,x);}
   else if(a==='newproj'){openProjectSheet();}
   else if(a==='editproj'){openProjectSheet(id);}
   else if(a==='archiveproj'){archiveProject(id);}
@@ -647,9 +779,16 @@ document.addEventListener('click',function(e){
   else if(a==='closetask'){closeTaskDetail();}
   else if(a==='savetask'){saveTaskDetail();}
   else if(a==='postcomment'){postComment();}
+  else if(a==='addchecklist'){addChecklistItem();}
+  else if(a==='toggleclitem'){toggleChecklistItem(Number(x));}
+  else if(a==='rmclitem'){removeChecklistItem(Number(x));}
 });
 $('#rt-type').addEventListener('change',updateRepeatSubrows);
 $('#td-comment').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();postComment();}});
+$('#td-cl-new').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();addChecklistItem();}});
+$('#search-box').addEventListener('input',function(){state.search=this.value;render();});
+$('#filter-project').addEventListener('change',function(){state.filterProject=this.value;render();});
+$('#filter-assignee').addEventListener('change',function(){state.filterAssignee=this.value;render();});
 load();
 </script>
 </body>
