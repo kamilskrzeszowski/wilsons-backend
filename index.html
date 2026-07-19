@@ -319,6 +319,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="kpiinput">KPI Daily Input</button>
     <button data-view="specs">Product Specs</button>
     <button data-view="users" style="display:none">Users</button>
+    <button data-view="email" style="display:none">Email</button>
     <button data-view="fmrecipes" style="display:none">Recipe Management</button>
     <button data-view="fminventory" style="display:none">Inventory &amp; Traceability</button>
     <button data-view="fmquality" style="display:none">Quality &amp; Food Safety</button>
@@ -658,6 +659,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-packaging"><h2 class="viewtitle">Packaging &amp; Finished Goods</h2><p class="sub">Bags, pouches, labels, treats and finished goods.</p><div id="rootPackaging"></div></section>
   <section class="view" id="view-suppliers"><h2 class="viewtitle">Suppliers</h2><p class="sub">Approved-supplier (SALSA) list.</p><div id="rootSuppliers"></div></section>
   <section class="view" id="view-users"><h2 class="viewtitle">Users</h2><p class="sub">Manage who can sign in.</p><div id="rootUsers"></div></section>
+  <section class="view" id="view-email"><h2 class="viewtitle">Email</h2><p class="sub">Microsoft 365 connection, outgoing emails and turning tagged Outlook emails into Planning tasks.</p><div id="rootEmail"></div></section>
   <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
   <section class="view" id="view-cooking"><h2 class="viewtitle">Cooking</h2><p class="sub">The chill — choose which filled stacks to cook, combine or top up, and stamp the cook date &amp; retort.</p><div id="rootCooking"></div></section>
   <section class="view" id="view-prodsum"><h2 class="viewtitle">Production Summary</h2><p class="sub">What was minced, filled and cooked each day — in packs and kg.</p><div id="rootProdsum"></div></section>
@@ -2188,7 +2190,7 @@ async function startApp(){
   _srvPlan=JSON.stringify(state.weekPlans||{});
   document.getElementById('whoName').textContent=d.user.username+(d.user.role==='admin'?' (admin)':'');
   document.getElementById('whoWrap').style.display='';
-  document.querySelectorAll('[data-view="users"]').forEach(b=>b.style.display=(d.user.role==='admin')?'':'none');
+  document.querySelectorAll('[data-view="users"],[data-view="email"]').forEach(b=>b.style.display=(d.user.role==='admin')?'':'none');
   { const tu=document.getElementById('tileUsers'); if(tu) tu.style.display=(d.user.role==='admin')?'':'none'; }
   { const bb=document.getElementById('backupBtn'); if(bb) bb.style.display=(d.user.role==='admin')?'':'none'; }
   { const rb=document.getElementById('restoreBtn'); if(rb) rb.style.display=(d.user.role==='admin')?'':'none'; }
@@ -2206,6 +2208,13 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v40', date:'19 Jul 2026', notes:[
+    'Fixed: tagging an email with "Task" wasn’t actually creating a task — Microsoft was silently rejecting the search Wilsons HQ used every 5 minutes to look for tagged emails, ever since this feature was first extended (v35). Found from the real error in Kamil’s Railway logs and fixed by changing how tagged emails are found. Nothing you do in Outlook changes — tag with "Task" or "Task: Name" exactly as before.'
+  ]},
+  {v:'v39', date:'19 Jul 2026', notes:[
+    'Email settings have moved out of the Users screen into their own "Email" item in the Office menu (admin-only, same as before). Users is now just for managing who can sign in.',
+    'The "Turn tagged emails into tasks" switch no longer mentions "Phase 4" — that was internal build terminology that had leaked into the actual screen.'
+  ]},
   {v:'v38', date:'19 Jul 2026', notes:[
     'Planning: the Schedule tab now widens to use the screen on a laptop/desktop browser, instead of sitting in a narrow column with empty space either side. Every other tab (My work, Team, etc.) stays as it was — it’s only the calendar grid that benefits from the extra room.'
   ]},
@@ -2359,7 +2368,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v38';
+const APP_VERSION='v40';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -2374,7 +2383,7 @@ async function checkVersion(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
 /* KPI dashboard module (same pattern as costing: served by the app, shown in a frame) */
 function renderKpi(){ const f=document.getElementById('kpiFrame'); if(!f) return; const want='/kpi?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
 function renderSpecs(){ const f=document.getElementById('specsFrame'); if(!f) return; const want='/specs?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
@@ -2464,7 +2473,8 @@ const SB_SECTIONS={
     ['specs','Product Specs','clipboardText'],
     ['complaints','Complaints','alert'],
     ['log','Change Log','history'],
-    ['users','Users','user']
+    ['users','Users','user'],
+    ['email','Email','mail']
   ]
 };
 /* Foundations for future modules — empty, clearly-marked placeholders (admins only for now) */
@@ -2572,7 +2582,7 @@ const HOME_GROUPS=[
   {k:'costing',t:'Costing',icon:'coins',sub:'Recipe costs, prices & margins',items:[['Recipe Costing','coins','costing'],['Product Specs','clipboardText','specs']]},
   {k:'cs',t:'Customer Service',icon:'alert',sub:'Complaints log & investigation',items:[['Complaints','alert','complaints']]},
   {k:'kpis',t:'KPIs',icon:'dashboard',sub:'Ops dashboard & daily numbers',items:[['KPI Dashboard','dashboard','kpi'],['KPI Daily Input','clipboardText','kpiinput']]},
-  {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users']]}
+  {k:'admin',t:'Admin',icon:'settings',sub:'Timings, change log, users, email',items:[['Operations timings','sliders','optimings'],['Change Log','history','log'],['Users','user','users'],['Email','mail','email']]}
 ];
 /* ---- per-account permissions ---- */
 const AREAS=[
@@ -2593,7 +2603,8 @@ const AREAS=[
   {k:'kpi',label:'KPI Dashboard (edit = change targets & settings)',edit:true},
   {k:'kpiinput',label:'KPI daily input',edit:true},
   {k:'specs',label:'Product Specs (edit = change spec sheets)',edit:true},
-  {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true}
+  {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true},
+  {k:'email',label:'Email',edit:true}
 ];
 const PRESETS={
   filling:{view:{filling:1,filldash:1,mixing:1},edit:{filling:1}},
@@ -4272,17 +4283,21 @@ window.cplExport=cplExport;
 
 async function renderUsers(){
   const root=document.getElementById('rootUsers'); if(!root) return;
-  root.innerHTML=`<div id="mailPanel"></div>
-    <div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
+  root.innerHTML=`<div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
     <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Email</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody></table></div>
     <div id="usInvites"></div>`;
   document.getElementById('usAdd').onclick=()=>userModal(null);
   document.getElementById('usInvite').onclick=()=>inviteModal();
-  renderMailPanel();
   try{ const rows=await api('/api/users'); window._users=rows;
     document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
   catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="6" class="muted">${escapeHtml(e.message)}</td></tr>`; }
   renderInvites();
+}
+/* ---- Email screen: its own menu item (moved out of Users) — just hosts the mail panel below ---- */
+function renderEmail(){
+  const root=document.getElementById('rootEmail'); if(!root) return;
+  root.innerHTML=`<div id="mailPanel"></div>`;
+  renderMailPanel();
 }
 /* ---- Microsoft 365 email: status card + test send + pause switch (admin) ---- */
 async function renderMailPanel(){
@@ -4304,7 +4319,7 @@ async function renderMailPanel(){
            <span class="hint" id="mailTestMsg"></span>
          </div>
          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line,#e2ddcd)">
-           <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mailImportChk" ${s.importEnabled?'checked':''}> Turn tagged emails into tasks (Phase 4)</label>
+           <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mailImportChk" ${s.importEnabled?'checked':''}> Turn tagged emails into tasks</label>
            <p class="hint" style="margin:6px 0 0">${s.importEnabled
              ? `On — tag an email in Outlook with the category <b>${escapeHtml(s.taskCategory)}</b> and it becomes a task for you within a few minutes; tag it <b>${escapeHtml(s.taskCategory)}: Jane</b> instead (their name after a colon) and it's assigned straight to that teammate. Either way the category is then removed so it isn't imported twice. Mailbox watched: <b>${escapeHtml(s.from)}</b> — nothing else is touched.`
              : `Off. Once switched on, HQ will read <b>${escapeHtml(s.from)}</b> looking only for messages tagged <b>${escapeHtml(s.taskCategory)}</b> (assigned to you) or <b>${escapeHtml(s.taskCategory)}: teammate’s name</b> (assigned straight to them) — nothing else in the mailbox is touched.`}</p>

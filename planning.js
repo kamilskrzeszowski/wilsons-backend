@@ -316,7 +316,9 @@ async function runReminders() {
   return sent;
 }
 
-/* ---------------- email → task (v34, Phase 4; v35 adds teammate routing; v36 adds notification) ----
+/* ---------------- email → task (v34, Phase 4; v35 adds teammate routing; v36 adds notification;
+ * v40 fixes a live Graph filter bug — categories/any() can't take startswith()/contains(), so
+ * matching moved fully client-side against a receivedDateTime-scoped fetch) ----------------
  * Outlook category → task. Tag an email with the agreed category (default "Task") and it's
  * assigned to you (the mailbox owner); tag it "Task: Jane" instead and it's assigned straight to
  * whichever teammate that names — this tick polls the watched mailbox for messages carrying either
@@ -355,22 +357,27 @@ async function runEmailImport() {
   const suffixRe = new RegExp('^' + escapeRegex(category) + '\\s*:\\s*(.+)$', 'i');
   let messages = [];
   try {
-    // startswith() catches both "Task" and "Task: Name" in one query; each result is re-checked
-    // against suffixRe/exact-match below rather than trusted, in case the filter is broader than
-    // intended (e.g. it would also technically match an unrelated "Taskforce" category).
-    const filter = "categories/any(c:startswith(c,'" + category.replace(/'/g, "''") + "'))";
-    const path = '/users/' + encodeURIComponent(mailbox) + '/messages?$filter=' + encodeURIComponent(filter) + '&$select=id,subject,bodyPreview,webLink,categories&$top=25';
+    // Graph rejects startswith()/contains() inside a categories/any() lambda for messages —
+    // "The query filter contains one or more invalid nodes" — even though it looks like valid
+    // OData. (Found live via Kamil's Railway logs: every tick since v35 had been failing this
+    // way, silently, because automated tests can only ever mock the Graph call and never
+    // exercised the real query syntax.) Filtering on a plain scalar property sidesteps the
+    // limitation entirely — scope to recent mail by receivedDateTime instead, then do ALL the
+    // actual category matching client-side below, same as already happened defensively anyway.
+    const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
+    const filter = 'receivedDateTime ge ' + cutoff;
+    const path = '/users/' + encodeURIComponent(mailbox) + '/messages?$filter=' + encodeURIComponent(filter) + '&$orderby=receivedDateTime desc&$select=id,subject,bodyPreview,webLink,categories&$top=50';
     const data = await H.graphFetch('GET', path);
     messages = (data && data.value) || [];
-    if (messages.length === 25) console.log('planning email-import: hit the 25-message cap this tick — any further tagged emails will be picked up on a later tick');
-  } catch (e) { console.log('planning email-import: could not fetch tagged messages:', e.message); return 0; }
+    if (messages.length === 50) console.log('planning email-import: hit the 50-message cap this tick — any further recent mail will be picked up on a later tick');
+  } catch (e) { console.log('planning email-import: could not fetch recent messages:', e.message); return 0; }
   let imported = 0;
   const toNotify = new Map(); // assigneeId -> [{title,due,prio,project}] — one combined email per person per tick
   for (const msg of messages) {
     try {
       const cats = msg.categories || [];
       const matched = cats.find(c => c === category) || cats.find(c => suffixRe.test(c));
-      if (!matched) { console.log('planning email-import: message ' + msg.id + ' looked like a match but has no real ' + category + ' category on closer look — skipping'); continue; }
+      if (!matched) continue; // most recent mail has no Task category at all — not worth logging every miss
       const suffixMatch = matched.match(suffixRe);
       let assignee = owner.id, assignNote = '';
       if (suffixMatch) {
