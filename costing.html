@@ -220,7 +220,7 @@ dialog .btn{margin-top:8px;margin-right:8px}
     <button class="databtn" onclick="exportAllData()" title="Download every costing figure as one file — a backup you can keep">⤓ Save data</button>
     <button class="databtn" onclick="importAllData()" title="Load a costing data file saved earlier (replaces the current costing figures; production data is never affected)">⤒ Load data</button>
     <span id="costSync" class="syncstate" style="display:none"></span>
-    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v26</span>
+    <span id="costVer" style="margin-left:auto;font-size:11px;color:var(--channel)" title="Recipe Costing version">v27</span>
   </nav>
 </header>
 <main id="main"></main>
@@ -347,17 +347,27 @@ function startPolling(){
     }catch(e){}
   },15000);
 }
+/* Parse cache: every store read used to JSON.parse its whole blob again — the ingredient table
+   alone re-parsed the purchases/recipes lists hundreds of times per keystroke, which is what made
+   the search feel slow. Now each key is parsed once and re-parsed only when its raw string changes
+   (a save here, or another user's change arriving via the poll). */
+const _jcache={};
+function J(k, fb){
+  const raw=kvGet(k); if(raw==null) return fb();
+  const c=_jcache[k]; if(c && c.raw===raw) return c.val;
+  try{ const val=JSON.parse(raw); _jcache[k]={raw, val}; return val; }catch(e){ return fb(); }
+}
 const store = {
-  get customRecipes(){ try{return JSON.parse(kvGet('wpf_custom')||'[]')}catch(e){return[]} },
+  get customRecipes(){ const v=J('wpf_custom',()=>[]); return Array.isArray(v)?v:[]; },
   set customRecipes(v){ kvSet('wpf_custom', JSON.stringify(v)) },
-  get priceOverrides(){ try{return JSON.parse(kvGet('wpf_prices')||'{}')}catch(e){return{}} },
+  get priceOverrides(){ const v=J('wpf_prices',()=>({})); return v&&typeof v==='object'?v:{}; },
   set priceOverrides(v){ kvSet('wpf_prices', JSON.stringify(v)) },
-  get purchases(){ try{return JSON.parse(kvGet('wpf_purchases')||'[]')}catch(e){return[]} },
+  get purchases(){ const v=J('wpf_purchases',()=>[]); return Array.isArray(v)?v:[]; },
   set purchases(v){ kvSet('wpf_purchases', JSON.stringify(v)) },
-  get shipOverrides(){ try{return JSON.parse(kvGet('wpf_ship')||'{}')}catch(e){return{}} },
+  get shipOverrides(){ const v=J('wpf_ship',()=>({})); return v&&typeof v==='object'?v:{}; },
   set shipOverrides(v){ kvSet('wpf_ship', JSON.stringify(v)) },
   get costItems(){
-    let v=null; try{v=JSON.parse(kvGet('wpf_costitems'))}catch(e){}
+    let v=J('wpf_costitems',()=>null);
     if(!Array.isArray(v)) return DEFAULT_COST_ITEMS.map(x=>({...x}));
     let changed=false;
     v.forEach(it=>{ if(it.std===undefined){ it.std=['labour','ovh','elec'].includes(it.id); changed=true; } });
@@ -367,36 +377,36 @@ const store = {
     return v;
   },
   set costItems(v){ kvSet('wpf_costitems', JSON.stringify(v)) },
-  get supplierDB(){ try{const v=JSON.parse(kvGet('wpf_supdb')); if(Array.isArray(v)) return v;}catch(e){} return seedSupplierDB(); },
+  get supplierDB(){ const v=J('wpf_supdb',()=>null); if(Array.isArray(v)) return v; return seedSupplierDB(); },
   set supplierDB(v){ kvSet('wpf_supdb', JSON.stringify(v)) },
-  get tileColors(){ try{return JSON.parse(kvGet('wpf_tilecolors')||'{}')}catch(e){return{}} },
+  get tileColors(){ const v=J('wpf_tilecolors',()=>({})); return v&&typeof v==='object'?v:{}; },
   set tileColors(v){ kvSet('wpf_tilecolors', JSON.stringify(v)) },
-  get recipeEdits(){ try{return JSON.parse(kvGet('wpf_recedits')||'{}')}catch(e){return{}} },
+  get recipeEdits(){ const v=J('wpf_recedits',()=>({})); return v&&typeof v==='object'?v:{}; },
   set recipeEdits(v){ kvSet('wpf_recedits', JSON.stringify(v)) },
   /* product categories — editable names, add more any time. id stays stable so renames don't break links. */
-  get categories(){ try{const v=JSON.parse(kvGet('wpf_categories')); if(Array.isArray(v)&&v.length) return v;}catch(e){} return [{id:'coldpress',name:'Cold Press'},{id:'freshfrozen',name:'Fresh Frozen'},{id:'freshambient',name:'Fresh Ambient'}]; },
+  get categories(){ const v=J('wpf_categories',()=>null); if(Array.isArray(v)&&v.length) return v; return [{id:'coldpress',name:'Cold Press'},{id:'freshfrozen',name:'Fresh Frozen'},{id:'freshambient',name:'Fresh Ambient'}]; },
   set categories(v){ kvSet('wpf_categories', JSON.stringify(v)) },
-  get recipeCategory(){ try{return JSON.parse(kvGet('wpf_reccat')||'{}')}catch(e){return{}} },   // recipe name -> category id
+  get recipeCategory(){ const v=J('wpf_reccat',()=>({})); return v&&typeof v==='object'?v:{}; },   // recipe name -> category id
   set recipeCategory(v){ kvSet('wpf_reccat', JSON.stringify(v)) },
-  get deletedRecipes(){ try{return JSON.parse(kvGet('wpf_deleted')||'[]')}catch(e){return[]} },   // recycle bin: deleted recipes can be restored
+  get deletedRecipes(){ const v=J('wpf_deleted',()=>[]); return Array.isArray(v)?v:[]; },   // recycle bin: deleted recipes can be restored
   set deletedRecipes(v){ kvSet('wpf_deleted', JSON.stringify(v)) },
-  get recipeCosting(){ try{return JSON.parse(kvGet('wpf_reccost')||'{}')}catch(e){return{}} },
+  get recipeCosting(){ const v=J('wpf_reccost',()=>({})); return v&&typeof v==='object'?v:{}; },
   set recipeCosting(v){ kvSet('wpf_reccost', JSON.stringify(v)) },
-  get renames(){ try{return JSON.parse(kvGet('wpf_renames')||'{}')}catch(e){return{}} },
+  get renames(){ const v=J('wpf_renames',()=>({})); return v&&typeof v==='object'?v:{}; },
   set renames(v){ kvSet('wpf_renames', JSON.stringify(v)) },
-  get supplierOverrides(){ try{return JSON.parse(kvGet('wpf_supnames')||'{}')}catch(e){return{}} },
+  get supplierOverrides(){ const v=J('wpf_supnames',()=>({})); return v&&typeof v==='object'?v:{}; },
   set supplierOverrides(v){ kvSet('wpf_supnames', JSON.stringify(v)) },
-  get customIngs(){ try{return JSON.parse(kvGet('wpf_customings')||'[]')}catch(e){return[]} },
+  get customIngs(){ const v=J('wpf_customings',()=>[]); return Array.isArray(v)?v:[]; },
   set customIngs(v){ kvSet('wpf_customings', JSON.stringify(v)) },
   /* cost PROFILES: named sets of standard per-kg costs + waste for a site/process (e.g. Fresh Frozen /
      Ambient vs the cold-pressed defaults). A recipe picks its profile on its costing page. */
-  get costProfiles(){ try{const v=JSON.parse(kvGet('wpf_costprofiles')); if(Array.isArray(v)) return v;}catch(e){} return JSON.parse(JSON.stringify(DEFAULT_COST_PROFILES)); },
+  get costProfiles(){ const v=J('wpf_costprofiles',()=>null); if(Array.isArray(v)) return v; return JSON.parse(JSON.stringify(DEFAULT_COST_PROFILES)); },
   set costProfiles(v){ kvSet('wpf_costprofiles', JSON.stringify(v)) },
-  get recipeProfile(){ try{return JSON.parse(kvGet('wpf_recprofile')||'{}')}catch(e){return{}} },   // recipe name -> profile id ('' = standard)
+  get recipeProfile(){ const v=J('wpf_recprofile',()=>({})); return v&&typeof v==='object'?v:{}; },   // recipe name -> profile id ('' = standard)
   set recipeProfile(v){ kvSet('wpf_recprofile', JSON.stringify(v)) },
   /* renames waiting to be told to the app, so the app renames its recipe row IN PLACE
      (same id — production history and plans stay linked). Cleared after a successful sync. */
-  get pendingRenames(){ try{const v=JSON.parse(kvGet('wpf_pendrenames')||'[]'); return Array.isArray(v)?v:[];}catch(e){return[]} },
+  get pendingRenames(){ const v=J('wpf_pendrenames',()=>[]); return Array.isArray(v)?v:[]; },
   set pendingRenames(v){ kvSet('wpf_pendrenames', JSON.stringify(v)) }
 };
 const DEFAULT_COST_PROFILES = [
@@ -587,6 +597,9 @@ function downloadCSV(name, rows){
 }
 
 /* ---------- nav ---------- */
+/* search boxes: rebuild the table only after a short pause in typing, so keystrokes land instantly */
+let _schT=null;
+function searchDebounce(){ clearTimeout(_schT); _schT=setTimeout(refresh,180); }
 let view = 'products', lastArg = null, sortState = {};
 function show(v, arg){
   if(view==='builder' && v!=='builder' && typeof confirmLeaveBuilder==='function' && !confirmLeaveBuilder()) return;   // guard: don't leave a half-edited recipe
@@ -692,7 +705,7 @@ function productsView(){
     <div class="stat"><div class="v">${allIngs().length}</div><div class="l">Ingredients</div></div>
   </div>
   <div class="toolbar">
-    <input type="text" id="prodSearch" placeholder="Search products…" value="${esc(prodFilter)}" oninput="prodFilter=this.value;refresh()">
+    <input type="text" id="prodSearch" placeholder="Search products…" value="${esc(prodFilter)}" oninput="prodFilter=this.value;searchDebounce()">
     ${catToggle()}
     <select onchange="prodBrandFilter=this.value;refresh()" title="Filter by brand" class="no-print"
       style="padding:8px 14px;border:2px solid var(--sea);border-radius:20px;background:${prodBrandFilter?'var(--sea)':'#fff'};color:${prodBrandFilter?'#fff':'var(--sea)'};font-weight:600;font-size:13px;min-width:0;cursor:pointer">
@@ -816,20 +829,27 @@ function ingUsageMap(){
 }
 function ingRows(){
   const usage=ingUsageMap();
+  /* hoisted once per render (not once per ingredient): purchases grouped by ingredient,
+     and each recipe's process name memoised */
+  const purchBy={}; store.purchases.forEach(p=>{ (purchBy[p.ing]=purchBy[p.ing]||[]).push(p); });
+  const procOf={}; allRecipes().forEach(r=>{ procOf[r.name]=catName(catOf(r.name))||'—'; });
   return allIngs().map(i=>{
     const base = ingBase(i.name);
     const ship = ingShip(i.name);
-    const target = targetPrice(i.name);
-    const actual = actualPrice(i.name);
+    const target = base==null?null:base+ship;
+    const ps = purchBy[i.name]||[];
+    const kg = ps.reduce((a,p)=>a+p.kg,0);
+    const actual = kg>0 ? ps.reduce((a,p)=>a+p.kg*(p.perKg+(p.delPerKg||0)),0)/kg : null;
     const variance = (target&&actual!=null) ? (actual-target)/target : null;
     const recs = usage[i.name]||[];
-    const procs = [...new Set(recs.map(r=>catName(catOf(r.name))||'—'))].sort().join(' + ');
-    return {...i, key:i.name, disp:dispName(i.name), sup:supOf(i), base, ship, shipT: ship*1000, target, actual, variance, nPurch: ingPurchases(i.name).length,
+    const procs = [...new Set(recs.map(r=>procOf[r.name]||'—'))].sort().join(' + ');
+    return {...i, key:i.name, disp:dispName(i.name), sup:supOf(i), base, ship, shipT: ship*1000, target, actual, variance, nPurch: ps.length,
       recs, nRecs:recs.length, procs: procs||'—'};
   });
 }
 function ingredientsView(){
-  let rows = ingRows().filter(i=>i.disp.toLowerCase().includes(ingFilter.toLowerCase()) || (i.sup||'').toLowerCase().includes(ingFilter.toLowerCase()));
+  const rowsAll = ingRows();   // computed ONCE per render — this view used to build it three times
+  let rows = rowsAll.filter(i=>i.disp.toLowerCase().includes(ingFilter.toLowerCase()) || (i.sup||'').toLowerCase().includes(ingFilter.toLowerCase()));
   if(ingProcFilter) rows = rows.filter(i=> ingProcFilter==='__unused' ? !i.nRecs : i.recs.some(r=>catOf(r.name)===ingProcFilter));
   if(ingSort.col){
     rows=[...rows].sort((a,b)=>{const va=a[ingSort.col],vb=b[ingSort.col];
@@ -839,7 +859,7 @@ function ingredientsView(){
     rows=[...rows].sort((a,b)=>a.disp.localeCompare(b.disp));   // always alphabetical unless a column is chosen
   }
   ING_VIEW = rows;
-  const suppliers = [...new Set(ingRows().map(i=>i.sup).filter(Boolean))].sort();
+  const suppliers = [...new Set(rowsAll.map(i=>i.sup).filter(Boolean))].sort();
   const cols=[['disp','Ingredient'],['sup','Supplier'],['procs','Used in (process)'],['nRecs','Recipes'],['base','Target £/kg (ex del.)'],['ship','Delivery £/kg'],['shipT','Delivery £/t'],['target','Target £/kg delivered'],['actual','Actual £/kg delivered'],['variance','Variance'],['nPurch','Purchases'],['monthlyUsageKg','Usage kg/mo']];
   const body = rows.map((i,x)=>{
     const vcol = i.variance==null?'':(i.variance>0.0005?'style="color:var(--warn);font-weight:600"':(i.variance<-0.0005?'style="color:var(--ok);font-weight:600"':''));
@@ -865,7 +885,7 @@ function ingredientsView(){
     <td class="num"><button class="btn small ${i.nPurch?'':'ghost'}" onclick="viewPurchasesIdx(${x})">${i.nPurch||'+ add'}</button></td>
     <td class="num">${NUM(i.monthlyUsageKg)}${i.custom?` <button class="btn small danger no-print" onclick="delCustomIng(${x})">✕</button>`:''}</td></tr>`;
   }).join('');
-  const withP = ingRows().filter(i=>i.nPurch>0);
+  const withP = rowsAll.filter(i=>i.nPurch>0);
   const avgVar = withP.length? withP.reduce((a,i)=>a+(i.variance||0),0)/Math.max(1,withP.filter(i=>i.variance!=null).length) : null;
   return `
   <datalist id="suplist">${suppliers.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>
@@ -876,7 +896,7 @@ function ingredientsView(){
     <div class="stat"><div class="v" style="color:${avgVar!=null&&avgVar>0?'#f7b2ba':'#9fd8c3'}">${avgVar!=null?((avgVar>0?'+':'')+(avgVar*100).toFixed(1)+'%'):'—'}</div><div class="l">Avg actual vs target</div></div>
   </div>
   <div class="toolbar">
-    <input type="text" id="ingSearch" placeholder="Search ingredients or suppliers…" value="${esc(ingFilter)}" oninput="ingFilter=this.value;refresh()">
+    <input type="text" id="ingSearch" placeholder="Search ingredients or suppliers…" value="${esc(ingFilter)}" oninput="ingFilter=this.value;searchDebounce()">
     <select onchange="ingProcFilter=this.value;refresh()" title="Show only ingredients used in this process">
       <option value="">All processes</option>
       ${catList().map(c=>`<option value="${esc(c.id)}"${ingProcFilter===c.id?' selected':''}>Used in ${esc(c.name)}</option>`).join('')}
@@ -1073,7 +1093,7 @@ function purchasesView(){
     <p class="muted" style="margin-top:8px">Tip: for a £/tonne quote, divide by 1,000 (e.g. £750/t = £0.75/kg). Leave delivery blank to use the ingredient's standard delivery cost; enter 0 if the price is already delivered. Each purchase updates the ingredient's actual (average) cost automatically.</p>
   </div>
   <div class="toolbar">
-    <input type="text" id="purSearch" placeholder="Filter by ingredient…" value="${esc(purFilter)}" oninput="purFilter=this.value;refresh()">
+    <input type="text" id="purSearch" placeholder="Filter by ingredient…" value="${esc(purFilter)}" oninput="purFilter=this.value;searchDebounce()">
     <button class="btn ghost" onclick="exportPurchases()">Export CSV</button>
     <button class="btn ghost" onclick="window.print()">Print</button>
     <span class="count">${rows.length} purchases</span>
@@ -1333,7 +1353,7 @@ function recipesView(){
   const shownCount = mode==='search'? matchR.length : (mode==='recipes'? leafList.length : 0);
   const toolbar=`
   <div class="toolbar">
-    <input type="text" id="recSearch" placeholder="Search all recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;refresh()">
+    <input type="text" id="recSearch" placeholder="Search all recipes…" value="${esc(recFilter)}" oninput="recFilter=this.value;searchDebounce()">
     ${showingRecipes?`<select onchange="recCatFilter=this.value;refresh()" title="Filter by category"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c.id)}"${recCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}
     <button class="btn ghost" onclick="openCategoryManager()">⚙ Categories</button>
     <button class="btn accent" onclick="openBuilder()">+ New recipe</button>
@@ -1861,7 +1881,7 @@ function suppliersView(){
     <div class="stat"><div class="v">${new Set(db.map(e=>e.ing)).size}</div><div class="l">Ingredients covered</div></div>
   </div>
   <div class="toolbar">
-    <input type="text" id="supSearch" placeholder="Search suppliers or ingredients…" value="${esc(supFilter)}" oninput="supFilter=this.value;refresh()">
+    <input type="text" id="supSearch" placeholder="Search suppliers or ingredients…" value="${esc(supFilter)}" oninput="supFilter=this.value;searchDebounce()">
     <button class="btn ghost" onclick="exportSuppliers()">Export CSV</button>
     <button class="btn ghost" onclick="window.print()">Print</button>
     <span class="count">${rows.length} entries</span>

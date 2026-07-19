@@ -2165,6 +2165,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v27', date:'19 Jul 2026', notes:[
+    'Ingredient search is fast: typing no longer freezes for seconds. The costing screen was re-reading its whole data store on every keystroke — it now caches parsed data, builds the table once per change, and only redraws after you pause typing.',
+    'Backup audited (with real live data) and completed. The zip backup was already 100% complete — it contains the entire database. The readable Excel inside it now also covers what it was missing: Planning projects & tasks, every batch’s frozen ingredient usage (2,800+ records), the costing change journal, bag-to-product mappings on Packaging, user emails/factories, the recipe version on each production row, and the menu layout + stock-freeze report settings. Sessions and invite links are deliberately left out of the Excel (they are security tokens; they are in app.db).',
+    'The daily backup to your Mac already pulls the full zip (checked) — nothing to change there.'
+  ]},
   {v:'v26', date:'18 Jul 2026', notes:[
     'Full correctness audit — every calculation checked and the bugs found are fixed (details in AUDIT-FINDINGS.md).',
     'Best-before dates: filling on the 29th/30th/31st no longer spills the date into the wrong month — 31 Aug + 18 months is now end of February, not 2 March. Shelf life stays 12 months (18 for Green Pantry) with the per-recipe override unchanged.',
@@ -2268,7 +2273,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v26';
+const APP_VERSION='v27';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

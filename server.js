@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v26';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v27';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -905,13 +905,21 @@ function buildBackupXlsx() {
   const sheets = [];
   sheets.push({ name: 'Stock snapshot', rows: [['Ingredient', 'Category', 'Opening', 'Deliveries', 'Adjustments', 'Used', 'Remaining', 'Re-order pt', 'Supplier', 'Status'],
     ...snap.map(s => [s.name, s.category, s.opening, s.deliveries, s.adjustments, s.used, s.remaining, s.reorder, s.supplier, s.status])] });
-  sheets.push({ name: 'Production', rows: [['Date', 'Product', 'Size', 'Bags', 'kg', 'Batch', 'Basket', 'Mince date', 'Cook date', 'Retort', 'Julian', 'Best before', 'Filled date', 'Temp start', 'Temp finish', 'Fill start', 'Fill finish', 'Operators', 'Stack', 'Stack complete', 'Trays', 'Historical import', 'By'],
-    ...db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all().map(p => [p.date, p.product, p.pack, p.qty, p.kg, p.batch, p.basket, p.mince_date, p.cook_date, p.retort, p.julian_code, p.best_before, p.filled_date, p.temp_start, p.temp_finish, p.fill_start, p.fill_finish, p.operators, p.stack_id, p.stack_complete ? 'yes' : 'no', p.trays, p.hist ? 'yes' : '', p.by])] });
+  sheets.push({ name: 'Production', rows: [['Date', 'Product', 'Size', 'Bags', 'kg', 'Batch', 'Basket', 'Mince date', 'Cook date', 'Retort', 'Julian', 'Best before', 'Filled date', 'Temp start', 'Temp finish', 'Fill start', 'Fill finish', 'Operators', 'Stack', 'Stack complete', 'Trays', 'Recipe version', 'Historical import', 'By'],
+    ...db.prepare('SELECT * FROM production ORDER BY date DESC, created DESC').all().map(p => [p.date, p.product, p.pack, p.qty, p.kg, p.batch, p.basket, p.mince_date, p.cook_date, p.retort, p.julian_code, p.best_before, p.filled_date, p.temp_start, p.temp_finish, p.fill_start, p.fill_finish, p.operators, p.stack_id, p.stack_complete ? 'yes' : 'no', p.trays, p.recipe_version || '', p.hist ? 'yes' : '', p.by])] });
+  // frozen per-batch ingredient usage — the exact deductions each batch recorded at fill time
+  try {
+    const biNames = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => biNames[i.id] = i.name);
+    sheets.push({ name: 'Batch ingredient usage', rows: [['Date', 'Product', 'Size', 'Batch (Julian)', 'Basket', 'Cook date', 'Ingredient', 'kg used'],
+      ...db.prepare('SELECT p.date d, p.product, p.pack, p.batch, p.basket, p.cook_date cd, pi.ing_id, pi.kg FROM production_items pi JOIN production p ON p.id = pi.prod_id ORDER BY p.date DESC, p.product').all()
+        .map(r => [r.d, r.product, r.pack, r.batch, r.basket, r.cd || '(not cooked yet)', biNames[r.ing_id] || r.ing_id, r.kg])] });
+  } catch (e) {}
   sheets.push({ name: 'Deliveries', rows: [['Date', 'Supplier', 'Ingredient', 'Description', 'Qty kg', 'Ref/PO', 'Approval', 'Approved', 'Temp', 'Vehicle', 'Quality', 'Type', 'Batch', 'Initials', 'Historical import'],
     ...db.prepare('SELECT * FROM deliveries ORDER BY date DESC').all().map(d => { const ing = db.prepare('SELECT name FROM ingredients WHERE id=?').get(d.ing_id); return [d.date, d.supplier, ing ? ing.name : d.ing_id, d.descr, d.qty, d.ref, d.approval, d.approved, d.temp, d.veh, d.qual, d.type, d.batch, d.initials, d.hist ? 'yes' : '']; })] });
   sheets.push({ name: 'Adjustments', rows: [['Date', 'Ingredient', 'Change kg', 'Reason', 'By'],
     ...db.prepare('SELECT * FROM adjustments ORDER BY created DESC').all().map(a => { const ing = db.prepare('SELECT name FROM ingredients WHERE id=?').get(a.ing_id); return [a.date, ing ? ing.name : a.ing_id, a.delta, a.reason, a.by]; })] });
-  sheets.push({ name: 'Packaging', rows: [['Item', 'Type', 'Qty', 'Re-order pt'], ...db.prepare('SELECT * FROM packaging').all().map(p => [p.name, p.type, p.qty, p.reorder])] });
+  sheets.push({ name: 'Packaging', rows: [['Item', 'Type', 'Qty', 'Re-order pt', 'Bag for product', 'Bag for size'],
+    ...db.prepare('SELECT * FROM packaging').all().map(p => { let bagFor = ''; if (p.map_recipe) { const r = db.prepare('SELECT brand,name FROM recipes WHERE id=?').get(p.map_recipe); bagFor = r ? (r.brand + ' — ' + r.name) : p.map_recipe; } return [p.name, p.type, p.qty, p.reorder, bagFor, p.map_pack || '']; })] });
   sheets.push({ name: 'Suppliers', rows: [['Trading name', 'Approval', 'Product', 'Activity', 'Address', 'Post code'], ...db.prepare('SELECT * FROM suppliers ORDER BY name').all().map(s => [s.name, s.approval, s.product, s.activity, s.address, s.postcode])] });
   sheets.push({ name: 'Ingredients', rows: [['Name', 'Category', 'Supplier', 'Notes'], ...db.prepare('SELECT * FROM ingredients ORDER BY name').all().map(i => [i.name, i.category, i.supplier || '', i.notes || ''])] });
   sheets.push({ name: 'Recipes', rows: [['Recipe', 'Brand', 'Pack sizes', 'Shelf life (months)', 'Last updated'],
@@ -954,11 +962,26 @@ function buildBackupXlsx() {
     const sp = db.prepare("SELECT value FROM specs_kv WHERE key='data'").get();
     if (sp) { const v = sp.value || ''; const rows = [['Part', 'Product specs (JSON)']]; for (let i = 0, pn = 1; i < v.length || pn === 1; i += 30000, pn++) rows.push([pn, v.slice(i, i + 30000)]); sheets.push({ name: 'Product specs raw', rows }); }
   } catch (e) {}
-  sheets.push({ name: 'Users', rows: [['Username', 'Role', 'Created', 'Permissions'],
-    ...db.prepare('SELECT username, role, created, perms FROM users ORDER BY username').all().map(u => [u.username, u.role, u.created || '', u.perms || '(preset by role)'])] });
+  sheets.push({ name: 'Users', rows: [['Username', 'Role', 'Email', 'Factory', 'Created', 'Permissions'],
+    ...db.prepare('SELECT username, role, email, factory, created, perms FROM users ORDER BY username').all().map(u => [u.username, u.role, u.email || '', u.factory || '', u.created || '', u.perms || '(preset by role)'])] });
+  // Planning module — projects & tasks (guarded: the tables exist once the module has loaded)
+  try {
+    const uNames = {}; db.prepare('SELECT id,username FROM users').all().forEach(u => uNames[u.id] = u.username);
+    const pNames = {}; db.prepare('SELECT id,name FROM projects').all().forEach(p => pNames[p.id] = p.name);
+    sheets.push({ name: 'Planning projects', rows: [['Project', 'Status', 'Notes', 'Colour', 'Created'],
+      ...db.prepare('SELECT * FROM projects ORDER BY created').all().map(p => [p.name, p.status || '', p.meta || '', p.color || '', p.created || ''])] });
+    sheets.push({ name: 'Planning tasks', rows: [['Task', 'Project', 'Assigned to', 'Created by', 'Due', 'Priority', 'Status', 'Site', 'Notes', 'Created', 'Done at'],
+      ...db.prepare('SELECT * FROM tasks ORDER BY created DESC').all().map(t => [t.title, pNames[t.project_id] || '', uNames[t.assignee] || '', uNames[t.created_by] || '', t.due || '', t.prio || '', t.status || '', t.site || '', t.notes || '', t.created || '', t.done_at || ''])] });
+  } catch (e) {}
+  // costing change journal — who changed which costing key, when (values themselves are in app.db)
+  try {
+    const ch = db.prepare('SELECT key, changed, by, action, LENGTH(value) size FROM costing_kv_history ORDER BY id DESC LIMIT 500').all();
+    sheets.push({ name: 'Costing change history', rows: [['When', 'Key', 'By', 'Action', 'Previous value size (chars)'],
+      ...ch.map(c => [c.changed, c.key, c.by, c.action, c.size])] });
+  } catch (e) {}
   // app settings (weekly plans, filling targets, home layout, PIN is excluded) — raw, chunked for Excel's cell limit
   const st = [['Setting', 'Part', 'Value (JSON)']];
-  db.prepare("SELECT key, value FROM meta WHERE key IN ('weekPlans','fillTargets','homeConfig','historyVersion')").all().forEach(r => { const v = r.value || ''; for (let i = 0, part = 1; i < v.length || part === 1; i += 30000, part++) st.push([r.key, part, v.slice(i, i + 30000)]); });
+  db.prepare("SELECT key, value FROM meta WHERE key IN ('weekPlans','fillTargets','homeConfig','historyVersion','menuLayout','stockFreezeReport')").all().forEach(r => { const v = r.value || ''; for (let i = 0, part = 1; i < v.length || part === 1; i += 30000, part++) st.push([r.key, part, v.slice(i, i + 30000)]); });
   sheets.push({ name: 'App settings', rows: st });
   // ---- costing module data (shared figures) — one backup covers everything ----
   try {

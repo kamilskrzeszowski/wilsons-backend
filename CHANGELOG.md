@@ -2,6 +2,14 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v27 — 19 July 2026
+**Search speed + backup completeness** (both raised by Kamil after the v26 go-live).
+- **Ingredient search no longer lags.** The costing screen re-parsed its entire shared data store (recipes, purchases, prices) on *every keystroke*, three times over, then rebuilt the whole table — several seconds of freeze. Now: parsed data is cached and re-read only when it actually changes; the ingredient table is built once per redraw; and all five costing search boxes redraw only after a 180 ms pause in typing. Measured: keystrokes instant; one ~50 ms redraw after the pause. Displayed prices verified unchanged against the canonical pricing functions.
+- **Backup audited end-to-end with real live data** (a copy of the 18 Jul live backup, through the real `/api/backup.zip` endpoint):
+  - The **zip backup was already complete** — it contains `app.db`, the entire database, and Restore uses exactly that file. The daily-backup script also already pulls the zip. Nothing was ever missing from the zip.
+  - The **readable Excel workbook** inside it was missing several things, now added (30 sheets total): **Planning projects & tasks**; **Batch ingredient usage** (every batch's frozen deductions — 2,800+ rows); **Costing change history** (who changed which costing data, when); Packaging **bag-to-product mappings**; Users **email + factory**; Production **recipe version** column; and the **menu layout** + **stock-freeze report** settings.
+  - Deliberately *not* in the Excel (but in `app.db`): session tokens, invite links (secrets), the live-fill feed (transient), and the fill-PIN.
+
 ## v26 — 18 July 2026
 **Full correctness audit + fixes** (audit report: `AUDIT-FINDINGS.md` in the project folder).
 - **Best-before dates** no longer spill into the wrong month when filling on the 29th/30th/31st — they clamp to the last day of the target month (31 Aug + 18 months = 28/29 Feb, not 2 Mar). Defaults unchanged (12 months; Green Pantry 18; per-recipe override kept).
