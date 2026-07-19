@@ -2165,6 +2165,10 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v30', date:'19 Jul 2026', notes:[
+    'Planning: projects can now be edited and deleted. Rename a project, change its colour or its notes, or delete one — all from the Projects tab (previously you could only create one). Deleting a project simply retires it from the list and stops offering it for new tasks; any tasks already in it keep their project label and history exactly as they were, nothing is lost.',
+    '“+ New project” now opens a proper form (name, colour, notes) instead of a bare text prompt.'
+  ]},
   {v:'v29', date:'19 Jul 2026', notes:[
     'Planning: task detail + activity log. Tap any task — in My work, Waiting on, Team or Projects — to open it and see or edit everything about it (title, notes, due date, priority, project, assignee, site), all in one place.',
     'Every task now keeps a plain-English activity trail: who created it, every reassignment, every status change, every edit (what changed, in plain terms — e.g. “Updated due date to 15 Aug, priority to High”), and any comments people add. So delegating a job leaves a record of what was said and done, instead of relying on memory.',
@@ -2284,7 +2288,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v29';
+const APP_VERSION='v30';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

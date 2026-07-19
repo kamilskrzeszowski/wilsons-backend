@@ -2,6 +2,13 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v30 — 19 July 2026
+**Planning: project edit + delete** (a gap in the original v20 Planning build — Kamil could create a project but never rename, recolour, re-note or remove one).
+- **"+ New project" is now a proper form** (name, colour swatch, notes), not a bare browser text prompt — and the same form is reused to **Edit** an existing project.
+- **Delete** on a project card retires it: it stops being offered for new tasks/routines, but is a soft delete under the hood (`status='archived'`, the same field the schema already had) — nothing is destroyed. Any tasks already in that project **keep their project label and history exactly as they were**; opening one of those tasks still shows the (now-retired) project in its dropdown, clearly marked "(archived)", so editing an old task never silently loses its project.
+- **Server-side:** `GET /api/projects` now returns archived projects too (previously it excluded them), so the client — not the server — decides where to show them: active-only in the Projects tab and in pickers for brand-new tasks/routines, but still resolvable for the project pill on existing tasks and as the preserved current value when editing a task/routine that was already pointed at it. No new routes — the existing `PUT /api/projects/:id` already supported every field this needed.
+- Verified live: created, edited (name/colour/notes) and archived a project via real HTTP; confirmed an existing task's project pill and its own edit dropdown both still resolve the project correctly after archiving; confirmed the Add-task, New-routine and Projects-tab pickers all correctly stop offering it; full browser walkthrough of create/edit/delete via the actual UI.
+
 ## v29 — 19 July 2026
 **Planning: task detail + activity log** (Phase 1.2 of the Planning roadmap — see `PLANNING-ROADMAP.md`).
 - **Tap any task to open it** — from My work, Waiting on, Team or Projects — and see/edit everything: title, notes, due date, priority, project, assignee, site. Saves send only the fields that actually changed (a merge-style PUT), matching this app's existing costing-save safety pattern.

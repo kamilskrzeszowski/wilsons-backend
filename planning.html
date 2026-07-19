@@ -81,6 +81,12 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .project .prt .x{flex:1;}
 .mini-av{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
 .newproj{margin-top:6px;color:var(--coral-deep);font-weight:700;font-size:14px;cursor:pointer;padding:8px 4px;display:inline-block;}
+.project .practs{display:flex;gap:16px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);}
+.project .pract{font-size:12.5px;font-weight:700;color:var(--slate);cursor:pointer;}
+.project .pract.danger{color:var(--p-high);}
+.swrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:2px;}
+.sw{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
+.sw.on{border-color:var(--navy);box-shadow:0 0 0 2px #fff inset;}
 /* Routines (recurring tasks) */
 .routine{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:9px;box-shadow:0 3px 10px -8px rgba(20,54,68,.25);}
 .routine.paused{opacity:.55;}
@@ -232,6 +238,19 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   </div>
 </div>
 
+<div class="scrim" id="pr-scrim" data-act="closeproj"></div>
+<div class="sheet" id="pr-sheet">
+  <span class="cancel" data-act="closeproj">Cancel</span>
+  <h3 id="pr-heading">New project</h3>
+  <label>Name</label>
+  <input id="pr-name" placeholder="e.g. Germany Export Compliance">
+  <label>Colour</label>
+  <div class="swrow" id="pr-swatches"></div>
+  <label>Notes</label>
+  <input id="pr-meta" placeholder="Short description (optional)">
+  <button class="go" data-act="saveproj">Save project</button>
+</div>
+
 <script>
 const PAL=['#143644','#e2606c','#007985','#7a3b8f','#3f7d3f','#c0563b','#e0a13f','#4b5f6d'];
 const PRIO={high:{l:'High',c:'#c0563b'},med:{l:'Medium',c:'#e0a13f'},low:{l:'Low',c:'#4b5f6d'}};
@@ -252,7 +271,7 @@ function dueLabel(s){if(!s)return '';const d=parseD(s);if(!d)return '';const dif
 function titlecase(u){return String(u||'').replace(/[._-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());}
 function initials(u){const p=String(u||'?').replace(/[._-]/g,' ').trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||(p[0]||'')[1]||'')).toUpperCase();}
 
-const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null};
+const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null,editingProject:null};
 
 async function api(path,method,body){
   const r=await fetch(path,{method:method||'GET',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),body:body?JSON.stringify(body):undefined});
@@ -280,6 +299,15 @@ function person(id){return state.team[id]||{name:'Unassigned',short:'Unassigned'
 function avA(id,cls){const p=person(id);return '<span class="'+(cls||'av')+'" style="background:'+p.color+'">'+esc(p.av)+'</span>';}
 function prioDot(p){return '<span class="pdot" style="background:'+(PRIO[p]?PRIO[p].c:'#b3bcc0')+'"></span>';}
 function projPill(pid){const pr=state.projects[pid];if(!pr)return '';return '<span class="pill proj" style="background:'+(pr.color||'#6f7b82')+'">'+esc(pr.name)+'</span>';}
+// Archived projects stay in state.projects (so old tasks can still resolve a name/colour) but are
+// left out of pickers for NEW assignments — except a task/routine's own currently-set project, which
+// stays selectable even if it was archived since, so editing one doesn't silently lose the value.
+function activeProjectIds(){return state.porder.filter(k=>(state.projects[k].status||'active')!=='archived');}
+function projectOptionsFor(currentId){
+  const ids=activeProjectIds();
+  if(currentId&&!ids.includes(currentId)&&state.projects[currentId])ids.push(currentId);
+  return ids.map(k=>'<option value="'+k+'"'+(currentId===k?' selected':'')+'>'+esc(state.projects[k].name)+(state.projects[k].status==='archived'?' (archived)':'')+'</option>').join('');
+}
 function dueHtml(s){if(!s)return '';return '<span class="pill due'+(isOver(s)?' over':'')+'">'+esc(dueLabel(s))+'</span>';}
 const isDone=t=>t.status==='done';
 
@@ -352,11 +380,12 @@ function render(){
     h=del.length?'<div class="grp">'+del.map(taskRow).join('')+'</div>':'<div class="empty">You haven’t delegated anything open.<br>Assign a task to a colleague and it’ll appear here.</div>';
   }else if(state.tab==='projects'){
     sub='Every project, with progress and who owns each piece.';
-    h=state.porder.map(k=>{
+    h=activeProjectIds().map(k=>{
       const pr=state.projects[k];const ts=state.tasks.filter(t=>t.project_id===k);const done=ts.filter(isDone).length;const pct=ts.length?Math.round(done/ts.length*100):0;
       return '<div class="project"><div class="prh"><span class="swatch" style="background:'+(pr.color||'#6f7b82')+'"></span><div><div class="prn">'+esc(pr.name)+'</div><div class="prm">'+esc(pr.meta||'')+'</div></div><div class="cnt" style="margin-left:auto;text-align:right"><b style="font-size:16px;color:var(--navy)">'+done+'/'+ts.length+'</b></div></div>'
         +'<div class="bar"><i style="width:'+pct+'%;background:'+(pr.color||'#6f7b82')+'"></i></div>'
-        +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')+'</div>';
+        +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')
+        +'<div class="practs"><span class="pract" data-act="editproj" data-id="'+k+'">Edit</span><span class="pract danger" data-act="archiveproj" data-id="'+k+'">Delete</span></div></div>';
     }).join('')+'<div class="newproj" data-act="newproj">+ New project</div>';
   }else{
     sub='Jobs that repeat on their own — daily, weekly or monthly. Generated tasks show a '+String.fromCharCode(0x21bb)+' mark.';
@@ -369,7 +398,7 @@ function render(){
 function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),2200);}
 function openAdd(){
   $('#f-assignee').innerHTML=state.torder.map(k=>'<option value="'+k+'"'+(k===state.me.id?' selected':'')+'>'+esc(person(k).short)+'</option>').join('');
-  $('#f-project').innerHTML='<option value="">No project</option>'+state.porder.map(k=>'<option value="'+k+'">'+esc(state.projects[k].name)+'</option>').join('');
+  $('#f-project').innerHTML='<option value="">No project</option>'+projectOptionsFor('');
   $('#f-title').value='';$('#f-due').value='';$('#scrim').classList.add('on');$('#sheet').classList.add('on');setTimeout(()=>$('#f-title').focus(),120);
 }
 function closeAdd(){$('#scrim').classList.remove('on');$('#sheet').classList.remove('on');}
@@ -406,9 +435,40 @@ async function setAssignee(id,k){
   t.assignee=Number(k);render();
   try{await api('/api/tasks/'+encodeURIComponent(id),'PUT',{assignee:Number(k)});toast(Number(k)===state.me.id?'Now yours':('Assigned to '+person(Number(k)).short));}catch(e){toast(e.message);load();}
 }
-async function newProject(){
-  const name=prompt('New project name');if(!name||!name.trim())return;
-  try{await api('/api/projects','POST',{name:name.trim(),color:PAL[state.porder.length%PAL.length]});await load();toast('Project added');}catch(e){toast(e.message);}
+/* ---------------- project sheet (create / edit / archive) ---------------- */
+let prColor=PAL[0]; // colour currently selected while the project sheet is open
+function renderSwatches(){
+  $('#pr-swatches').innerHTML=PAL.map(c=>'<div class="sw'+(c===prColor?' on':'')+'" data-act="pickswatch" data-x="'+c+'" style="background:'+c+'"></div>').join('');
+}
+function openProjectSheet(id){
+  state.editingProject=id||null;
+  const pr=id?state.projects[id]:null;
+  $('#pr-heading').textContent=pr?'Edit project':'New project';
+  $('#pr-name').value=pr?pr.name:'';
+  $('#pr-meta').value=pr?(pr.meta||''):'';
+  prColor=pr?(pr.color||PAL[0]):PAL[state.porder.length%PAL.length];
+  renderSwatches();
+  $('#pr-scrim').classList.add('on');$('#pr-sheet').classList.add('on');
+  setTimeout(()=>$('#pr-name').focus(),120);
+}
+function closeProjectSheet(){$('#pr-scrim').classList.remove('on');$('#pr-sheet').classList.remove('on');}
+function pickSwatch(c){prColor=c;renderSwatches();}
+async function saveProject(){
+  const name=$('#pr-name').value.trim();if(!name){$('#pr-name').focus();return;}
+  const body={name:name,color:prColor,meta:$('#pr-meta').value.trim()};
+  try{
+    if(state.editingProject)await api('/api/projects/'+encodeURIComponent(state.editingProject),'PUT',body);
+    else await api('/api/projects','POST',body);
+    closeProjectSheet();await load();
+    toast(state.editingProject?'Project updated':'Project added');
+  }catch(e){toast(e.message);}
+}
+async function archiveProject(id){
+  const pr=state.projects[id];if(!pr)return;
+  const n=state.tasks.filter(t=>t.project_id===id).length;
+  const extra=n?(' Its '+n+' existing task'+(n===1?' keeps':'s keep')+' this project label and '+(n===1?'is':'are')+' not affected.'):'';
+  if(!confirm('Delete “'+pr.name+'”? It will no longer be offered for new tasks.'+extra))return;
+  try{await api('/api/projects/'+encodeURIComponent(id),'PUT',{status:'archived'});await load();toast('Project deleted');}catch(e){toast(e.message);}
 }
 
 /* ---------------- routine sheet (create / edit a recurring task) ---------------- */
@@ -432,7 +492,7 @@ function openRoutineSheet(id){
   const rt=id?state.templates.find(x=>x.id===id):null;
   $('#rt-heading').textContent=rt?'Edit routine':'New routine';
   $('#rt-assignee').innerHTML=state.torder.map(k=>'<option value="'+k+'"'+((rt?rt.assignee:state.me.id)===k?' selected':'')+'>'+esc(person(k).short)+'</option>').join('');
-  $('#rt-project').innerHTML='<option value="">No project</option>'+state.porder.map(k=>'<option value="'+k+'"'+(rt&&rt.project_id===k?' selected':'')+'>'+esc(state.projects[k].name)+'</option>').join('');
+  $('#rt-project').innerHTML='<option value="">No project</option>'+projectOptionsFor(rt?rt.project_id:'');
   fillRoutineMonthDays();
   $('#rt-title').value=rt?rt.title:'';
   $('#rt-prio').value=rt?(rt.prio||'med'):'med';
@@ -511,7 +571,7 @@ function openTaskDetail(id){
   $('#td-notes').value=t.notes||'';
   $('#td-assignee').innerHTML=state.torder.map(k=>'<option value="'+k+'"'+(t.assignee===k?' selected':'')+'>'+esc(person(k).short)+'</option>').join('');
   $('#td-prio').value=t.prio||'med';
-  $('#td-project').innerHTML='<option value="">No project</option>'+state.porder.map(k=>'<option value="'+k+'"'+(t.project_id===k?' selected':'')+'>'+esc(state.projects[k].name)+'</option>').join('');
+  $('#td-project').innerHTML='<option value="">No project</option>'+projectOptionsFor(t.project_id);
   $('#td-due').value=t.due||'';
   $('#td-site').innerHTML=SITES.map(([v,l])=>'<option value="'+v+'"'+(t.site===v?' selected':'')+'>'+esc(l)+'</option>').join('');
   renderStatusPill(t);
@@ -570,7 +630,12 @@ document.addEventListener('click',function(e){
   else if(a==='save'){save();}
   else if(a==='assign'){e.stopPropagation();const r=el.getBoundingClientRect();openAssign(id,r.left,r.bottom);}
   else if(a==='setassignee'){setAssignee(id,x);}
-  else if(a==='newproj'){newProject();}
+  else if(a==='newproj'){openProjectSheet();}
+  else if(a==='editproj'){openProjectSheet(id);}
+  else if(a==='archiveproj'){archiveProject(id);}
+  else if(a==='closeproj'){closeProjectSheet();}
+  else if(a==='saveproj'){saveProject();}
+  else if(a==='pickswatch'){pickSwatch(x);}
   else if(a==='newroutine'){openRoutineSheet();}
   else if(a==='editroutine'){openRoutineSheet(id);}
   else if(a==='toggleroutine'){toggleRoutine(id);}

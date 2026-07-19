@@ -234,7 +234,9 @@ async function handle(ctx) {
 
   // Projects
   if (url === '/api/projects' && m === 'GET') {
-    json(res, 200, { projects: db.prepare("SELECT * FROM projects WHERE status <> 'archived' ORDER BY created").all() });
+    // Archived projects are included deliberately — the client filters them out of pickers, but
+    // still needs them to resolve the project pill/name on tasks that were assigned before archiving.
+    json(res, 200, { projects: db.prepare('SELECT * FROM projects ORDER BY created').all() });
     return true;
   }
   if (url === '/api/projects' && m === 'POST') {
