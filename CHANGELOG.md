@@ -2,6 +2,15 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v28 — 19 July 2026
+**Planning: recurring/routine tasks** (Phase 1.1 of the Planning roadmap — see `PLANNING-ROADMAP.md`).
+- **New "Routines" tab in Planning.** Set up a task that repeats — daily, weekly (any combination of days), or monthly (a chosen day of the month, or the last day) — assign it to someone, and HQ creates the actual task automatically each time it falls due, on schedule. No need to remember to add it by hand.
+- Tasks a routine created carry a small **↻ mark** in the task list, so it's always obvious which ones were generated automatically vs added by hand.
+- Each routine can be **paused, resumed, edited or deleted** independently. Deleting a routine removes only the repeating rule — any tasks it already created are real history and are left exactly as they were (this app's consistent policy: never rewrite past records).
+- **New, additive-only data:** a `task_templates` table (the routines themselves) and a `template_id` marker on `tasks` (which routine, if any, made this one). Nothing existing was changed — Planning's existing tasks/projects/team data and every other module are completely untouched.
+- **Correctness foundation:** the server now pins its own clock to UK time (`Europe/London`), so the new routine scheduler can correctly answer "what day is it" across the GMT/BST switch — this is the first time the *server itself* (rather than the browser, which already did this correctly per the v26 fixes) has needed to know today's date. Verified with 27 unit tests covering month-end clamping, week wrap-around, leap years and the BST boundary, plus live end-to-end tests proving routines never duplicate a task for the same date even if the schedule is rewound, and that HQ boots and runs normally with the Planning module entirely removed.
+- Checked every 30 minutes, and once when the app starts, so a routine due today shows up promptly without a long wait.
+
 ## v27 — 19 July 2026
 **Search speed + backup completeness** (both raised by Kamil after the v26 go-live).
 - **Ingredient search no longer lags.** The costing screen re-parsed its entire shared data store (recipes, purchases, prices) on *every keystroke*, three times over, then rebuilt the whole table — several seconds of freeze. Now: parsed data is cached and re-read only when it actually changes; the ingredient table is built once per redraw; and all five costing search boxes redraw only after a 180 ms pause in typing. Measured: keystrokes instant; one ~50 ms redraw after the pause. Displayed prices verified unchanged against the canonical pricing functions.

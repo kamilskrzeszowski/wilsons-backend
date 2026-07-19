@@ -1,4 +1,4 @@
-/* Wilsons HQ — Planning module (tasks, projects, delegation).
+/* Wilsons HQ — Planning module (tasks, projects, delegation, recurring routines).
  * ADDITIVE ONLY: creates its own tables, never touches existing ones.
  * Loaded + hooked from server.js inside try/catch so it can never take HQ down.
  */
@@ -8,6 +8,7 @@ let H = {
   now: () => new Date().toISOString(),
   uid: (p) => (p || '') + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
 };
+let DB = null; // stashed at init() so runRoutines() can run from a setInterval tick (no per-request ctx)
 
 const PROJECT_SEED = [
   { name: 'Germany Export Compliance', color: '#007985', meta: 'EHCs · vet sign-off · species attestation' },
@@ -19,6 +20,7 @@ const PROJECT_SEED = [
 
 function init(db, helpers) {
   if (helpers) H = helpers;
+  DB = db;
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects(
       id TEXT PRIMARY KEY, name TEXT, color TEXT DEFAULT '#6f7b82', meta TEXT DEFAULT '',
@@ -33,6 +35,21 @@ function init(db, helpers) {
   `);
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)'); } catch (e) {}
+  // v28: which routine (if any) generated this task — so it can be shown with a repeat marker,
+  // and so the scheduler can tell "have I already made today's copy of this routine?"
+  try { db.exec("ALTER TABLE tasks ADD COLUMN template_id TEXT DEFAULT ''"); } catch (e) {}
+  // v28: recurring/routine task templates. `rule` is a small string the server understands:
+  //   'daily'  |  'weekly:mon,thu'  (any of sun/mon/tue/wed/thu/fri/sat)  |  'monthly:15'  |  'monthly:last'
+  // `next_due` is the next date (YYYY-MM-DD, UK local) this routine should generate a task for.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_templates(
+      id TEXT PRIMARY KEY, title TEXT, notes TEXT DEFAULT '', project_id TEXT DEFAULT '',
+      assignee INTEGER, prio TEXT DEFAULT 'med', site TEXT DEFAULT '',
+      rule TEXT, next_due TEXT, active INTEGER DEFAULT 1,
+      created_by INTEGER, created TEXT
+    );
+  `);
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_templates_active ON task_templates(active, next_due)'); } catch (e) {}
   // seed a starter set of projects only if there are none yet (idempotent)
   try {
     if (db.prepare('SELECT count(*) c FROM projects').get().c === 0) {
@@ -51,6 +68,111 @@ function notify(db, assigneeId, byUser, t) {
     try { if (t.project_id) project = (db.prepare('SELECT name FROM projects WHERE id=?').get(t.project_id) || {}).name || ''; } catch (e) {}
     H.notifyAssign({ assigneeId: assigneeId, byName: byUser.username, title: t.title, due: t.due || '', prio: t.prio || 'med', project: project });
   } catch (e) {}
+}
+
+/* ---------------- recurring routines: date engine ----------------
+ * All "today"/date-only logic below reads LOCAL Date getters (getFullYear/getMonth/getDate), which
+ * server.js pins to Europe/London (process.env.TZ) — so this is correct across the GMT/BST switch
+ * the same way the browser-side date fixes elsewhere in this app are. Never use toISOString() for
+ * a date-only value: it's UTC and would be a day out for the first hour of a BST day. */
+const DOW_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+function isoDateLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function todayISOLocal() { return isoDateLocal(new Date()); }
+function parseISODateLocal(s) { const p = String(s || '').split('-').map(Number); if (p.length !== 3 || p.some(n => !Number.isFinite(n))) return null; return new Date(p[0], p[1] - 1, p[2]); }
+function daysInMonth(year, month0) { return new Date(year, month0 + 1, 0).getDate(); }
+// Validates a rule string; returns a normalised copy, or null if it doesn't make sense.
+function parseRule(rule) {
+  rule = String(rule || '').trim().toLowerCase();
+  if (rule === 'daily') return rule;
+  if (/^weekly:/.test(rule)) {
+    const days = rule.slice(7).split(',').map(s => s.trim()).filter(Boolean);
+    if (!days.length || !days.every(d => DOW_CODES.includes(d))) return null;
+    return 'weekly:' + [...new Set(days)].sort((a, b) => DOW_CODES.indexOf(a) - DOW_CODES.indexOf(b)).join(',');
+  }
+  if (/^monthly:/.test(rule)) {
+    const spec = rule.slice(8).trim();
+    if (spec === 'last') return 'monthly:last';
+    const n = parseInt(spec, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 31 && String(n) === spec) return 'monthly:' + n;
+    return null;
+  }
+  return null;
+}
+// The day-of-month a 'monthly:...' rule means for a given year/month, clamped to that month's
+// actual length (so "monthly:31" in February means the 28th/29th, not an overflow into March —
+// the same clamp-don't-overflow approach the recipe best-before fix uses).
+function monthlyDayFor(spec, year, month0) {
+  const dim = daysInMonth(year, month0);
+  if (spec === 'last') return dim;
+  const n = parseInt(spec, 10);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.min(n, dim);
+}
+// First occurrence ON OR AFTER startISO (inclusive) — used once, when a routine is created/edited.
+function firstDueOnOrAfter(rule, startISO) {
+  const start = parseISODateLocal(startISO); if (!start) return null;
+  if (rule === 'daily') return isoDateLocal(start);
+  if (rule.startsWith('weekly:')) {
+    const wanted = rule.slice(7).split(',').map(d => DOW_CODES.indexOf(d)).filter(n => n >= 0);
+    if (!wanted.length) return null;
+    for (let i = 0; i < 14; i++) { const d = new Date(start); d.setDate(d.getDate() + i); if (wanted.includes(d.getDay())) return isoDateLocal(d); }
+    return null;
+  }
+  if (rule.startsWith('monthly:')) {
+    const spec = rule.slice(8);
+    let year = start.getFullYear(), month0 = start.getMonth();
+    let day = monthlyDayFor(spec, year, month0);
+    if (day != null) { const c = new Date(year, month0, day); if (c >= start) return isoDateLocal(c); }
+    month0++; if (month0 > 11) { month0 = 0; year++; }
+    day = monthlyDayFor(spec, year, month0);
+    return day == null ? null : isoDateLocal(new Date(year, month0, day));
+  }
+  return null;
+}
+// Next occurrence STRICTLY AFTER fromISO — used to advance a routine once its due task is made.
+function nextDueAfter(rule, fromISO) {
+  const from = parseISODateLocal(fromISO); if (!from) return null;
+  if (rule === 'daily') { const d = new Date(from); d.setDate(d.getDate() + 1); return isoDateLocal(d); }
+  if (rule.startsWith('weekly:')) {
+    const wanted = rule.slice(7).split(',').map(d => DOW_CODES.indexOf(d)).filter(n => n >= 0);
+    if (!wanted.length) return null;
+    for (let i = 1; i <= 14; i++) { const d = new Date(from); d.setDate(d.getDate() + i); if (wanted.includes(d.getDay())) return isoDateLocal(d); }
+    return null;
+  }
+  if (rule.startsWith('monthly:')) {
+    const spec = rule.slice(8);
+    let year = from.getFullYear(), month0 = from.getMonth() + 1; if (month0 > 11) { month0 = 0; year++; }
+    const day = monthlyDayFor(spec, year, month0);
+    return day == null ? null : isoDateLocal(new Date(year, month0, day));
+  }
+  return null;
+}
+// Generate today's due routine tasks. Idempotent (safe to call repeatedly/on overlapping ticks):
+// checks for an existing task from this template with this exact due date before creating one.
+// Deliberately does NOT send an assignment email for routine-generated tasks (that would mean a
+// daily routine emailing someone every single day) — email reminders are a separate, later phase.
+function runRoutines() {
+  if (!DB) return 0;
+  let created = 0;
+  const todayIso = todayISOLocal();
+  let templates = [];
+  try { templates = DB.prepare('SELECT * FROM task_templates WHERE active=1 AND next_due IS NOT NULL AND next_due <> \'\' AND next_due <= ?').all(todayIso); }
+  catch (e) { console.log('planning routines: could not read templates:', e.message); return 0; }
+  templates.forEach(t => {
+    try {
+      const exists = DB.prepare('SELECT id FROM tasks WHERE template_id=? AND due=?').get(t.id, t.next_due);
+      if (!exists) {
+        const id = H.uid('t');
+        DB.prepare(`INSERT INTO tasks(id,title,notes,project_id,assignee,created_by,due,prio,status,site,email_link,template_id,created,updated)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(id, t.title, t.notes || '', t.project_id || '', t.assignee, t.created_by, t.next_due, t.prio || 'med', 'open', t.site || '', '', t.id, H.now(), H.now());
+        created++;
+      }
+      const nd = nextDueAfter(t.rule, t.next_due);
+      DB.prepare('UPDATE task_templates SET next_due=? WHERE id=?').run(nd || '', t.id);
+    } catch (e) { console.log('planning routines: template ' + t.id + ' failed:', e.message); }
+  });
+  return created;
 }
 
 // Returns true if it handled the route, false otherwise. Wrapped in try/catch by server.js.
@@ -121,7 +243,51 @@ async function handle(ctx) {
     json(res, 200, { ok: true }); return true;
   }
 
+  // Recurring / routine task templates (v28)
+  if (url === '/api/task-templates' && m === 'GET') {
+    json(res, 200, { templates: db.prepare('SELECT * FROM task_templates ORDER BY active DESC, next_due ASC, created ASC').all() });
+    return true;
+  }
+  if (url === '/api/task-templates' && m === 'POST') {
+    const b = await readBody(req);
+    if (!b.title || !String(b.title).trim()) { json(res, 400, { error: 'Routine title required' }); return true; }
+    const rule = parseRule(b.rule);
+    if (!rule) { json(res, 400, { error: 'Please choose a valid repeat pattern.' }); return true; }
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(b.start || '') ? b.start : todayISOLocal();
+    const nextDue = firstDueOnOrAfter(rule, start);
+    if (!nextDue) { json(res, 400, { error: 'Could not work out when this routine should first run.' }); return true; }
+    const id = H.uid('rt');
+    const assignee = (b.assignee !== undefined && b.assignee !== null && b.assignee !== '') ? Number(b.assignee) : user.id;
+    db.prepare('INSERT INTO task_templates(id,title,notes,project_id,assignee,prio,site,rule,next_due,active,created_by,created) VALUES(?,?,?,?,?,?,?,?,?,1,?,?)')
+      .run(id, String(b.title).trim(), b.notes || '', b.project_id || '', assignee, b.prio || 'med', b.site || '', rule, nextDue, user.id, H.now());
+    json(res, 200, { id, next_due: nextDue }); return true;
+  }
+  if (url.startsWith('/api/task-templates/') && m === 'PUT') {
+    const id = last(); const b = await readBody(req);
+    const ex = db.prepare('SELECT * FROM task_templates WHERE id=?').get(id);
+    if (!ex) { json(res, 404, { error: 'not found' }); return true; }
+    ['title', 'notes', 'project_id', 'prio', 'site'].forEach(f => { if (b[f] !== undefined) db.prepare('UPDATE task_templates SET ' + f + '=? WHERE id=?').run(b[f], id); });
+    if (b.assignee !== undefined) { const na = (b.assignee === '' || b.assignee === null) ? null : Number(b.assignee); db.prepare('UPDATE task_templates SET assignee=? WHERE id=?').run(na, id); }
+    if (b.rule !== undefined || b.start !== undefined) {
+      const rule = parseRule(b.rule !== undefined ? b.rule : ex.rule);
+      if (!rule) { json(res, 400, { error: 'Please choose a valid repeat pattern.' }); return true; }
+      const start = /^\d{4}-\d{2}-\d{2}$/.test(b.start || '') ? b.start : (ex.next_due || todayISOLocal());
+      const nextDue = firstDueOnOrAfter(rule, start);
+      if (!nextDue) { json(res, 400, { error: 'Could not work out when this routine should next run.' }); return true; }
+      db.prepare('UPDATE task_templates SET rule=?, next_due=? WHERE id=?').run(rule, nextDue, id);
+    }
+    if (b.active !== undefined) db.prepare('UPDATE task_templates SET active=? WHERE id=?').run(b.active ? 1 : 0, id);
+    const now = db.prepare('SELECT next_due FROM task_templates WHERE id=?').get(id);
+    json(res, 200, { ok: true, next_due: now ? now.next_due : null }); return true;
+  }
+  if (url.startsWith('/api/task-templates/') && m === 'DELETE') {
+    // Deletes the routine only. Tasks it already generated are real history and are left exactly as
+    // they are (this app's convention throughout is to never rewrite past records).
+    db.prepare('DELETE FROM task_templates WHERE id=?').run(last());
+    json(res, 200, { ok: true }); return true;
+  }
+
   return false;
 }
 
-module.exports = { init, handle };
+module.exports = { init, handle, runRoutines };

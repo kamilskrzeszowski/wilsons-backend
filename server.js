@@ -4,6 +4,17 @@
  * Run:  node --experimental-sqlite server.js
  * Data: a single SQLite file (app.db) on persistent storage. Easy to back up (copy the file).
  */
+// v28: pin the server's own clock to UK time, BEFORE anything else runs. Railway's containers
+// default to UTC, and this server previously never needed to know "today's date" itself — every
+// date came from the browser (which already computes local dates correctly, per the v26 fixes).
+// The Planning routines scheduler below is the first SERVER-SIDE date-only logic in this app, so
+// without this pin it would reintroduce the exact same bug in a new place: during British Summer
+// Time, the UTC calendar date is still "yesterday" for the first hour after UK midnight, which
+// would make a daily/weekly/monthly routine fire a day early or late right at the boundary.
+// This only affects local Date getters (getDate/getMonth/getHours/toLocaleString) — it has no
+// effect on now()/toISOString() (always UTC by spec), so every existing stored timestamp and
+// stored value is completely unaffected.
+process.env.TZ = 'Europe/London';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v27';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v28';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -970,8 +981,11 @@ function buildBackupXlsx() {
     const pNames = {}; db.prepare('SELECT id,name FROM projects').all().forEach(p => pNames[p.id] = p.name);
     sheets.push({ name: 'Planning projects', rows: [['Project', 'Status', 'Notes', 'Colour', 'Created'],
       ...db.prepare('SELECT * FROM projects ORDER BY created').all().map(p => [p.name, p.status || '', p.meta || '', p.color || '', p.created || ''])] });
-    sheets.push({ name: 'Planning tasks', rows: [['Task', 'Project', 'Assigned to', 'Created by', 'Due', 'Priority', 'Status', 'Site', 'Notes', 'Created', 'Done at'],
-      ...db.prepare('SELECT * FROM tasks ORDER BY created DESC').all().map(t => [t.title, pNames[t.project_id] || '', uNames[t.assignee] || '', uNames[t.created_by] || '', t.due || '', t.prio || '', t.status || '', t.site || '', t.notes || '', t.created || '', t.done_at || ''])] });
+    sheets.push({ name: 'Planning tasks', rows: [['Task', 'Project', 'Assigned to', 'Created by', 'Due', 'Priority', 'Status', 'Site', 'Notes', 'From routine?', 'Created', 'Done at'],
+      ...db.prepare('SELECT * FROM tasks ORDER BY created DESC').all().map(t => [t.title, pNames[t.project_id] || '', uNames[t.assignee] || '', uNames[t.created_by] || '', t.due || '', t.prio || '', t.status || '', t.site || '', t.notes || '', t.template_id ? 'yes' : '', t.created || '', t.done_at || ''])] });
+    // v28: recurring/routine task templates — the rule engine that generates the rows above
+    sheets.push({ name: 'Planning routines', rows: [['Routine', 'Project', 'Assigned to', 'Priority', 'Repeats', 'Next due', 'Active', 'Created by', 'Created'],
+      ...db.prepare('SELECT * FROM task_templates ORDER BY created').all().map(t => [t.title, pNames[t.project_id] || '', uNames[t.assignee] || '', t.prio || '', t.rule || '', t.next_due || '', t.active ? 'yes' : 'paused', uNames[t.created_by] || '', t.created || ''])] });
   } catch (e) {}
   // costing change journal — who changed which costing key, when (values themselves are in app.db)
   try {
@@ -1222,7 +1236,7 @@ const server = http.createServer(async (req, res) => {
       // --- Planning module (tasks/projects/delegation) — guarded so it can never break HQ ---
       // Access is per-account: admins, or accounts ticked for "Planning" in Users → Edit.
       if (planning) {
-        const isPlanRoute = url === '/api/team' || url.startsWith('/api/projects') || url.startsWith('/api/tasks');
+        const isPlanRoute = url === '/api/team' || url.startsWith('/api/projects') || url.startsWith('/api/tasks') || url.startsWith('/api/task-templates');
         if (isPlanRoute) {
           const canPlan = user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.planning);
           if (!canPlan) return json(res, 403, { error: 'You don’t have access to Planning. Ask an admin to switch it on for your account.' });
@@ -1838,6 +1852,11 @@ const server = http.createServer(async (req, res) => {
 seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 seedRecipeVersions(); freezeStockUsage();   // v26: recipe version history + frozen per-batch stock usage
 try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
+// v28: Planning routines (recurring/routine tasks) — generate today's due instances, then recheck
+// every 30 min. Guarded here AND inside planning.runRoutines() itself — a bug in routines can never
+// take the rest of HQ down. Runs once at boot so a routine due today appears without waiting 30 min.
+if (planning && planning.runRoutines) { try { planning.runRoutines(); } catch (e) { console.log('planning routines tick failed:', e.message); } }
+setInterval(() => { if (planning && planning.runRoutines) { try { planning.runRoutines(); } catch (e) { console.log('planning routines tick failed:', e.message); } } }, 30 * 60 * 1000);
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

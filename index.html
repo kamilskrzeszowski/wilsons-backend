@@ -2165,6 +2165,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v28', date:'19 Jul 2026', notes:[
+    'Planning: recurring & routine tasks. A new “Routines” tab in Planning — set up something that repeats daily, weekly (pick any day(s)) or monthly (a chosen day, or the last day of the month), assign it, and it creates the task automatically each time it’s due, right on schedule. Tasks made this way carry a small ↻ mark so you can always tell a routine generated them. Pause, resume, edit or delete a routine any time — deleting only removes the repeating rule, past tasks it already made stay exactly as they are.',
+    'Examples: “Weekly line clean — every Monday”, “Monthly H&S walk — the 1st”, “Daily fridge temperature check”.',
+    'Under the bonnet: the server now keeps its own clock correctly on UK time (it previously only ever used dates typed in by the browser, which already did this correctly — this was the first time the SERVER itself needed to know today’s date, for the new routines). Checked every 30 minutes, and once when the app starts, so a routine due today appears promptly.'
+  ]},
   {v:'v27', date:'19 Jul 2026', notes:[
     'Ingredient search is fast: typing no longer freezes for seconds. The costing screen was re-reading its whole data store on every keystroke — it now caches parsed data, builds the table once per change, and only redraws after you pause typing.',
     'Backup audited (with real live data) and completed. The zip backup was already 100% complete — it contains the entire database. The readable Excel inside it now also covers what it was missing: Planning projects & tasks, every batch’s frozen ingredient usage (2,800+ records), the costing change journal, bag-to-product mappings on Packaging, user emails/factories, the recipe version on each production row, and the menu layout + stock-freeze report settings. Sessions and invite links are deliberately left out of the Excel (they are security tokens; they are in app.db).',
@@ -2273,7 +2278,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v27';
+const APP_VERSION='v28';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
