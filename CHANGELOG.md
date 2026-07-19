@@ -2,6 +2,13 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v38 — 19 July 2026
+**Planning: Schedule tab uses the screen width on a laptop/desktop** — Kamil noticed the whole app sits in a fixed, narrow, centred column, and on a wider browser window that leaves a lot of empty space either side of the month grid specifically.
+
+- **The Schedule tab now widens** (up to ~1180px, scaling with the window rather than jumping straight there) whenever it's the active tab — day cells get noticeably more breathing room for their chip text as a direct result. Every other tab (My work, Team, Waiting on, Projects, Routines) is unchanged: those are a single column of cards, which doesn't gain anything from stretching wide the way a 7-column grid does, so widening only the one screen that actually benefits was the deliberate choice here rather than stretching the whole app.
+- A short transition (0.2s) so switching to/from Schedule resizes smoothly rather than jumping.
+- Verified: confirmed via direct measurement (not just visually) at both a 1024px and a 1440px browser width that the Schedule tab's width scales correctly and every other tab stays at the original fixed width, both immediately and after the resize transition settles.
+
 ## v37 — 19 July 2026
 **Planning: subtasks visible in every list + a redesigned Schedule view** — built from a set of design comps reviewed and picked by Kamil first, rather than guessing at the visual direction.
 

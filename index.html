@@ -2206,6 +2206,9 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v38', date:'19 Jul 2026', notes:[
+    'Planning: the Schedule tab now widens to use the screen on a laptop/desktop browser, instead of sitting in a narrow column with empty space either side. Every other tab (My work, Team, etc.) stays as it was — it’s only the calendar grid that benefits from the extra room.'
+  ]},
   {v:'v37', date:'19 Jul 2026', notes:[
     'Planning: subtask steps now show and tick right in every task list (My work, Team, Waiting on, Projects) — no need to open a task just to check something off.',
     'Planning: the Schedule tab’s day cells are bigger and show the actual task titles, colour-coded by priority, instead of just a number. Tap a day for the full list as before — a busy day just shows "+N more".'
@@ -2356,7 +2359,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v37';
+const APP_VERSION='v38';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{

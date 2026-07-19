@@ -18,7 +18,8 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webkit-font-smoothing:antialiased;}
-.wrap{max-width:760px;margin:0 auto;padding-bottom:90px;}
+.wrap{max-width:760px;margin:0 auto;padding-bottom:90px;transition:max-width .2s ease;}
+.wrap.sched-wide{max-width:min(96vw,1180px);}
 .topbar{background:var(--navy);color:#fff;padding:13px 18px;display:flex;align-items:center;gap:11px;position:sticky;top:0;z-index:5;}
 .topbar img{height:28px;width:auto;}
 .topbar .brand{font-family:var(--fd);font-size:18px;letter-spacing:.3px;}
@@ -493,6 +494,10 @@ function render(){
   const defs=[['mine','My work'],['team','Team'],['waiting','Waiting on'],['projects','Projects'],['schedule','Schedule'],['routines','Routines']];
   $('#tabs').innerHTML=defs.map(d=>'<div class="t'+(state.tab===d[0]?' on':'')+'" data-act="tab" data-x="'+d[0]+'">'+d[1]+'</div>').join('');
   $('#filterbar').style.display=(state.tab==='routines'||state.tab==='schedule')?'none':'flex';
+  // The month grid is the one screen that actually benefits from more horizontal room (7 columns
+  // of chip text) — every other tab is a single column of cards that doesn't need it, so only this
+  // tab widens, rather than stretching the whole app and leaving headings/tab-pills floating in space.
+  $('.wrap').classList.toggle('sched-wide',state.tab==='schedule');
   let h='',sub='';
   const vis=visibleTasks();
   const filtered=!!(state.search||state.filterProject||state.filterAssignee);
