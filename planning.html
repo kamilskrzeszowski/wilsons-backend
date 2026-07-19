@@ -107,11 +107,31 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .sheet.on{transform:translateY(0);}
 .sheet h3{font-family:var(--fd);font-size:20px;margin:0 0 8px;color:var(--navy);}
 .sheet label{display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 6px;}
-.sheet input,.sheet select{width:100%;border:1px solid var(--line);border-radius:11px;padding:12px;font-family:var(--fb);font-size:16px;color:var(--ink);background:#fbfaf6;outline:none;}
+.sheet input,.sheet select,.sheet textarea{width:100%;border:1px solid var(--line);border-radius:11px;padding:12px;font-family:var(--fb);font-size:16px;color:var(--ink);background:#fbfaf6;outline:none;}
+.sheet textarea{resize:vertical;}
 .sheet .row{display:flex;gap:10px;}
 .sheet .row>div{flex:1;}
 .sheet .go{margin-top:18px;width:100%;background:var(--navy);color:#fff;border:none;border-radius:12px;height:48px;font-family:var(--fb);font-size:15px;font-weight:700;cursor:pointer;}
 .sheet .cancel{position:absolute;top:20px;right:20px;color:var(--muted);cursor:pointer;font-size:14px;}
+/* Task detail (v29): a taller, internally-scrolling sheet — fields + activity trail together. */
+.sheet.tall{max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.td-topline{display:flex;align-items:center;gap:10px;margin-bottom:2px;padding-right:64px;}
+.td-topline h3{margin:0;}
+.td-status{font-size:12.5px;font-weight:700;padding:6px 13px;border-radius:20px;background:var(--chip);color:var(--slate);cursor:pointer;white-space:nowrap;flex:none;}
+.td-status.done{background:#e7efe9;color:#2f6b4d;}
+.td-divider{height:1px;background:var(--line);margin:22px 0 14px;}
+.td-acthead{font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+.act{display:flex;gap:10px;margin-bottom:14px;}
+.act-av{width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
+.act-body{flex:1;min-width:0;}
+.act-line{font-size:13.5px;color:var(--ink);line-height:1.5;}
+.act-line b{font-weight:700;}
+.act-time{color:var(--muted);font-size:11.5px;margin-left:6px;white-space:nowrap;}
+.act-head{display:flex;align-items:baseline;gap:6px;font-size:13.5px;margin-bottom:4px;}
+.act-bubble{background:var(--chip);border-radius:10px;padding:9px 12px;font-size:13.5px;color:var(--ink);line-height:1.4;white-space:pre-wrap;}
+.td-commentrow{display:flex;gap:8px;margin-top:4px;padding:10px 0 4px;}
+.td-commentrow input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-family:var(--fb);font-size:15px;background:#fbfaf6;outline:none;}
+.td-commentgo{background:var(--navy);color:#fff;border-radius:11px;padding:0 16px;display:flex;align-items:center;font-weight:700;font-size:13.5px;cursor:pointer;flex:none;}
 .menu{position:fixed;background:#fff;border-radius:14px;padding:6px;box-shadow:0 14px 40px -10px rgba(20,54,68,.4),0 0 0 1px var(--line);z-index:30;min-width:200px;}
 .menu .cap{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;padding:6px 11px 4px;}
 .menu .mi{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;cursor:pointer;font-size:14px;}
@@ -183,11 +203,41 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   <button class="go" data-act="saveroutine">Save routine</button>
 </div>
 
+<div class="scrim" id="td-scrim" data-act="closetask"></div>
+<div class="sheet tall" id="td-sheet">
+  <span class="cancel" data-act="closetask">Close</span>
+  <div class="td-topline"><h3>Task detail</h3><span class="td-status" id="td-statusbtn"></span></div>
+  <label>Task</label>
+  <input id="td-title" placeholder="Task title">
+  <div class="row">
+    <div><label>Assign to</label><select id="td-assignee"></select></div>
+    <div><label>Priority</label><select id="td-prio"><option value="high">High</option><option value="med">Medium</option><option value="low">Low</option></select></div>
+  </div>
+  <div class="row">
+    <div><label>Project</label><select id="td-project"></select></div>
+    <div><label>Due</label><input id="td-due" type="date"></div>
+  </div>
+  <label>Site</label>
+  <select id="td-site"></select>
+  <label>Notes</label>
+  <textarea id="td-notes" rows="3" placeholder="Add any detail…"></textarea>
+  <button class="go" data-act="savetask">Save changes</button>
+
+  <div class="td-divider"></div>
+  <div class="td-acthead">Activity</div>
+  <div id="td-activity"></div>
+  <div class="td-commentrow">
+    <input id="td-comment" placeholder="Add a comment…">
+    <span class="td-commentgo" data-act="postcomment">Post</span>
+  </div>
+</div>
+
 <script>
 const PAL=['#143644','#e2606c','#007985','#7a3b8f','#3f7d3f','#c0563b','#e0a13f','#4b5f6d'];
 const PRIO={high:{l:'High',c:'#c0563b'},med:{l:'Medium',c:'#e0a13f'},low:{l:'Low',c:'#4b5f6d'}};
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const SITES=[['','No site'],['blairgowrie','Blairgowrie'],['drongan','Drongan']];
 const TOKEN=(new URLSearchParams(location.search).get('token'))||localStorage.getItem('wpm_token')||'';
 if(TOKEN)localStorage.setItem('wpm_token',TOKEN);
 
@@ -202,7 +252,7 @@ function dueLabel(s){if(!s)return '';const d=parseD(s);if(!d)return '';const dif
 function titlecase(u){return String(u||'').replace(/[._-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());}
 function initials(u){const p=String(u||'?').replace(/[._-]/g,' ').trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||(p[0]||'')[1]||'')).toUpperCase();}
 
-const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null};
+const state={tab:'mine',me:null,team:{},torder:[],projects:{},porder:[],tasks:[],templates:[],menu:null,editingRoutine:null,openTask:null};
 
 async function api(path,method,body){
   const r=await fetch(path,{method:method||'GET',headers:Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),body:body?JSON.stringify(body):undefined});
@@ -236,7 +286,7 @@ const isDone=t=>t.status==='done';
 function taskRow(t){
   const mine=t.assignee===state.me.id;
   const fromRoutine=t.template_id?'<span class="repeat-ico" title="Generated automatically from a routine">&#8635;</span>':'';
-  return '<div class="task'+(isDone(t)?' done':'')+'">'
+  return '<div class="task'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'
     +'<div class="check" data-act="toggle" data-id="'+t.id+'"></div>'
     +'<div class="body"><div class="title">'+fromRoutine+esc(t.title)+'</div>'
     +'<div class="meta">'+prioDot(t.prio)+projPill(t.project_id)+dueHtml(t.due)
@@ -293,7 +343,7 @@ function render(){
     h=state.torder.map(k=>{
       const ts=state.tasks.filter(t=>t.assignee===k);const open=ts.filter(t=>!isDone(t));const p=person(k);
       return '<div class="person"><div class="ph">'+avA(k)+'<div><div class="pn">'+esc(p.name)+'</div><div class="pr">'+esc(p.role||'Team')+'</div></div><div class="cnt"><b>'+open.length+'</b><span>open</span></div></div>'
-        +'<div class="plist">'+(ts.length?ts.map(t=>'<div class="pt'+(isDone(t)?' done':'')+'"><span class="smallcheck" data-act="toggle" data-id="'+t.id+'"></span>'+prioDot(t.prio)+'<span class="ptt">'+esc(t.title)+'</span>'+(t.due?'<span class="ptd">'+esc(dueLabel(t.due))+'</span>':'')+'</div>').join(''):'<div class="pt"><span class="ptd">No tasks assigned.</span></div>')+'</div></div>';
+        +'<div class="plist">'+(ts.length?ts.map(t=>'<div class="pt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'"><span class="smallcheck" data-act="toggle" data-id="'+t.id+'"></span>'+prioDot(t.prio)+'<span class="ptt">'+esc(t.title)+'</span>'+(t.due?'<span class="ptd">'+esc(dueLabel(t.due))+'</span>':'')+'</div>').join(''):'<div class="pt"><span class="ptd">No tasks assigned.</span></div>')+'</div></div>';
     }).join('');
     if(!state.torder.length)h='<div class="empty">No team members yet — invite people from the Users screen in Wilsons HQ.</div>';
   }else if(state.tab==='waiting'){
@@ -306,7 +356,7 @@ function render(){
       const pr=state.projects[k];const ts=state.tasks.filter(t=>t.project_id===k);const done=ts.filter(isDone).length;const pct=ts.length?Math.round(done/ts.length*100):0;
       return '<div class="project"><div class="prh"><span class="swatch" style="background:'+(pr.color||'#6f7b82')+'"></span><div><div class="prn">'+esc(pr.name)+'</div><div class="prm">'+esc(pr.meta||'')+'</div></div><div class="cnt" style="margin-left:auto;text-align:right"><b style="font-size:16px;color:var(--navy)">'+done+'/'+ts.length+'</b></div></div>'
         +'<div class="bar"><i style="width:'+pct+'%;background:'+(pr.color||'#6f7b82')+'"></i></div>'
-        +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')+'</div>';
+        +(ts.length?'<div style="margin-top:8px">'+ts.map(t=>'<div class="prt'+(isDone(t)?' done':'')+'" data-act="opentask" data-id="'+t.id+'">'+prioDot(t.prio)+'<span class="x">'+esc(t.title)+'</span>'+avA(t.assignee,'mini-av')+'</div>').join('')+'</div>':'')+'</div>';
     }).join('')+'<div class="newproj" data-act="newproj">+ New project</div>';
   }else{
     sub='Jobs that repeat on their own — daily, weekly or monthly. Generated tasks show a '+String.fromCharCode(0x21bb)+' mark.';
@@ -336,7 +386,11 @@ async function save(){
 async function toggle(id){
   const t=state.tasks.find(t=>t.id===id);if(!t)return;
   const ns=isDone(t)?'open':'done';t.status=ns;render();
-  try{await api('/api/tasks/'+encodeURIComponent(id),'PUT',{status:ns});}catch(e){toast(e.message);load();}
+  if(state.openTask===id)renderStatusPill(t);
+  try{
+    await api('/api/tasks/'+encodeURIComponent(id),'PUT',{status:ns});
+    if(state.openTask===id)await refreshActivity(id);
+  }catch(e){toast(e.message);load();}
 }
 function openAssign(id,x,y){
   const t=state.tasks.find(t=>t.id===id);if(!t)return;closeMenu();
@@ -427,6 +481,83 @@ async function deleteRoutine(id){
   try{await api('/api/task-templates/'+encodeURIComponent(id),'DELETE');await load();state.tab='routines';render();toast('Routine deleted');}catch(e){toast(e.message);}
 }
 
+/* ---------------- task detail: fields + activity trail (v29) ---------------- */
+function activityTimeLabel(iso){
+  const d=new Date(iso);if(isNaN(d))return '';
+  const dOnly=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const diff=Math.round((dOnly-today())/86400000);
+  const hm=pad(d.getHours())+':'+pad(d.getMinutes());
+  if(diff===0)return 'Today, '+hm;
+  if(diff===-1)return 'Yesterday, '+hm;
+  return d.getDate()+' '+MON[d.getMonth()]+', '+hm;
+}
+function activityRow(a){
+  const who=person(a.user_id);
+  const when=activityTimeLabel(a.ts);
+  if(a.kind==='comment'){
+    return '<div class="act">'+avA(a.user_id,'act-av')+'<div class="act-body"><div class="act-head"><b>'+esc(who.short)+'</b><span class="act-time">'+when+'</span></div><div class="act-bubble">'+esc(a.text)+'</div></div></div>';
+  }
+  return '<div class="act">'+avA(a.user_id,'act-av')+'<div class="act-body"><div class="act-line"><b>'+esc(who.short)+'</b> '+esc(a.text)+'<span class="act-time">'+when+'</span></div></div></div>';
+}
+function renderStatusPill(t){
+  const el=$('#td-statusbtn');el.dataset.act='toggle';el.dataset.id=t.id;
+  el.className='td-status'+(isDone(t)?' done':'');
+  el.innerHTML=isDone(t)?'&#10003; Done':'Mark done';
+}
+function openTaskDetail(id){
+  const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  state.openTask=id;
+  $('#td-title').value=t.title;
+  $('#td-notes').value=t.notes||'';
+  $('#td-assignee').innerHTML=state.torder.map(k=>'<option value="'+k+'"'+(t.assignee===k?' selected':'')+'>'+esc(person(k).short)+'</option>').join('');
+  $('#td-prio').value=t.prio||'med';
+  $('#td-project').innerHTML='<option value="">No project</option>'+state.porder.map(k=>'<option value="'+k+'"'+(t.project_id===k?' selected':'')+'>'+esc(state.projects[k].name)+'</option>').join('');
+  $('#td-due').value=t.due||'';
+  $('#td-site').innerHTML=SITES.map(([v,l])=>'<option value="'+v+'"'+(t.site===v?' selected':'')+'>'+esc(l)+'</option>').join('');
+  renderStatusPill(t);
+  $('#td-activity').innerHTML='<div class="empty" style="padding:20px 0">Loading…</div>';
+  $('#td-comment').value='';
+  $('#td-scrim').classList.add('on');$('#td-sheet').classList.add('on');
+  $('#td-sheet').scrollTop=0;
+  refreshActivity(id);
+}
+function closeTaskDetail(){state.openTask=null;$('#td-scrim').classList.remove('on');$('#td-sheet').classList.remove('on');}
+async function refreshActivity(id){
+  try{
+    const r=await api('/api/tasks/'+encodeURIComponent(id)+'/activity');
+    if(state.openTask!==id)return; // sheet was closed or switched to another task while this was in flight
+    $('#td-activity').innerHTML=r.activity&&r.activity.length?r.activity.map(activityRow).join(''):'<div class="empty" style="padding:10px 0 4px;font-size:13.5px">No activity yet.</div>';
+  }catch(e){$('#td-activity').innerHTML='<div class="empty" style="padding:10px 0 4px;font-size:13.5px">Couldn’t load activity.</div>';}
+}
+async function saveTaskDetail(){
+  const id=state.openTask;const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const title=$('#td-title').value.trim();if(!title){$('#td-title').focus();return;}
+  const body={};
+  if(title!==t.title)body.title=title;
+  const notes=$('#td-notes').value;if(notes!==(t.notes||''))body.notes=notes;
+  const assignee=Number($('#td-assignee').value);if(assignee!==t.assignee)body.assignee=assignee;
+  const prio=$('#td-prio').value;if(prio!==(t.prio||'med'))body.prio=prio;
+  const project_id=$('#td-project').value;if(project_id!==(t.project_id||''))body.project_id=project_id;
+  const due=$('#td-due').value||'';if(due!==(t.due||''))body.due=due;
+  const site=$('#td-site').value;if(site!==(t.site||''))body.site=site;
+  if(!Object.keys(body).length){toast('No changes to save');return;}
+  try{
+    await api('/api/tasks/'+encodeURIComponent(id),'PUT',body);
+    await load();
+    openTaskDetail(id);
+    toast('Saved');
+  }catch(e){toast(e.message);}
+}
+async function postComment(){
+  const id=state.openTask;if(!id)return;
+  const text=$('#td-comment').value.trim();if(!text)return;
+  try{
+    await api('/api/tasks/'+encodeURIComponent(id)+'/comment','POST',{text:text});
+    $('#td-comment').value='';
+    await refreshActivity(id);
+  }catch(e){toast(e.message);}
+}
+
 document.addEventListener('click',function(e){
   const el=e.target.closest('[data-act]');
   if(state.menu&&!e.target.closest('.menu')&&!(el&&el.dataset.act==='assign'))closeMenu();
@@ -447,8 +578,13 @@ document.addEventListener('click',function(e){
   else if(a==='closeroutine'){closeRoutineSheet();}
   else if(a==='saveroutine'){saveRoutine();}
   else if(a==='toggledow'){toggleDow(x);}
+  else if(a==='opentask'){openTaskDetail(id);}
+  else if(a==='closetask'){closeTaskDetail();}
+  else if(a==='savetask'){saveTaskDetail();}
+  else if(a==='postcomment'){postComment();}
 });
 $('#rt-type').addEventListener('change',updateRepeatSubrows);
+$('#td-comment').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();postComment();}});
 load();
 </script>
 </body>

@@ -50,6 +50,14 @@ function init(db, helpers) {
     );
   `);
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_templates_active ON task_templates(active, next_due)'); } catch (e) {}
+  // v29: activity trail for a task — one row per create/assign/status-change/edit/comment, so
+  // delegation has a record of what was said and done. Never rewritten, only appended to.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_activity(
+      id TEXT PRIMARY KEY, task_id TEXT, user_id INTEGER, kind TEXT, text TEXT DEFAULT '', ts TEXT
+    );
+  `);
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_activity_task ON task_activity(task_id, ts)'); } catch (e) {}
   // seed a starter set of projects only if there are none yet (idempotent)
   try {
     if (db.prepare('SELECT count(*) c FROM projects').get().c === 0) {
@@ -68,6 +76,43 @@ function notify(db, assigneeId, byUser, t) {
     try { if (t.project_id) project = (db.prepare('SELECT name FROM projects WHERE id=?').get(t.project_id) || {}).name || ''; } catch (e) {}
     H.notifyAssign({ assigneeId: assigneeId, byName: byUser.username, title: t.title, due: t.due || '', prio: t.prio || 'med', project: project });
   } catch (e) {}
+}
+
+/* ---------------- activity trail (v29) ----------------
+ * One append-only row per meaningful thing that happened to a task. `text` is a plain-English,
+ * already-resolved sentence (server has the DB, so it resolves names/projects here rather than
+ * pushing that lookup onto the client) — the client only needs to show the actor's avatar (from
+ * user_id, via the same person() lookup used everywhere else) next to it. Never throws: a logging
+ * failure must not block the actual task change. */
+function logActivity(db, taskId, userId, kind, text) {
+  try {
+    db.prepare('INSERT INTO task_activity(id,task_id,user_id,kind,text,ts) VALUES(?,?,?,?,?,?)')
+      .run(H.uid('a'), taskId, userId, kind, text || '', H.now());
+  } catch (e) { console.log('planning activity log failed:', e.message); }
+}
+function titlecaseName(u) { return String(u || '').replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+function nameOf(db, userId) {
+  if (userId === null || userId === undefined) return '';
+  try { const u = db.prepare('SELECT username FROM users WHERE id=?').get(userId); return u ? u.username : ''; } catch (e) { return ''; }
+}
+function assignText(db, uid) {
+  if (uid === null || uid === undefined) return 'Unassigned';
+  const name = titlecaseName(nameOf(db, uid));
+  return name ? ('Assigned to ' + name) : 'Assigned';
+}
+const EDIT_FIELD_LABEL = { title: 'title', notes: 'notes', site: 'site' };
+const PRIO_LABEL = { high: 'High', med: 'Medium', low: 'Low' };
+// Describes what a single field change means in plain English, e.g. "priority to High". Falls back
+// to just the field's label for free-text fields where inlining the value would be unwieldy.
+function fieldChangeText(db, field, newVal) {
+  if (field === 'prio') return 'priority to ' + (PRIO_LABEL[newVal] || newVal);
+  if (field === 'due') return newVal ? ('due date to ' + newVal) : 'due date cleared';
+  if (field === 'project_id') {
+    if (!newVal) return 'project cleared';
+    let p = null; try { p = db.prepare('SELECT name FROM projects WHERE id=?').get(newVal); } catch (e) {}
+    return 'project to ' + (p ? p.name : newVal);
+  }
+  return EDIT_FIELD_LABEL[field] || field;
 }
 
 /* ---------------- recurring routines: date engine ----------------
@@ -219,27 +264,58 @@ async function handle(ctx) {
     const assignee = (b.assignee !== undefined && b.assignee !== null && b.assignee !== '') ? Number(b.assignee) : user.id;
     db.prepare('INSERT INTO tasks(id,title,notes,project_id,assignee,created_by,due,prio,status,site,email_link,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, String(b.title).trim(), b.notes || '', b.project_id || '', assignee, user.id, b.due || '', b.prio || 'med', 'open', b.site || '', b.email_link || '', H.now(), H.now());
+    logActivity(db, id, user.id, 'create', 'Created');
+    if (assignee !== user.id) logActivity(db, id, user.id, 'assign', assignText(db, assignee));
     notify(db, assignee, user, { title: String(b.title).trim(), due: b.due || '', prio: b.prio || 'med', project_id: b.project_id || '' });
     json(res, 200, { id }); return true;
   }
   if (url.startsWith('/api/tasks/') && m === 'PUT') {
     const id = last(); const b = await readBody(req);
-    if (!db.prepare('SELECT id FROM tasks WHERE id=?').get(id)) { json(res, 404, { error: 'not found' }); return true; }
+    const before = db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
+    if (!before) { json(res, 404, { error: 'not found' }); return true; }
+    // Only the plain fields — assignee and status get their own activity kind below.
+    const editedFields = ['title', 'notes', 'project_id', 'due', 'prio', 'site'].filter(f => b[f] !== undefined && b[f] !== before[f]);
     ['title', 'notes', 'project_id', 'due', 'prio', 'status', 'site'].forEach(f => {
       if (b[f] !== undefined) db.prepare('UPDATE tasks SET ' + f + '=? WHERE id=?').run(b[f], id);
     });
+    if (editedFields.length) logActivity(db, id, user.id, 'edit', 'Updated ' + editedFields.map(f => fieldChangeText(db, f, b[f])).join(', '));
     if (b.assignee !== undefined) {
       const na = (b.assignee === '' || b.assignee === null) ? null : Number(b.assignee);
+      const priorAssignee = (before.assignee === null || before.assignee === undefined) ? null : before.assignee;
       db.prepare('UPDATE tasks SET assignee=? WHERE id=?').run(na, id);
-      const t = db.prepare('SELECT title,due,prio,project_id FROM tasks WHERE id=?').get(id) || {};
-      notify(db, na, user, t);
+      if (na !== priorAssignee) {
+        logActivity(db, id, user.id, 'assign', assignText(db, na));
+        const t = { title: b.title !== undefined ? b.title : before.title, due: b.due !== undefined ? b.due : before.due, prio: b.prio !== undefined ? b.prio : before.prio, project_id: b.project_id !== undefined ? b.project_id : before.project_id };
+        notify(db, na, user, t);
+      }
     }
-    if (b.status !== undefined) db.prepare('UPDATE tasks SET done_at=? WHERE id=?').run(b.status === 'done' ? H.now() : '', id);
+    if (b.status !== undefined && b.status !== before.status) {
+      db.prepare('UPDATE tasks SET done_at=? WHERE id=?').run(b.status === 'done' ? H.now() : '', id);
+      logActivity(db, id, user.id, 'status', b.status === 'done' ? 'Marked done' : 'Reopened');
+    }
     db.prepare('UPDATE tasks SET updated=? WHERE id=?').run(H.now(), id);
     json(res, 200, { ok: true }); return true;
   }
   if (url.startsWith('/api/tasks/') && m === 'DELETE') {
     db.prepare('DELETE FROM tasks WHERE id=?').run(last());
+    json(res, 200, { ok: true }); return true;
+  }
+  // Activity trail + comments (v29)
+  if (/^\/api\/tasks\/[^/]+\/activity$/.test(url) && m === 'GET') {
+    const id = decodeURIComponent(url.split('/')[3]);
+    // rowid tiebreaker: two rows logged in the same request (e.g. create+assign) can share the same
+    // millisecond timestamp; rowid preserves true insertion order when ts alone can't.
+    json(res, 200, { activity: db.prepare('SELECT * FROM task_activity WHERE task_id=? ORDER BY ts ASC, rowid ASC').all(id) });
+    return true;
+  }
+  if (/^\/api\/tasks\/[^/]+\/comment$/.test(url) && m === 'POST') {
+    const id = decodeURIComponent(url.split('/')[3]);
+    if (!db.prepare('SELECT id FROM tasks WHERE id=?').get(id)) { json(res, 404, { error: 'not found' }); return true; }
+    const b = await readBody(req);
+    const text = String(b.text || '').trim();
+    if (!text) { json(res, 400, { error: 'Comment text required' }); return true; }
+    logActivity(db, id, user.id, 'comment', text);
+    db.prepare('UPDATE tasks SET updated=? WHERE id=?').run(H.now(), id);
     json(res, 200, { ok: true }); return true;
   }
 

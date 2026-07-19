@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v28';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v29';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -979,6 +979,7 @@ function buildBackupXlsx() {
   try {
     const uNames = {}; db.prepare('SELECT id,username FROM users').all().forEach(u => uNames[u.id] = u.username);
     const pNames = {}; db.prepare('SELECT id,name FROM projects').all().forEach(p => pNames[p.id] = p.name);
+    const tNames = {}; db.prepare('SELECT id,title FROM tasks').all().forEach(t => tNames[t.id] = t.title);
     sheets.push({ name: 'Planning projects', rows: [['Project', 'Status', 'Notes', 'Colour', 'Created'],
       ...db.prepare('SELECT * FROM projects ORDER BY created').all().map(p => [p.name, p.status || '', p.meta || '', p.color || '', p.created || ''])] });
     sheets.push({ name: 'Planning tasks', rows: [['Task', 'Project', 'Assigned to', 'Created by', 'Due', 'Priority', 'Status', 'Site', 'Notes', 'From routine?', 'Created', 'Done at'],
@@ -986,6 +987,10 @@ function buildBackupXlsx() {
     // v28: recurring/routine task templates — the rule engine that generates the rows above
     sheets.push({ name: 'Planning routines', rows: [['Routine', 'Project', 'Assigned to', 'Priority', 'Repeats', 'Next due', 'Active', 'Created by', 'Created'],
       ...db.prepare('SELECT * FROM task_templates ORDER BY created').all().map(t => [t.title, pNames[t.project_id] || '', uNames[t.assignee] || '', t.prio || '', t.rule || '', t.next_due || '', t.active ? 'yes' : 'paused', uNames[t.created_by] || '', t.created || ''])] });
+    // v29: per-task activity trail (create/assign/status/edit/comment) — capped to the most recent
+    // 1000 rows for a readable sheet; the complete, uncapped history is always in app.db in the zip.
+    sheets.push({ name: 'Planning task activity', rows: [['When', 'Task', 'By', 'Kind', 'Detail'],
+      ...db.prepare('SELECT * FROM task_activity ORDER BY ts DESC LIMIT 1000').all().map(a => [a.ts || '', tNames[a.task_id] || '(deleted task)', uNames[a.user_id] || '', a.kind || '', a.text || ''])] });
   } catch (e) {}
   // costing change journal — who changed which costing key, when (values themselves are in app.db)
   try {

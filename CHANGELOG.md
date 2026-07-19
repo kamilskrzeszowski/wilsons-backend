@@ -2,6 +2,16 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v29 — 19 July 2026
+**Planning: task detail + activity log** (Phase 1.2 of the Planning roadmap — see `PLANNING-ROADMAP.md`).
+- **Tap any task to open it** — from My work, Waiting on, Team or Projects — and see/edit everything: title, notes, due date, priority, project, assignee, site. Saves send only the fields that actually changed (a merge-style PUT), matching this app's existing costing-save safety pattern.
+- **New activity trail per task**, append-only: who created it, every reassignment, every status change, and every edit — described in plain English (e.g. "Updated due date to 2026-08-15, priority to High") — plus any comments. Comments post straight from the detail view. Nothing is ever rewritten, only added to.
+- **Mark done / reopen** is now also available from the detail view (not just the list checkbox), and stays in sync with it live.
+- **New, additive-only data:** a `task_activity` table (`id, task_id, user_id, kind, text, ts`; `kind` ∈ create|assign|status|edit|comment) and two new routes, `GET /api/tasks/:id/activity` and `POST /api/tasks/:id/comment`. Nothing existing was changed — the routes already fell inside the existing Planning permission gate (it matches on the `/api/tasks` prefix), so no `server.js` routing changes were needed at all this round.
+- **New "Planning task activity" sheet in the Excel backup** (most recent 1,000 entries — the complete, uncapped history is always in `app.db` inside the same zip), matching how the v28 routines table got its own sheet.
+- **Correctness details verified in testing:** resending an unchanged assignee or status (which the new detail form does whenever you save other fields) no longer sends a spurious re-assignment email or silently re-stamps `done_at` — both are now gated on the value actually changing, confirmed with a live before/after test. Two same-millisecond activity rows (e.g. create+assign, logged in the same request) are kept in true insertion order via a `rowid` tiebreaker.
+- Verified with a 30+ assertion test against the real module (not a copy), a full live-HTTP smoke test, the "delete planning.js, does HQ still boot" guard re-test, and a full browser walkthrough — see LOGBOOK.md Round 16 for detail.
+
 ## v28 — 19 July 2026
 **Planning: recurring/routine tasks** (Phase 1.1 of the Planning roadmap — see `PLANNING-ROADMAP.md`).
 - **New "Routines" tab in Planning.** Set up a task that repeats — daily, weekly (any combination of days), or monthly (a chosen day of the month, or the last day) — assign it to someone, and HQ creates the actual task automatically each time it falls due, on schedule. No need to remember to add it by hand.

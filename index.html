@@ -2165,6 +2165,12 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v29', date:'19 Jul 2026', notes:[
+    'Planning: task detail + activity log. Tap any task — in My work, Waiting on, Team or Projects — to open it and see or edit everything about it (title, notes, due date, priority, project, assignee, site), all in one place.',
+    'Every task now keeps a plain-English activity trail: who created it, every reassignment, every status change, every edit (what changed, in plain terms — e.g. “Updated due date to 15 Aug, priority to High”), and any comments people add. So delegating a job leaves a record of what was said and done, instead of relying on memory.',
+    'Add a comment straight from the task — useful for a quick update without needing email or a separate message.',
+    'Mark a task done or reopen it from the same screen, not just the tick on the list.'
+  ]},
   {v:'v28', date:'19 Jul 2026', notes:[
     'Planning: recurring & routine tasks. A new “Routines” tab in Planning — set up something that repeats daily, weekly (pick any day(s)) or monthly (a chosen day, or the last day of the month), assign it, and it creates the task automatically each time it’s due, right on schedule. Tasks made this way carry a small ↻ mark so you can always tell a routine generated them. Pause, resume, edit or delete a routine any time — deleting only removes the repeating rule, past tasks it already made stay exactly as they are.',
     'Examples: “Weekly line clean — every Monday”, “Monthly H&S walk — the 1st”, “Daily fridge temperature check”.',
@@ -2278,7 +2284,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v28';
+const APP_VERSION='v29';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
