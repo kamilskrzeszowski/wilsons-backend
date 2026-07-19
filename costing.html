@@ -638,6 +638,11 @@ function channelToggle(){
   const b=(v,label)=>`<button class="btn small" style="border-radius:0;${prodChannel===v?'':'background:#fff;color:var(--sea)'}" onclick="prodChannel='${v}';refresh()">${label}</button>`;
   return `<span class="no-print" style="display:inline-flex;border:2px solid var(--sea);border-radius:20px;overflow:hidden">${b('both','D2C + Trade')}${b('d2c','D2C')}${b('trade','Trade')}</span>`;
 }
+/* category filter as the same kind of switch as the D2C/Trade one (All · Cold Press · Fresh Frozen · Fresh Ambient) */
+function catToggle(){
+  const b=(v,label)=>`<button class="btn small" style="border-radius:0;${prodCatFilter===v?'':'background:#fff;color:var(--sea)'}" onclick="prodCatFilter='${String(v).replace(/'/g,"\\'")}';refresh()">${esc(label)}</button>`;
+  return `<span class="no-print" style="display:inline-flex;border:2px solid var(--sea);border-radius:20px;overflow:hidden">${b('','All')}${catList().map(c=>b(c.id,c.name)).join('')}</span>`;
+}
 let prodSel = new Set(), prodSelectMode = false;
 function productsView(){
   const rows = productRows().filter(p=>p.name.toLowerCase().includes(prodFilter.toLowerCase()));
@@ -688,20 +693,19 @@ function productsView(){
   </div>
   <div class="toolbar">
     <input type="text" id="prodSearch" placeholder="Search products…" value="${esc(prodFilter)}" oninput="prodFilter=this.value;refresh()">
-    <select onchange="prodCatFilter=this.value;refresh()" title="Filter by product category">
-      <option value="">All categories</option>
-      ${catList().map(c=>`<option value="${esc(c.id)}"${prodCatFilter===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
-    </select>
-    <select onchange="prodBrandFilter=this.value;refresh()" title="Filter by brand">
+    ${catToggle()}
+    <select onchange="prodBrandFilter=this.value;refresh()" title="Filter by brand" class="no-print"
+      style="padding:8px 14px;border:2px solid var(--sea);border-radius:20px;background:${prodBrandFilter?'var(--sea)':'#fff'};color:${prodBrandFilter?'#fff':'var(--sea)'};font-weight:600;font-size:13px;min-width:0;cursor:pointer">
       <option value="">All brands</option>
       ${[...new Set(allRecipes().map(r=>r.brand||costingBrandOf(r.name)).filter(Boolean))].sort().map(b=>`<option value="${esc(b)}"${prodBrandFilter===b?' selected':''}>${esc(b)}</option>`).join('')}
     </select>
     ${channelToggle()}
     ${modeToggle()}
-    <button class="btn no-print" style="background:var(--sea);color:#fff;margin-left:auto" onclick="openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export…</button>
-    <details class="menu no-print">
-      <summary class="btn ghost">Export ▾</summary>
+    <details class="menu no-print" style="margin-left:auto">
+      <summary class="btn">Export ▾</summary>
       <div class="menupop">
+        <button onclick="this.closest('details').open=false;openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export (customer)…</button>
+        <div class="sep"></div>
         <button onclick="this.closest('details').open=false;exportProductsXlsx()">Excel${prodSelectMode&&prodSel.size?` — ${prodSel.size} selected`:' — all rows'}</button>
         <button onclick="this.closest('details').open=false;exportProducts()">CSV</button>
         <button onclick="this.closest('details').open=false;window.print()">Print this table</button>
@@ -709,7 +713,7 @@ function productsView(){
         <button onclick="this.closest('details').open=false;prodSelectMode=!prodSelectMode; if(!prodSelectMode) prodSel.clear(); refresh()">${prodSelectMode?'✕ Cancel row selection':'Select specific rows…'}</button>
       </div>
     </details>
-    <span class="count">${nSkus} SKUs${(prodCatFilter||prodBrandFilter)?' shown':''}</span>
+    <span class="count" style="margin-left:0">${nSkus} SKUs${(prodCatFilter||prodBrandFilter)?' shown':''}</span>
   </div>
   <div class="card"><table>
     <thead><tr>${selCol?`<th class="no-print"><input type="checkbox" ${allSel?'checked':''} onchange="selAllProds(this.checked)"></th>`:''}${
@@ -719,7 +723,7 @@ function productsView(){
     }</tr></thead>
     <tbody>${body || `<tr><td colspan="${(selCol?1:0)+dataCols}" class="muted" style="text-align:center;padding:24px">No products yet.</td></tr>`}</tbody>
   </table></div>
-  <p class="muted" style="margin-top:10px">Each product line comes from a recipe — open the recipe to set its pack sizes and packaging. Sell prices can be typed straight into this table. <b>D2C</b> and <b>Trade</b> each get their own packing / box / shipping costs — assign a channel to any cost item on the <b>Pack &amp; Costs</b> tab (items set to “both channels” count in both totals). Costs shown on the <b>${recMode==='std'?'standard (target)':'actual purchase'}</b> basis. ${prodSelectMode?'Tick the rows you want, then use <b>Export ▾</b>.':'Use <b>★ Branded export</b> for a customer document, or <b>Export ▾</b> for Excel / CSV.'}</p>`;
+  <p class="muted" style="margin-top:10px">Each product line comes from a recipe — open the recipe to set its pack sizes and packaging. Sell prices can be typed straight into this table. <b>D2C</b> and <b>Trade</b> each get their own packing / box / shipping costs — assign a channel to any cost item on the <b>Pack &amp; Costs</b> tab (items set to “both channels” count in both totals). Costs shown on the <b>${recMode==='std'?'standard (target)':'actual purchase'}</b> basis. ${prodSelectMode?'Tick the rows you want, then use <b>Export ▾</b>.':'All exports — Excel, CSV, print and the <b>★ branded customer document</b> — live under <b>Export ▾</b>.'}</p>`;
 }
 function toggleProdSel(key){ if(prodSel.has(key)) prodSel.delete(key); else prodSel.add(key); refresh(); }
 function selAllProds(on){
@@ -878,20 +882,12 @@ function ingredientsView(){
       ${catList().map(c=>`<option value="${esc(c.id)}"${ingProcFilter===c.id?' selected':''}>Used in ${esc(c.name)}</option>`).join('')}
       <option value="__unused"${ingProcFilter==='__unused'?' selected':''}>Not used in any recipe</option>
     </select>
-    <button class="btn accent no-print" onclick="viewPurchases('')">+ Log a purchase</button>
+    <button class="btn accent no-print" onclick="openAddIngredient()">＋ Add ingredient</button>
+    <button class="btn no-print" onclick="viewPurchases('')">+ Log a purchase</button>
     <button class="btn ghost" onclick="exportIngredients()">Export CSV</button>
     <button class="btn ghost no-print" onclick="resetPrices()">Reset targets</button>
     <button class="btn ghost" onclick="window.print()">Print</button>
     <span class="count">${rows.length} ingredients</span>
-  </div>
-  <div class="card no-print" style="padding:14px;margin-bottom:16px">
-    <div class="toolbar" style="margin-bottom:0">
-      <input type="text" id="niName" placeholder="New ingredient name…" style="min-width:240px">
-      <input type="text" id="niSup" list="suplist" placeholder="Supplier" style="min-width:130px">
-      <input type="number" id="niBase" placeholder="Target £/kg (ex del.)" step="0.001" style="min-width:160px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
-      <input type="number" id="niShip" placeholder="Delivery £/kg" step="0.001" style="min-width:130px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
-      <button class="btn accent" onclick="addIngredient()">Add ingredient</button>
-    </div>
   </div>
   <div class="card"><table>
     <thead><tr>${cols.map(([k,l])=>`<th class="${k==='disp'||k==='sup'?'':'num'}" onclick="sortIng('${k}')">${l}${ingSort.col===k?`<span class="arr"> ${ingSort.dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
@@ -972,6 +968,30 @@ function delCustomIng(x){
   store.customIngs = store.customIngs.filter(o=>o.name!==i.key);
   refresh();
 }
+/* add a new ingredient in a small pop-up (the old always-visible form row took too much space) */
+function openAddIngredient(){
+  const dlg=document.getElementById('addIngDlg')||(()=>{ const d=document.createElement('dialog'); d.id='addIngDlg'; d.style.cssText='border:none;border-radius:14px;padding:0;max-width:440px;width:92%'; document.body.appendChild(d); return d; })();
+  const fld=(label,inner)=>`<label style="display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:600;color:var(--channel)">${label}${inner}</label>`;
+  const inp='style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;color:var(--sea);width:100%"';
+  dlg.innerHTML=`<div style="padding:20px 22px">
+    <h2 style="margin:0 0 4px">Add an ingredient</h2>
+    <p class="muted" style="margin:0 0 14px">It appears in the list (and in recipe pick-lists) straight away. Prices can also be set later on the Ingredients tab.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${fld('Ingredient name',`<input type="text" id="niName" placeholder="e.g. Duck Heart" ${inp}>`)}
+      ${fld('Supplier (optional)',`<input type="text" id="niSup" list="suplist" placeholder="pick or type a supplier" ${inp}>`)}
+      <div style="display:flex;gap:10px">
+        ${fld('Target £/kg (ex delivery)',`<input type="number" id="niBase" step="0.001" placeholder="e.g. 2.400" ${inp}>`)}
+        ${fld('Delivery £/kg (optional)',`<input type="number" id="niShip" step="0.001" placeholder="e.g. 0.050" ${inp}>`)}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost" onclick="document.getElementById('addIngDlg').close()">Cancel</button>
+      <button class="btn accent" onclick="addIngredient()">Add ingredient</button>
+    </div></div>`;
+  if(!dlg.open) dlg.showModal();
+  const n=document.getElementById('niName'); if(n) n.focus();
+}
+window.openAddIngredient=openAddIngredient;
 function addIngredient(){
   const name = document.getElementById('niName').value.trim();
   const sup = document.getElementById('niSup').value.trim();
@@ -982,6 +1002,7 @@ function addIngredient(){
   if(isNaN(base)||base<0){alert('Please enter the target £/kg.');return;}
   const list = store.customIngs;
   list.push({name, supplier:sup, custom:true, selPerTonne:base*1000, selTransPerKg:isNaN(ship)?0:ship, djlPerTonne:null, djlPerKg:null, djlTransPerKg:null, selPerKg:base+(isNaN(ship)?0:ship), monthlyUsageKg:null, spendMonth:null});
+  { const d=document.getElementById('addIngDlg'); if(d&&d.open) d.close(); }
   store.customIngs = list; refresh();
 }
 function setPrice(name,val){

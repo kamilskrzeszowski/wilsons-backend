@@ -22,6 +22,10 @@ Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `serv
   - The costing Ingredients tab has a **"Used in (process)" column** (Cold Press / Fresh Frozen / Fresh Ambient, from each recipe's category) — sortable, plus an **"All processes" filter** (including "Not used in any recipe").
   - A **Recipes count button** on each ingredient opens a panel listing every recipe that uses it, with the process, kg per batch and % of mix, and an Open link straight to the recipe.
   - Removed the half-hidden pink **"custom" badge** behind ingredient names (it only marked ingredients added after the original spreadsheet — no data lost; rows are now uniform). The ingredient CSV export includes the new Used-in and Recipes columns.
+- **Costing screen space saved (Kamil's requests):**
+  - **Add ingredient is now a pop-up** — the always-visible add form (name/supplier/price/delivery) that took a full row is replaced by a compact "＋ Add ingredient" button that opens a small dialog. Adds the same way and closes on success.
+  - On **Products**, the standalone "★ Branded export" button is folded into the **Export ▾** menu alongside Excel / CSV / Print — the branded customer document is the first item.
+  - The **category filter is now a segmented switch** (All · Cold Press · Fresh Frozen · Fresh Ambient), matching the D2C/Trade and Standard/Actual switches. The **brand filter** stays a dropdown (a switch would be too wide for that many brands) but is restyled as a pill to match the switches.
 
 ## v20 — July 2026
 **Added the Planning module** — a new team-planning section (tasks, projects, delegation).
