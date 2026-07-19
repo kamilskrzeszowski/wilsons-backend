@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v32';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v37';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -52,6 +52,8 @@ try { db.exec('PRAGMA foreign_keys = ON;'); } catch (e) {}
  *   GRAPH_CLIENT_SECRET  — the client secret VALUE (never committed to code)
  *   MAIL_FROM            — the mailbox HQ sends as, e.g. hq@wilsonspetfood.co.uk
  *   APP_URL  (optional)  — the live site address, used for buttons/links in emails
+ *   MAIL_TASK_CATEGORY (optional, v34) — the Outlook category that turns an email
+ *     into a Planning task (Phase 4). Defaults to "Task" if not set.
  * Zero dependencies: uses Node's built-in global fetch to talk to Microsoft.
  * ==========================================================================*/
 const MAIL = {
@@ -60,11 +62,16 @@ const MAIL = {
   clientSecret: (process.env.GRAPH_CLIENT_SECRET || '').trim(),
   from: (process.env.MAIL_FROM || '').trim(),
   appUrl: (process.env.APP_URL || '').trim().replace(/\/+$/, ''),
+  taskCategory: (process.env.MAIL_TASK_CATEGORY || '').trim() || 'Task',
 };
 function mailConfigured() { return !!(MAIL.tenant && MAIL.clientId && MAIL.clientSecret && MAIL.from); }
 // An admin can pause sending from inside the app without touching Railway (meta flag).
 function mailPaused() { try { return db.prepare("SELECT value FROM meta WHERE key='mailPaused'").get()?.value === '1'; } catch (e) { return false; } }
 function mailOn() { return mailConfigured() && !mailPaused(); }
+// v34: email → task (Phase 4) reads and MODIFIES a real mailbox (removes a category once
+// imported) — a meaningfully bigger step than sending mail, so it needs its own explicit opt-in
+// on top of mailOn(), not just "Mail.Read happens to be granted." Off by default.
+function emailImportEnabled() { try { return db.prepare("SELECT value FROM meta WHERE key='emailImportEnabled'").get()?.value === '1'; } catch (e) { return false; } }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 let _graphTok = { val: '', exp: 0 };
@@ -80,6 +87,22 @@ async function graphToken() {
   if (!r.ok || !d.access_token) throw new Error(d.error_description || d.error || ('sign-in failed (HTTP ' + r.status + ')'));
   _graphTok = { val: d.access_token, exp: Date.now() + (d.expires_in || 3600) * 1000 };
   return _graphTok.val;
+}
+// v34: a thin, generic Graph API call — attaches the token, does the fetch, returns parsed JSON
+// (or null for a 204 No Content, e.g. a successful PATCH), throws a readable Error on failure.
+// Deliberately knows nothing about mail/messages/categories — that's the caller's business logic
+// (planning.js, for the email-import feature), matching how sendMail() only knows sending, not
+// what a "task" is. Keeps every Graph credential/token concern in one place: this file.
+async function graphFetch(method, path, body) {
+  const tok = await graphToken();
+  const r = await fetch('https://graph.microsoft.com/v1.0' + path, {
+    method: method || 'GET',
+    headers: Object.assign({ 'Authorization': 'Bearer ' + tok }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) { let msg = ''; try { msg = (await r.json()).error?.message; } catch (e) {} throw new Error(msg || ('Graph ' + (method || 'GET') + ' ' + path + ' failed (HTTP ' + r.status + ')')); }
+  if (r.status === 204) return null;
+  return r.json();
 }
 // Send one email. Throws on failure (callers that shouldn't break decide whether to catch).
 async function sendMail(to, subject, html) {
@@ -108,20 +131,45 @@ function emailShell(headline, bodyHtml, buttonText, buttonPath) {
     </table>
   </td></tr></table></body></html>`;
 }
+function taskMetaLine(t) {
+  const prio = { high: 'High', med: 'Medium', low: 'Low' }[t.prio] || '';
+  return [t.due ? 'Due <b>' + esc(t.due) + '</b>' : '', prio ? 'Priority: ' + esc(prio) : '', t.project ? 'Project: ' + esc(t.project) : ''].filter(Boolean).join(' &nbsp;·&nbsp; ');
+}
 // Fire-and-forget: someone was assigned a task. Never throws into the task-save path.
 function notifyAssign(info) {
   if (!mailOn()) return;
   try {
     const u = db.prepare('SELECT username, email FROM users WHERE id=?').get(info.assigneeId);
     if (!u || !u.email) return;
-    const prio = { high: 'High', med: 'Medium', low: 'Low' }[info.prio] || '';
-    const meta = [info.due ? 'Due <b>' + esc(info.due) + '</b>' : '', prio ? 'Priority: ' + esc(prio) : '', info.project ? 'Project: ' + esc(info.project) : ''].filter(Boolean).join(' &nbsp;·&nbsp; ');
+    const meta = taskMetaLine(info);
     const body = `<p style="margin:0 0 10px"><b>${esc(info.byName || 'A colleague')}</b> assigned a task to you:</p>
       <p style="margin:0 0 10px;font-size:16px;color:#143644"><b>${esc(info.title)}</b></p>
       ${meta ? '<p style="margin:0;color:#6f7b82;font-size:13px">' + meta + '</p>' : ''}`;
     sendMail(u.email, 'New task for you: ' + info.title, emailShell('A task was assigned to you', body, 'Open Planning', '/planning'))
       .catch(e => console.log('assignment email failed:', e.message));
   } catch (e) { console.log('notifyAssign error:', e.message); }
+}
+// Fire-and-forget: one or more tasks were assigned to someone in the same batch (e.g. several
+// tagged emails imported in one tick) — one combined email instead of one per task.
+function notifyAssignBatch(info) {
+  if (!mailOn()) return;
+  try {
+    const u = db.prepare('SELECT username, email FROM users WHERE id=?').get(info.assigneeId);
+    if (!u || !u.email) return;
+    const tasks = info.tasks || [];
+    if (!tasks.length) return;
+    if (tasks.length === 1) return notifyAssign({ assigneeId: info.assigneeId, byName: info.byName, title: tasks[0].title, due: tasks[0].due, prio: tasks[0].prio, project: tasks[0].project });
+    const items = tasks.map(t => {
+      const meta = taskMetaLine(t);
+      return `<div style="margin:0 0 12px">
+        <p style="margin:0;font-size:16px;color:#143644"><b>${esc(t.title)}</b></p>
+        ${meta ? '<p style="margin:0;color:#6f7b82;font-size:13px">' + meta + '</p>' : ''}
+      </div>`;
+    }).join('');
+    const body = `<p style="margin:0 0 10px"><b>${esc(info.byName || 'A colleague')}</b> assigned you ${tasks.length} new tasks:</p>${items}`;
+    sendMail(u.email, tasks.length + ' new tasks for you', emailShell(tasks.length + ' tasks were assigned to you', body, 'Open Planning', '/planning'))
+      .catch(e => console.log('assignment email failed:', e.message));
+  } catch (e) { console.log('notifyAssignBatch error:', e.message); }
 }
 
 /* ---------------- schema ---------------- */
@@ -151,6 +199,8 @@ try { db.exec("ALTER TABLE production ADD COLUMN cook_date TEXT DEFAULT ''"); } 
 try { db.exec("ALTER TABLE users ADD COLUMN perms TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN prefs TEXT DEFAULT ''"); } catch (e) {}   // per-person home-screen preferences
 try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''"); } catch (e) {}   // for Microsoft 365 notifications & reminders
+try { db.exec("ALTER TABLE users ADD COLUMN digest_opt_in INTEGER DEFAULT 0"); } catch (e) {}   // v33: daily "what's on your plate" email — opt-in, off by default
+try { db.exec("ALTER TABLE users ADD COLUMN digest_time TEXT DEFAULT '07:30'"); } catch (e) {}  // v33: preferred send time, HH:MM 24h local (Europe/London)
 try { db.exec("ALTER TABLE production ADD COLUMN julian_code TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN best_before TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN filled_date TEXT DEFAULT ''"); } catch (e) {}
@@ -772,7 +822,7 @@ function authUser(req) {
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
   const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
   if (!s || s.expires < Date.now()) return null;
-  const u = db.prepare('SELECT id,username,role,perms,factory,email FROM users WHERE id=?').get(s.user_id);
+  const u = db.prepare('SELECT id,username,role,perms,factory,email,digest_opt_in,digest_time FROM users WHERE id=?').get(s.user_id);
   if (u) { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } }
   return u;
 }
@@ -1237,6 +1287,14 @@ const server = http.createServer(async (req, res) => {
       if (!user) return json(res, 401, { error: 'Not signed in' });
 
       if (url === '/api/me') return json(res, 200, { user });
+      // v33: self-service only — always the CALLING user's own row, never another id, so there's no
+      // privilege check to get wrong here.
+      if (url === '/api/me/digest' && m === 'PUT') {
+        const b = await readBody(req);
+        const time = /^\d{2}:\d{2}$/.test(b.time || '') ? b.time : '07:30';
+        db.prepare('UPDATE users SET digest_opt_in=?, digest_time=? WHERE id=?').run(b.opt_in ? 1 : 0, time, user.id);
+        return json(res, 200, { ok: true, opt_in: !!b.opt_in, time });
+      }
 
       // --- Planning module (tasks/projects/delegation) — guarded so it can never break HQ ---
       // Access is per-account: admins, or accounts ticked for "Planning" in Users → Edit.
@@ -1825,7 +1883,7 @@ const server = http.createServer(async (req, res) => {
       // ---- Microsoft 365 email: status, test-send, pause switch (admins only) ----
       if (url === '/api/mail/status' && m === 'GET') {
         if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
-        return json(res, 200, { configured: mailConfigured(), paused: mailPaused(), from: MAIL.from || '', appUrl: MAIL.appUrl || '', myEmail: user.email || '' });
+        return json(res, 200, { configured: mailConfigured(), paused: mailPaused(), from: MAIL.from || '', appUrl: MAIL.appUrl || '', myEmail: user.email || '', importEnabled: emailImportEnabled(), taskCategory: MAIL.taskCategory });
       }
       if (url === '/api/mail/test' && m === 'POST') {
         if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
@@ -1844,6 +1902,16 @@ const server = http.createServer(async (req, res) => {
         db.prepare("INSERT INTO meta(key,value) VALUES('mailPaused',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(b.paused ? '1' : '0');
         return json(res, 200, { ok: true, paused: !!b.paused });
       }
+      // v34: Phase 4 (email → task) — a separate, explicit switch from mailPaused above. This one
+      // isn't just "pause sending" — turning it on lets HQ read tagged messages in the watched
+      // mailbox AND remove their category once imported. Off by default even once Mail.Read is
+      // granted; an admin has to deliberately turn it on.
+      if (url === '/api/mail/import-toggle' && m === 'POST') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        const b = await readBody(req);
+        db.prepare("INSERT INTO meta(key,value) VALUES('emailImportEnabled',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(b.enabled ? '1' : '0');
+        return json(res, 200, { ok: true, enabled: !!b.enabled });
+      }
 
       return json(res, 404, { error: 'not found' });
     }
@@ -1856,12 +1924,29 @@ const server = http.createServer(async (req, res) => {
 
 seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 seedRecipeVersions(); freezeStockUsage();   // v26: recipe version history + frozen per-batch stock usage
-try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
+try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign, notifyAssignBatch, sendMail, emailShell, mailOn, graphFetch, mailFrom: MAIL.from, mailTaskCategory: MAIL.taskCategory, emailImportEnabled }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // v28: Planning routines (recurring/routine tasks) — generate today's due instances, then recheck
 // every 30 min. Guarded here AND inside planning.runRoutines() itself — a bug in routines can never
 // take the rest of HQ down. Runs once at boot so a routine due today appears without waiting 30 min.
 if (planning && planning.runRoutines) { try { planning.runRoutines(); } catch (e) { console.log('planning routines tick failed:', e.message); } }
 setInterval(() => { if (planning && planning.runRoutines) { try { planning.runRoutines(); } catch (e) { console.log('planning routines tick failed:', e.message); } } }, 30 * 60 * 1000);
+// v33: daily "what's on your plate" email digest — wall-clock (checks "has this user's preferred
+// send time passed today, and have I not already sent" every 5 min), not a naive 24h interval from
+// boot, so it can't drift off the requested time and a restart can't double-send (planning.js's own
+// reminders_sent table is the guard). runReminders() is async (it awaits sendMail); the .catch() here
+// is a second, redundant safety net on top of the try/catch already inside it — a rejected promise
+// must never reach an unhandled-rejection warning, let alone take HQ down.
+function runRemindersTick() { if (planning && planning.runReminders) { try { Promise.resolve(planning.runReminders()).catch(e => console.log('planning reminders tick failed:', e.message)); } catch (e) { console.log('planning reminders tick failed:', e.message); } } }
+runRemindersTick();
+setInterval(runRemindersTick, 5 * 60 * 1000);
+// v34: email → task (Phase 4) — polls the watched mailbox for tagged messages every 5 min. Off
+// unless BOTH mailOn() and emailImportEnabled() are true (planning.js checks both itself); this
+// tick still runs unconditionally on the same schedule either way, since the actual gating and the
+// per-call cost of finding out "not enabled" are both inside runEmailImport(), same shape as the
+// reminders tick above (including the redundant .catch() safety net for the same reason).
+function runEmailImportTick() { if (planning && planning.runEmailImport) { try { Promise.resolve(planning.runEmailImport()).catch(e => console.log('planning email-import tick failed:', e.message)); } catch (e) { console.log('planning email-import tick failed:', e.message); } } }
+runEmailImportTick();
+setInterval(runEmailImportTick, 5 * 60 * 1000);
 // nightly server-side Excel backup (kept in DATA_DIR/backups), plus one on boot
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);

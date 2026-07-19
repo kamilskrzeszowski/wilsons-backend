@@ -42,6 +42,12 @@ function init(db, helpers) {
   // A JSON column (not a separate table) since a task's checklist is small, always loaded with the
   // task itself, and never queried independently — exactly the case the roadmap flagged as fine for this.
   try { db.exec("ALTER TABLE tasks ADD COLUMN checklist TEXT DEFAULT ''"); } catch (e) {}
+  // v34: email → task (Phase 4). ext_id is the Graph message id — the dedupe key so re-polling an
+  // email that's still tagged (e.g. because clearing its category failed) never creates a second
+  // task. source distinguishes an imported task from one typed in by hand.
+  try { db.exec("ALTER TABLE tasks ADD COLUMN ext_id TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE tasks ADD COLUMN source TEXT DEFAULT 'manual'"); } catch (e) {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_ext_id ON tasks(ext_id)"); } catch (e) {}
   // v28: recurring/routine task templates. `rule` is a small string the server understands:
   //   'daily'  |  'weekly:mon,thu'  (any of sun/mon/tue/wed/thu/fri/sat)  |  'monthly:15'  |  'monthly:last'
   // `next_due` is the next date (YYYY-MM-DD, UK local) this routine should generate a task for.
@@ -62,6 +68,15 @@ function init(db, helpers) {
     );
   `);
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_activity_task ON task_activity(task_id, ts)'); } catch (e) {}
+  // v33: guards the daily digest email against double-sending — one row per user+date+kind, so a
+  // restart (or an overlapping 5-min tick) that re-checks "have I sent today's digest" always finds
+  // the answer here rather than relying on in-memory state that a restart would lose.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reminders_sent(
+      user_id INTEGER, date TEXT, kind TEXT, sent_at TEXT,
+      PRIMARY KEY(user_id, date, kind)
+    );
+  `);
   // seed a starter set of projects only if there are none yet (idempotent)
   try {
     if (db.prepare('SELECT count(*) c FROM projects').get().c === 0) {
@@ -244,6 +259,153 @@ function runRoutines() {
     } catch (e) { console.log('planning routines: template ' + t.id + ' failed:', e.message); }
   });
   return created;
+}
+
+/* ---------------- daily digest email (v33) ----------------
+ * Wall-clock, not boot-relative: a 5-min tick (server.js) calls this, and for each opted-in user it
+ * checks "has their preferred send time passed today, and have I not already sent" — guarded by
+ * reminders_sent so a restart or an overlapping tick never double-sends. Skips entirely, cheaply,
+ * if mail is off/paused. A user with zero open tasks is marked "handled" without sending anything
+ * (an assignment later that same day is already covered by the existing notifyAssign email). */
+const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MON_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function friendlyDate(iso) {
+  const d = parseISODateLocal(iso); if (!d) return iso;
+  return DOW_FULL[d.getDay()] + ' ' + d.getDate() + ' ' + MON_FULL[d.getMonth()];
+}
+function nowHM() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+// Returns the HTML for the body of the digest, or null if this person has no open tasks at all
+// (in which case nothing is sent — see the caller). Tasks with no due date are deliberately left
+// out of the three time-based buckets below; a digest is about timing, not the whole backlog.
+function digestBodyHtml(db, userId, todayIso) {
+  const tasks = db.prepare("SELECT * FROM tasks WHERE assignee=? AND status<>'done'").all(userId);
+  if (!tasks.length) return null;
+  const byDue = (a, b) => (a.due || '').localeCompare(b.due || '');
+  const overdue = tasks.filter(t => t.due && t.due < todayIso).sort(byDue);
+  const dueToday = tasks.filter(t => t.due === todayIso);
+  const soon = tasks.filter(t => t.due && t.due > todayIso).sort(byDue).slice(0, 5);
+  const row = t => '<div style="padding:6px 0;border-bottom:1px solid #eee">' + escHtml(t.title) + (t.due ? ' <span style="color:#8a97a0">— ' + escHtml(t.due) + '</span>' : '') + '</div>';
+  const section = (label, rows, color) => rows.length ? ('<p style="margin:14px 0 4px;font-weight:700;color:' + color + '">' + escHtml(label) + ' (' + rows.length + ')</p>' + rows.map(row).join('')) : '';
+  const body = section('Overdue', overdue, '#c0563b') + section('Due today', dueToday, '#e0a13f') + section('Coming up', soon, '#4b5f6d');
+  return body || '<p style="margin:0">Nothing urgent — but you do have open tasks assigned. Take a look when you get a chance.</p>';
+}
+async function runReminders() {
+  if (!DB) return 0;
+  if (!H.mailOn || !H.mailOn()) return 0;
+  let sent = 0;
+  const todayIso = todayISOLocal();
+  const hm = nowHM();
+  let users = [];
+  try { users = DB.prepare("SELECT id, username, email, digest_time FROM users WHERE digest_opt_in=1 AND email<>''").all(); }
+  catch (e) { console.log('planning reminders: could not read users:', e.message); return 0; }
+  for (const u of users) {
+    try {
+      const target = /^\d{2}:\d{2}$/.test(u.digest_time || '') ? u.digest_time : '07:30';
+      if (hm < target) continue;
+      const already = DB.prepare('SELECT 1 FROM reminders_sent WHERE user_id=? AND date=? AND kind=?').get(u.id, todayIso, 'digest');
+      if (already) continue;
+      const body = digestBodyHtml(DB, u.id, todayIso);
+      if (body == null) { DB.prepare('INSERT INTO reminders_sent(user_id,date,kind,sent_at) VALUES(?,?,?,?)').run(u.id, todayIso, 'digest', H.now()); continue; }
+      const subject = 'Your tasks — ' + friendlyDate(todayIso);
+      await H.sendMail(u.email, subject, H.emailShell(subject, body, 'Open Planning', '/planning'));
+      DB.prepare('INSERT INTO reminders_sent(user_id,date,kind,sent_at) VALUES(?,?,?,?)').run(u.id, todayIso, 'digest', H.now());
+      sent++;
+    } catch (e) { console.log('planning reminders: user ' + u.id + ' failed:', e.message); }
+  }
+  return sent;
+}
+
+/* ---------------- email → task (v34, Phase 4; v35 adds teammate routing; v36 adds notification) ----
+ * Outlook category → task. Tag an email with the agreed category (default "Task") and it's
+ * assigned to you (the mailbox owner); tag it "Task: Jane" instead and it's assigned straight to
+ * whichever teammate that names — this tick polls the watched mailbox for messages carrying either
+ * form, creates one task per message, then tries to clear the specific category so it isn't
+ * re-imported. Anyone other than the mailbox owner who picks up a task this tick gets a single
+ * combined email once the whole tick is done, not one email per task. ext_id (the Graph message id)
+ * is the real dedupe guard — clearing the category is best-effort cleanup, not the safety mechanism,
+ * so a failed clear just means the same message
+ * gets looked at again next tick (and is correctly skipped, not duplicated).
+ * Gated on TWO switches, not one: mailOn() (the general email on/off), and emailImportEnabled()
+ * (its own explicit opt-in, since this feature also WRITES to a real mailbox, not just reads). */
+function normalizeForMatch(s) { return String(s || '').toLowerCase().replace(/[._-]+/g, ' ').trim().replace(/\s+/g, ' '); }
+function escapeRegex(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+// Resolves a category suffix like "Jane" or "jane.doe" to exactly one user. Never guesses: zero
+// matches or more than one both return null, so the caller falls back to the mailbox owner rather
+// than risk assigning to the wrong person on a hunch.
+function resolveAssigneeFromSuffix(db, suffix) {
+  const target = normalizeForMatch(suffix);
+  if (!target) return null;
+  const users = db.prepare('SELECT id, username FROM users').all();
+  const exact = users.filter(u => normalizeForMatch(u.username) === target);
+  if (exact.length === 1) return exact[0].id;
+  if (exact.length > 1) return null;
+  const prefix = users.filter(u => { const n = normalizeForMatch(u.username); return n.startsWith(target) || target.startsWith(n); });
+  return prefix.length === 1 ? prefix[0].id : null;
+}
+async function runEmailImport() {
+  if (!DB) return 0;
+  if (!H.mailOn || !H.mailOn()) return 0;
+  if (!H.emailImportEnabled || !H.emailImportEnabled()) return 0;
+  if (!H.graphFetch || !H.mailFrom) return 0;
+  const mailbox = H.mailFrom;
+  const owner = DB.prepare('SELECT id, username FROM users WHERE email=?').get(mailbox);
+  if (!owner) { console.log('planning email-import: no HQ user account matches the watched mailbox (' + mailbox + ') — skipping'); return 0; }
+  const category = H.mailTaskCategory || 'Task';
+  const suffixRe = new RegExp('^' + escapeRegex(category) + '\\s*:\\s*(.+)$', 'i');
+  let messages = [];
+  try {
+    // startswith() catches both "Task" and "Task: Name" in one query; each result is re-checked
+    // against suffixRe/exact-match below rather than trusted, in case the filter is broader than
+    // intended (e.g. it would also technically match an unrelated "Taskforce" category).
+    const filter = "categories/any(c:startswith(c,'" + category.replace(/'/g, "''") + "'))";
+    const path = '/users/' + encodeURIComponent(mailbox) + '/messages?$filter=' + encodeURIComponent(filter) + '&$select=id,subject,bodyPreview,webLink,categories&$top=25';
+    const data = await H.graphFetch('GET', path);
+    messages = (data && data.value) || [];
+    if (messages.length === 25) console.log('planning email-import: hit the 25-message cap this tick — any further tagged emails will be picked up on a later tick');
+  } catch (e) { console.log('planning email-import: could not fetch tagged messages:', e.message); return 0; }
+  let imported = 0;
+  const toNotify = new Map(); // assigneeId -> [{title,due,prio,project}] — one combined email per person per tick
+  for (const msg of messages) {
+    try {
+      const cats = msg.categories || [];
+      const matched = cats.find(c => c === category) || cats.find(c => suffixRe.test(c));
+      if (!matched) { console.log('planning email-import: message ' + msg.id + ' looked like a match but has no real ' + category + ' category on closer look — skipping'); continue; }
+      const suffixMatch = matched.match(suffixRe);
+      let assignee = owner.id, assignNote = '';
+      if (suffixMatch) {
+        const resolved = resolveAssigneeFromSuffix(DB, suffixMatch[1]);
+        if (resolved) assignee = resolved;
+        else assignNote = ' (couldn’t match the teammate named in “' + matched + '” — assigned to you instead)';
+      }
+      const existing = DB.prepare('SELECT id FROM tasks WHERE ext_id=?').get(msg.id);
+      if (!existing) {
+        const id = H.uid('t');
+        DB.prepare(`INSERT INTO tasks(id,title,notes,project_id,assignee,created_by,due,prio,status,site,email_link,ext_id,source,created,updated)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(id, msg.subject || '(no subject)', msg.bodyPreview || '', '', assignee, owner.id, '', 'med', 'open', '', msg.webLink || '', msg.id, 'outlook', H.now(), H.now());
+        logActivity(DB, id, owner.id, 'create', 'Created from an email' + assignNote);
+        if (assignee !== owner.id) {
+          logActivity(DB, id, owner.id, 'assign', assignText(DB, assignee));
+          if (!toNotify.has(assignee)) toNotify.set(assignee, []);
+          toNotify.get(assignee).push({ title: msg.subject || '(no subject)', due: '', prio: 'med', project: '' });
+        }
+        imported++;
+      }
+      // Attempted every time this message is seen, whether just-created or a repeat visit — a
+      // repeat visit only happens because a prior clear failed, so this is the natural retry.
+      try {
+        const remaining = cats.filter(c => c !== matched);
+        await H.graphFetch('PATCH', '/users/' + encodeURIComponent(mailbox) + '/messages/' + encodeURIComponent(msg.id), { categories: remaining });
+      } catch (e) { console.log('planning email-import: could not clear the category on message ' + msg.id + ':', e.message); }
+    } catch (e) { console.log('planning email-import: message ' + msg.id + ' failed:', e.message); }
+  }
+  if (H.notifyAssignBatch) {
+    for (const [assigneeId, tasks] of toNotify) {
+      try { H.notifyAssignBatch({ assigneeId: assigneeId, byName: owner.username, tasks: tasks }); } catch (e) {}
+    }
+  }
+  return imported;
 }
 
 // Returns true if it handled the route, false otherwise. Wrapped in try/catch by server.js.
@@ -435,4 +597,4 @@ async function handle(ctx) {
   return false;
 }
 
-module.exports = { init, handle, runRoutines };
+module.exports = { init, handle, runRoutines, runReminders, runEmailImport };

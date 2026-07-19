@@ -2206,6 +2206,22 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v37', date:'19 Jul 2026', notes:[
+    'Planning: subtask steps now show and tick right in every task list (My work, Team, Waiting on, Projects) — no need to open a task just to check something off.',
+    'Planning: the Schedule tab’s day cells are bigger and show the actual task titles, colour-coded by priority, instead of just a number. Tap a day for the full list as before — a busy day just shows "+N more".'
+  ]},
+  {v:'v36', date:'19 Jul 2026', notes:[
+    'Planning: when an imported email is assigned to a teammate, they now get an email of their own letting them know — reusing the same "you’ve been assigned a task" email everyone already gets from a manual assignment. If several tagged emails land for the same person in one go, they get one combined email listing all of them rather than a flood of separate ones.'
+  ]},
+  {v:'v35', date:'19 Jul 2026', notes:[
+    'Planning: email-to-task can now go straight to a teammate. Tag an email "Task: Jane" (their name after the colon) instead of just "Task" and the task it creates is assigned straight to them, not to you. If the name doesn’t clearly match one person, it’s assigned to you instead with a note explaining why, rather than risk it landing on the wrong person.'
+  ]},
+  {v:'v34', date:'19 Jul 2026', notes:[
+    'Planning: turn an email into a task. Tag an email in Outlook with the category "Task" and it becomes a Planning task within a few minutes — title from the subject, a preview in the notes, and a link back to the original email — then the category is removed so it isn’t imported twice. Off by default: an admin switches it on from the Email panel on the Users screen, separately from the existing "Pause all emails" switch, since this one reads (and lightly tidies up) a real mailbox rather than just sending mail.'
+  ]},
+  {v:'v33', date:'19 Jul 2026', notes:[
+    'Planning: a daily email digest. Opt in (from the "✉️ Digest" link inside Planning) to get a morning email of your overdue, due-today and upcoming tasks, at whatever time suits you — no admin needs to switch it on for you. Off by default. Checked every 5 minutes so it always lands close to your chosen time, and never sends twice in a day even if the server restarts.'
+  ]},
   {v:'v32', date:'19 Jul 2026', notes:[
     'Planning: a new Schedule tab — a month calendar showing what’s due each day (both one-off tasks and recurring routines), so it’s easy to spot a day with too much landing on it at once. Tap a day to see exactly what’s due; tap a task to open it, or a not-yet-created routine occurrence to jump to that routine.',
     'Today dashboard: "Your planning" now also shows a "due soon" count (next 3 days) alongside overdue/due today, and lists a few more upcoming tasks at a glance.',
@@ -2340,7 +2356,7 @@ function showVersionHistory(){
 window.showVersionHistory=showVersionHistory;
 /* Version check: the page says v16; ask the server what version IT is running.
    If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v32';
+const APP_VERSION='v37';
 async function checkVersion(){
   const el=document.getElementById('sbVer'); if(!el) return;
   try{
@@ -4283,6 +4299,12 @@ async function renderMailPanel(){
            <input id="mailTestTo" type="email" placeholder="${escapeHtml(s.myEmail||'address to test')}" value="${escapeHtml(s.myEmail||'')}" style="max-width:280px">
            <button class="btn ghost sm" id="mailTestBtn">Send test email</button>
            <span class="hint" id="mailTestMsg"></span>
+         </div>
+         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line,#e2ddcd)">
+           <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mailImportChk" ${s.importEnabled?'checked':''}> Turn tagged emails into tasks (Phase 4)</label>
+           <p class="hint" style="margin:6px 0 0">${s.importEnabled
+             ? `On — tag an email in Outlook with the category <b>${escapeHtml(s.taskCategory)}</b> and it becomes a task for you within a few minutes; tag it <b>${escapeHtml(s.taskCategory)}: Jane</b> instead (their name after a colon) and it's assigned straight to that teammate. Either way the category is then removed so it isn't imported twice. Mailbox watched: <b>${escapeHtml(s.from)}</b> — nothing else is touched.`
+             : `Off. Once switched on, HQ will read <b>${escapeHtml(s.from)}</b> looking only for messages tagged <b>${escapeHtml(s.taskCategory)}</b> (assigned to you) or <b>${escapeHtml(s.taskCategory)}: teammate’s name</b> (assigned straight to them) — nothing else in the mailbox is touched.`}</p>
          </div>`
       : `<p class="hint" style="margin:8px 0 0">Not connected yet. Follow <b>MICROSOFT-365-EMAIL-SETUP.md</b> to register HQ in Microsoft 365, then add the four settings on Railway and redeploy. Until then, everything works as normal — just no emails go out.</p>`}
   </div>`;
@@ -4290,6 +4312,8 @@ async function renderMailPanel(){
   if(chk) chk.onchange=async()=>{ try{ await api('/api/mail/pause','POST',{paused:chk.checked}); renderMailPanel(); }catch(e){ alert(e.message); } };
   const btn=document.getElementById('mailTestBtn');
   if(btn) btn.onclick=async()=>{ const to=(document.getElementById('mailTestTo')||{}).value||''; const msg=document.getElementById('mailTestMsg'); msg.textContent='Sending…'; try{ const r=await api('/api/mail/test','POST',{to}); msg.textContent='✓ Sent to '+r.to+' — check the inbox.'; }catch(e){ msg.textContent='✕ '+e.message; } };
+  const importChk=document.getElementById('mailImportChk');
+  if(importChk) importChk.onchange=async()=>{ try{ await api('/api/mail/import-toggle','POST',{enabled:importChk.checked}); renderMailPanel(); }catch(e){ alert(e.message); } };
 }
 /* ---- account invites: create a link, send it however you like; the person picks their own password ---- */
 async function renderInvites(){

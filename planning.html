@@ -143,6 +143,8 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .td-commentrow{display:flex;gap:8px;margin-top:4px;padding:10px 0 4px;}
 .td-commentrow input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-family:var(--fb);font-size:15px;background:#fbfaf6;outline:none;}
 .td-commentgo{background:var(--navy);color:#fff;border-radius:11px;padding:0 16px;display:flex;align-items:center;font-weight:700;font-size:13.5px;cursor:pointer;flex:none;}
+.task .cl{margin-top:8px;padding-left:30px;display:flex;flex-direction:column;gap:5px;}
+.task .cl .cl-item{padding:3px 2px;}
 .cl-item{display:flex;align-items:center;gap:10px;padding:7px 2px;}
 .cl-check{width:19px;height:19px;border-radius:50%;border:2px solid var(--p-none);flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;}
 .cl-item.done .cl-check{background:#2f7d57;border-color:#2f7d57;}
@@ -160,6 +162,13 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .menu .mi:hover{background:var(--bg);}
 .menu .mi .tick{margin-left:auto;color:#2f7d57;}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:var(--navy);color:#fff;padding:11px 17px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:40;box-shadow:0 12px 30px -8px rgba(0,0,0,.4);}
+/* Daily digest settings (v33) */
+.topbar .digest{color:#fff;opacity:.85;cursor:pointer;font-size:13px;border:1px solid rgba(255,255,255,.3);padding:5px 11px;border-radius:8px;}
+.dg-row{display:flex;align-items:center;justify-content:space-between;margin-top:16px;}
+.dg-switch{width:44px;height:26px;border-radius:14px;background:var(--p-none);position:relative;cursor:pointer;flex:none;transition:.15s;}
+.dg-switch.on{background:#2f7d57;}
+.dg-switch i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;}
+.dg-switch.on i{left:21px;}
 /* Schedule (month view, v32) */
 .sched-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .sched-nav{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;color:var(--slate);flex:none;}
@@ -168,11 +177,16 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
 .sched-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;}
 .sched-dow span{text-align:center;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;}
 .sched-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
-.sched-cell{aspect-ratio:1;border-radius:10px;background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;}
+.sched-cell{min-height:90px;border-radius:10px;background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px;padding:4px;cursor:pointer;overflow:hidden;}
 .sched-cell.out{opacity:.35;}
 .sched-cell.today{border-color:var(--navy);border-width:2px;}
-.sched-cell .dn{font-size:12.5px;font-weight:700;color:var(--ink);}
-.sched-cell .cnt{font-size:10px;font-weight:700;color:#fff;background:var(--coral-deep);border-radius:8px;padding:1px 6px;min-width:14px;text-align:center;}
+.sched-cell .dn{font-size:11px;font-weight:700;color:var(--ink);padding:1px 2px 2px;}
+.sched-chip{font-size:9.5px;line-height:1.35;font-weight:700;padding:2px 4px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sched-chip.high{background:#f8e3de;color:#8a3a24;}
+.sched-chip.med{background:#fbeed7;color:#7a561f;}
+.sched-chip.low{background:var(--chip);color:#414f4a;}
+.sched-chip.routine{background:none;border:1px dashed #b9c0af;color:#5c6b64;}
+.sched-more{font-size:9px;font-weight:700;color:var(--muted);padding:0 4px;}
 .sched-legend{margin-top:12px;font-size:12px;color:var(--muted);}
 .day-item{display:flex;align-items:center;gap:10px;padding:8px 2px;}
 .day-item .dtxt{flex:1;font-size:14px;color:var(--slate);}
@@ -184,6 +198,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   <img src="/assets/logo-grapefruit.svg" alt="" onerror="this.style.display='none'">
   <span class="brand">Planning</span>
   <span class="sp"></span>
+  <span class="digest" data-act="opendigest">✉️ Digest</span>
   <span class="who" id="who"></span>
 </div>
 <div class="wrap">
@@ -302,6 +317,20 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:v
   <div id="day-list"></div>
 </div>
 
+<div class="scrim" id="dg-scrim" data-act="closedigest"></div>
+<div class="sheet" id="dg-sheet">
+  <span class="cancel" data-act="closedigest">Cancel</span>
+  <h3>Daily email digest</h3>
+  <p style="margin:0;font-size:14px;color:var(--slate)">A morning email with your overdue, due-today and upcoming tasks.</p>
+  <div class="dg-row">
+    <span style="font-weight:600;font-size:14px">Send me a daily digest</span>
+    <span class="dg-switch" id="dg-switch" data-act="toggledigest"><i></i></span>
+  </div>
+  <label>Send at</label>
+  <input id="dg-time" type="time">
+  <button class="go" data-act="savedigest">Save</button>
+</div>
+
 <script>
 const PAL=['#143644','#e2606c','#007985','#7a3b8f','#3f7d3f','#c0563b','#e0a13f','#4b5f6d'];
 const PRIO={high:{l:'High',c:'#c0563b'},med:{l:'Medium',c:'#e0a13f'},low:{l:'Low',c:'#4b5f6d'}};
@@ -347,6 +376,26 @@ async function load(){
     render();
   }catch(e){if(e.message!=='signin')$('#section').innerHTML='<div class="empty">Couldn’t load — '+esc(e.message)+'.<br><a href="/">Sign in to Wilsons HQ</a></div>';}
 }
+
+/* ---------------- daily digest settings (v33) ---------------- */
+let dgOptIn=false; // toggled locally while the sheet is open; only persisted on Save
+function openDigestSheet(){
+  dgOptIn=!!state.me.digest_opt_in;
+  $('#dg-switch').classList.toggle('on',dgOptIn);
+  $('#dg-time').value=state.me.digest_time||'07:30';
+  $('#dg-scrim').classList.add('on');$('#dg-sheet').classList.add('on');
+}
+function closeDigestSheet(){$('#dg-scrim').classList.remove('on');$('#dg-sheet').classList.remove('on');}
+function toggleDigestSwitch(){dgOptIn=!dgOptIn;$('#dg-switch').classList.toggle('on',dgOptIn);}
+async function saveDigestSettings(){
+  const time=$('#dg-time').value||'07:30';
+  try{
+    await api('/api/me/digest','PUT',{opt_in:dgOptIn,time:time});
+    state.me.digest_opt_in=dgOptIn?1:0;state.me.digest_time=time;
+    closeDigestSheet();
+    toast(dgOptIn?('You’ll get a daily digest at '+time+'.'):'Daily digest turned off.');
+  }catch(e){toast(e.message);}
+}
 // Populated from load() only (not render()) so a tab switch or optimistic toggle never resets
 // what the user already typed/picked — these controls hold state independent of the redraw cycle.
 function populateFilterBar(){
@@ -380,6 +429,14 @@ function checklistPill(t){
   const list=parseChecklist(t);if(!list.length)return '';
   return '<span class="pill cl">'+list.filter(i=>i.done).length+'/'+list.length+'</span>';
 }
+// Steps show and tick right in every list — no need to open the task first. Removing a step is
+// still a detail-view-only action, to keep the list-row tap target simple (tick, nothing else).
+function checklistInlineHtml(t){
+  const list=parseChecklist(t);if(!list.length)return '';
+  return '<div class="cl">'+list.map((it,i)=>
+    '<div class="cl-item'+(it.done?' done':'')+'"><span class="cl-check" data-act="togglelistcl" data-id="'+t.id+'" data-x="'+i+'"></span><span class="cl-text">'+esc(it.text)+'</span></div>'
+  ).join('')+'</div>';
+}
 // Phase 1.3: search box + project/assignee filter chips, shared across every task-list tab.
 function visibleTasks(){
   const q=state.search.trim().toLowerCase();
@@ -399,7 +456,7 @@ function taskRow(t){
     +'<div class="body"><div class="title">'+fromRoutine+esc(t.title)+'</div>'
     +'<div class="meta">'+prioDot(t.prio)+projPill(t.project_id)+dueHtml(t.due,t.id)+checklistPill(t)
     +'<span class="assignee'+(mine?' mine':'')+'" data-act="assign" data-id="'+t.id+'">'+avA(t.assignee)+esc(person(t.assignee).short)+'</span>'
-    +'</div></div></div>';
+    +'</div>'+checklistInlineHtml(t)+'</div></div>';
 }
 /* ---------------- routines (recurring tasks) ---------------- */
 function ordinal(n){n=+n;const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
@@ -617,6 +674,15 @@ function schedItemsFor(dateIso){
   const d=state.schedData||{tasks:[],occurrences:[]};
   return {tasks:d.tasks.filter(t=>t.due===dateIso),occ:d.occurrences.filter(o=>o.date===dateIso)};
 }
+// Real tasks and not-yet-generated routine occurrences both carry a title + prio, so they render
+// as the same kind of chip — only the routine ones get the dashed "not generated yet" treatment.
+// Capped at 3 per cell (matches the cell height); anything past that just adds to the "+N more".
+function schedChipHtml(tasks,occ){
+  const items=tasks.map(t=>({title:t.title,prio:t.prio})).concat(occ.map(o=>({title:o.title,prio:o.prio,routine:true})));
+  const shown=items.slice(0,3).map(it=>'<span class="sched-chip '+(it.routine?'routine':(it.prio||'med'))+'">'+esc(it.title)+'</span>').join('');
+  const more=items.length>3?'<span class="sched-more">+'+(items.length-3)+' more</span>':'';
+  return shown+more;
+}
 function renderScheduleTab(){
   schedInit();
   const key=state.schedYear+'-'+state.schedMonth;
@@ -635,9 +701,8 @@ function renderScheduleTab(){
     const iso=isoDateClient(d);
     const inMonth=d.getMonth()===state.schedMonth;
     const {tasks,occ}=schedItemsFor(iso);
-    const n=tasks.length+occ.length;
     return '<div class="sched-cell'+(inMonth?'':' out')+(iso===todayIso?' today':'')+'" data-act="openday" data-x="'+iso+'">'
-      +'<span class="dn">'+d.getDate()+'</span>'+(n?'<span class="cnt">'+n+'</span>':'')+'</div>';
+      +'<span class="dn">'+d.getDate()+'</span>'+schedChipHtml(tasks,occ)+'</div>';
   }).join('');
   return head+dow+'<div class="sched-grid">'+cells+'</div>'
     +'<div class="sched-legend">Tap a day to see what’s due — the '+String.fromCharCode(0x21bb)+' mark is a routine that hasn’t generated its task yet.</div>';
@@ -798,6 +863,14 @@ function toggleChecklistItem(idx){
   list[idx]=Object.assign({},list[idx],{done:!list[idx].done});
   saveChecklist(id,list);
 }
+// Same as toggleChecklistItem above, but for a step ticked straight from a list row (My work/Team/
+// Waiting on/Projects) rather than from the open task-detail sheet, so it takes an explicit id.
+function toggleListChecklistItem(id,idx){
+  const t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const list=parseChecklist(t);if(!list[idx])return;
+  list[idx]=Object.assign({},list[idx],{done:!list[idx].done});
+  saveChecklist(id,list);
+}
 function addChecklistItem(){
   const id=state.openTask;const t=state.tasks.find(x=>x.id===id);if(!t)return;
   const text=$('#td-cl-new').value.trim();if(!text)return;
@@ -880,12 +953,17 @@ document.addEventListener('click',function(e){
   else if(a==='postcomment'){postComment();}
   else if(a==='addchecklist'){addChecklistItem();}
   else if(a==='toggleclitem'){toggleChecklistItem(Number(x));}
+  else if(a==='togglelistcl'){toggleListChecklistItem(id,Number(x));}
   else if(a==='rmclitem'){removeChecklistItem(Number(x));}
   else if(a==='schedprev'){schedNav(-1);}
   else if(a==='schednext'){schedNav(1);}
   else if(a==='schedtoday'){schedNav('today');}
   else if(a==='openday'){openDaySheet(x);}
   else if(a==='closeday'){closeDaySheet();}
+  else if(a==='opendigest'){openDigestSheet();}
+  else if(a==='closedigest'){closeDigestSheet();}
+  else if(a==='toggledigest'){toggleDigestSwitch();}
+  else if(a==='savedigest'){saveDigestSettings();}
 });
 $('#rt-type').addEventListener('change',updateRepeatSubrows);
 $('#td-comment').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();postComment();}});
