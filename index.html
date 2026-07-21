@@ -2219,6 +2219,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v43', date:'21 Jul 2026', notes:[
+    'Recipe Costing: new “Recipe & ingredients…” export under Export ▾. Tick whole brands or single recipes, choose what to include (amounts, % of mix, supplier, prices), then export as a Wilsons-branded PDF or Excel. Each recipe appears as its own block — the recipe name, then its ingredients underneath — rather than one long list.',
+    'Price columns are off by default, so an export meant for an auditor or co-packer doesn’t carry ingredient pricing unless you deliberately switch it on.',
+    'If you do include prices, any ingredient without a price now shows as “—” and the recipe is marked PROVISIONAL, instead of appearing as £0.00 and quietly making a recipe look cheaper than it is.'
+  ]},
   {v:'v42', date:'21 Jul 2026', notes:[
     'Users screen now shows who’s currently using Wilsons HQ and which version they’re on, so you can see at a glance if anyone is still working from an old copy. Anyone on a version older than v41 shows as “not since the update” until they close and reopen once.',
     'New “Reload everyone” button on the Users screen: asks every open copy of the app to move onto the current version. Anyone not part-way through typing reloads on their own within a minute; anyone mid-entry gets a “Reload now” bar instead, so nothing half-finished is ever lost.'
@@ -2393,7 +2398,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v42';
+const APP_VERSION='v43';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.

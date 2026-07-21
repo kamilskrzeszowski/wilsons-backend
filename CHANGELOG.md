@@ -2,6 +2,18 @@
 
 Records changes to the Wilsons HQ app going forward. Bump `APP_VERSION` in `server.js` with each release. (Versions before v20 were built earlier and aren't itemised here.)
 
+## v43 — 21 July 2026
+**Recipe & ingredient export** — Kamil needed to send new recipes to an auditor: each recipe with its own ingredients and amounts, in one file, with control over what's included.
+
+- **New "☰ Recipe & ingredients…" under Export ▾ in Recipe Costing.** Tick whole brand groups or individual recipes (the same selector the branded costing export already uses), choose what to include, then export.
+- **Each recipe is its own block** — recipe name, then its ingredients underneath, then a total — rather than one flat list with the recipe name repeated on every row. Same layout in both the PDF and the Excel.
+- **Choose what's included:** amounts (kg), % of mix, supplier, £/kg, line cost, recipe totals. **Price columns are off by default** — for an auditor or co-packer the composition is what's wanted, and ingredient pricing usually isn't theirs to see.
+- **Two formats:** a Wilsons-branded PDF (via print / save as PDF, reusing the existing branded document styling) and a branded Excel. Both carry the date and a note explaining what the figures are.
+- **Deliberately a separate button from "★ Branded export (customer)", not an option inside it.** That one promises a customer "costs only, no margins"; this one shows actual composition. Two clearly-named buttons means nobody exports a full recipe breakdown to a customer by leaving an option ticked.
+- **A real bug caught during testing, worth recording because it's a repeat of one the v26 audit fixed:** `linePrice()` never returns null — when an ingredient has no price it falls back to `0`. So the first version of this export showed unpriced ingredients as a confident **£0.00** with no warning, and the recipe total looked complete when it wasn't. On one real recipe that was **9 of 13 ingredients**. Now unpriced ingredients read as "—" and the recipe is marked PROVISIONAL, using the app's own `!(p>0)` test rather than a null check.
+- Also fixed during testing: the PDF template opened `<table>` without closing it, so the browser's parser folded every following recipe into the first recipe's table — the first card showed 28 rows for a 13-ingredient recipe and the second had no table at all. Caught by inspecting the generated DOM rather than trusting the flattened text, which read plausibly.
+- Verified against real recipe data: 87 recipes selectable across 15 brand groups; three recipes exported as three separate cards with 13/15/15 rows matching their stated ingredient counts and totals reconciling to 100%; optional columns appear correctly when switched on; the Excel builds one block per recipe with its own header row, correct filename, branding and note; the "HQ survives without Planning" guard re-test.
+
 ## v42 — 21 July 2026
 **See who's using HQ and on which version, and push a reload to everyone** — Kamil's follow-up to v41: "can we push a reload onto all open versions, and can we see if users are online?"
 

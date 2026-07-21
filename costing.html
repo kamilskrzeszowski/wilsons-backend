@@ -718,6 +718,7 @@ function productsView(){
       <summary class="btn">Export ▾</summary>
       <div class="menupop">
         <button onclick="this.closest('details').open=false;openCustExport()" title="Wilsons-branded costing document for a customer — pick groups or recipes, then PDF or formatted Excel">★ Branded export (customer)…</button>
+        <button onclick="this.closest('details').open=false;openRecipeExport()" title="Recipe composition — each recipe with its ingredients and amounts. For an auditor or co-packer; price columns are off by default">☰ Recipe &amp; ingredients…</button>
         <div class="sep"></div>
         <button onclick="this.closest('details').open=false;exportProductsXlsx()">Excel${prodSelectMode&&prodSel.size?` — ${prodSel.size} selected`:' — all rows'}</button>
         <button onclick="this.closest('details').open=false;exportProducts()">CSV</button>
@@ -1851,6 +1852,178 @@ function custExportXLS(){
   a.href=URL.createObjectURL(new Blob(['﻿'+html],{type:'application/vnd.ms-excel'}));
   a.download='Wilsons-costing-'+new Date().toISOString().slice(0,10)+'.xls'; a.click(); URL.revokeObjectURL(a.href);
   try{document.getElementById('cxDlg').close();}catch(e){}
+}
+
+/* ================= RECIPE & INGREDIENT EXPORT (v43) =================
+   Deliberately a SIBLING of the branded costing export above, not an extra tick box inside it.
+   That one promises a customer "costs only, no margins"; this one shows the actual composition —
+   ingredients and amounts — which is a different audience and a different sensitivity. Keeping them
+   as two clearly-named buttons means nobody exports a full recipe breakdown to a customer by
+   accidentally leaving an option ticked.
+
+   Built for the common case of sending new recipes to an auditor, so the money columns default to
+   OFF: an auditor wants composition, and ingredient pricing is nobody's business but ours. */
+const RX_OPTS=[
+  ['kg',   'Amounts (kg)',        1],
+  ['pct',  '% of mix',            1],
+  ['sup',  'Supplier',            0],
+  ['perkg','Price £/kg',          0],
+  ['cost', 'Line cost £',         0],
+  ['tot',  'Recipe totals',       1]
+];
+function rxOpt(k){ const el=document.getElementById('rxo_'+k); return el?el.checked:false; }
+function openRecipeExport(){
+  const dlg=document.getElementById('rxDlg')||(()=>{const d=document.createElement('dialog');d.id='rxDlg';d.style.cssText='border:none;border-radius:14px;padding:0;max-width:660px;width:94%;max-height:86vh';document.body.appendChild(d);return d;})();
+  const body=custGroups().map((g,gi)=>`<div style="margin-bottom:10px">
+    <label style="display:flex;gap:8px;align-items:center;font-weight:700;color:var(--sea)"><input type="checkbox" data-rxg="${gi}" onchange="document.querySelectorAll('#rxDlg [data-rgof=\\'${gi}\\']').forEach(c=>c.checked=this.checked)">${esc(g.key)} <span class="muted" style="font-weight:400">(${g.recipes.length})</span></label>
+    <div style="margin:4px 0 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:2px 14px">
+      ${g.recipes.map(r=>`<label style="display:flex;gap:7px;align-items:center;font-size:13px"><input type="checkbox" data-rgof="${gi}" data-rxr="${esc(r.name)}">${esc(custLabel(r))}</label>`).join('')}
+    </div></div>`).join('');
+  dlg.innerHTML=`<div style="padding:20px 22px;overflow-y:auto;max-height:calc(86vh - 40px)">
+    <h2 style="margin:0 0 4px">Recipe &amp; ingredient export</h2>
+    <p class="muted" style="margin:0 0 14px">Each recipe appears as its own block — the recipe name, then its ingredients underneath. Tick whole groups or single recipes, choose what to include, then pick a format.</p>
+    ${body}
+    <div style="border-top:1px solid #e7e2d4;margin-top:14px;padding-top:12px">
+      <b style="display:block;margin-bottom:7px">Include</b>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 14px">
+        ${RX_OPTS.map(([k,l,on])=>`<label style="display:flex;gap:7px;align-items:center;font-size:13px"><input type="checkbox" id="rxo_${k}" ${on?'checked':''}>${esc(l)}</label>`).join('')}
+      </div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">Price columns are off by default — for an auditor or co-packer, composition is what's wanted and ingredient pricing usually isn't theirs to see.</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;position:sticky;bottom:0;background:#fff;padding-top:10px">
+      <button class="btn ghost" onclick="document.getElementById('rxDlg').close()">Cancel</button>
+      <button class="btn" onclick="rxXLS()">⬇ Excel</button>
+      <button class="btn accent" onclick="rxPDF()">🖨 PDF / Print</button>
+    </div></div>`;
+  if(!dlg.open) dlg.showModal();
+}
+function rxSelected(){ return [...document.querySelectorAll('#rxDlg [data-rxr]:checked')].map(i=>i.dataset.rxr); }
+function rxData(names){
+  const groups={};
+  names.forEach(n=>{
+    const r=findRecipe(n); if(!r) return;
+    const gk=(r.brand||costingBrandOf(r.name))+(r.range?' — '+r.range:'');
+    const isCustom=!!r.custom;
+    const ings=(r.ingredients||[]).map(i=>{
+      const fb = isCustom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? 0);
+      const lp = linePrice(i.name, fb, recMode);
+      return { name:dispName(i.name), sup:supOf(i), kg:+i.kg||0, perKg:lp.p, cost: lp.p!=null ? (+i.kg||0)*lp.p : null };
+    });
+    const totKg=ings.reduce((a,i)=>a+i.kg,0);
+    const totCost=ings.reduce((a,i)=>a+(i.cost||0),0);
+    (groups[gk]=groups[gk]||[]).push({
+      label:custLabel(r), ings, totKg, totCost,
+      // Same test as recipeUnpriced() above — NOT `perKg==null`. linePrice() never returns null; it
+      // falls back to 0, so a missing price arrives here looking like a real price of £0.00. Using
+      // `!(p>0)` is what stops an unpriced ingredient being silently costed as free in an export —
+      // the same trap the v26 audit fixed for the on-screen figures and the branded costing document.
+      unpriced:ings.filter(i=>!(i.perKg>0)).length,
+      packs:((rcState(r.name).packs)||[]).map(p=>p.kg<1?Math.round(p.kg*1000)+'g':NUM(p.kg)+'kg')
+    });
+  });
+  return Object.keys(groups).sort((a,b)=>a.localeCompare(b)).map(g=>({group:g, recipes:groups[g]}));
+}
+// Column set is built once and shared by both formats, so the PDF and the Excel can never drift apart.
+function rxCols(){
+  const c=[{k:'name',h:'Ingredient',l:1}];
+  if(rxOpt('sup'))   c.push({k:'sup',  h:'Supplier',   l:1});
+  if(rxOpt('kg'))    c.push({k:'kg',   h:'Weight (kg)'});
+  if(rxOpt('pct'))   c.push({k:'pct',  h:'% of mix'});
+  if(rxOpt('perkg')) c.push({k:'perkg',h:'£ / kg'});
+  if(rxOpt('cost'))  c.push({k:'cost', h:'£ line cost'});
+  return c;
+}
+function rxCell(col,i,rc){
+  if(col.k==='name')  return esc(i.name);
+  if(col.k==='sup')   return esc(i.sup||'—');
+  if(col.k==='kg')    return NUM(i.kg);
+  if(col.k==='pct')   return rc.totKg>0?fmtPct(i.kg/rc.totKg*100):'—';
+  // An unpriced ingredient reads as "—", never £0.00 — a zero here would look like a decision
+  // ("this costs nothing") rather than a gap ("nobody has priced this yet").
+  if(col.k==='perkg') return i.perKg>0 ? GBP(i.perKg) : '—';
+  if(col.k==='cost')  return i.perKg>0 ? GBP2(i.cost) : '—';
+  return '';
+}
+const RX_NOTE='Recipe composition as held in Wilsons HQ on the date shown. Percentages are of total mix weight. Where a PROVISIONAL note appears, one or more ingredients had no price recorded at the time of export — composition is unaffected, but any cost shown excludes those ingredients.';
+function rxPDF(){
+  const names=rxSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
+  const data=rxData(names), cols=rxCols(), money=rxOpt('perkg')||rxOpt('cost');
+  let el=document.getElementById('custDoc'); if(!el){el=document.createElement('div');el.id='custDoc';document.body.appendChild(el);}
+  el.innerHTML=`
+  <div class="cx-hero">
+    <div><h1>Recipe specification</h1><div class="sub">${data.map(g=>esc(g.group)).join(' · ')}</div></div>
+    <div class="meta">${SHARED?'<img src="/assets/logo-grapefruit.svg" alt="Wilsons">':'<b style="font-size:14pt;color:#fff">Wilsons Pet Food</b>'}Prepared ${cxDate()}<br>Wilsons Pet Food · wilsonspetfood.co.uk</div>
+  </div>
+  ${data.map((g,gi)=>`<div class="cx-group${gi===0?' first':''}">
+    <div class="cx-groupband">${esc(g.group)}</div>
+    ${g.recipes.map(rc=>`<div class="cx-card">
+      <h3>${esc(rc.label)}${(money&&rc.unpriced)?' <span style="font-size:8.5pt;color:#b4231f;font-weight:700">· PROVISIONAL — '+rc.unpriced+' ingredient price'+(rc.unpriced===1?'':'s')+' outstanding</span>':''}</h3>
+      <div class="cx-perkg">${rc.ings.length} ingredient${rc.ings.length===1?'':'s'}${rxOpt('tot')?' · base '+NUM(rc.totKg)+' kg':''}${rc.packs.length?' · packs: '+esc(rc.packs.join(', ')):''}</div>
+      <table><thead><tr>${cols.map(c=>`<th>${esc(c.h)}</th>`).join('')}</tr></thead>
+      <tbody>${rc.ings.map(i=>`<tr>${cols.map(c=>`<td>${rxCell(c,i,rc)}</td>`).join('')}</tr>`).join('')}</tbody>
+      ${rxOpt('tot')?`<tfoot><tr>${cols.map(c=>{
+        if(c.k==='name') return '<td class="cx-tot">Total</td>';
+        if(c.k==='kg')   return '<td class="cx-tot">'+NUM(rc.totKg)+'</td>';
+        if(c.k==='pct')  return '<td class="cx-tot">'+(rc.totKg>0?'100%':'—')+'</td>';
+        if(c.k==='cost') return '<td class="cx-tot">'+GBP2(rc.totCost)+'</td>';
+        return '<td class="cx-tot"></td>';
+      }).join('')}</tr></tfoot>`:''}</table>
+    </div>`).join('')}
+  </div>`).join('')}
+  <div class="cx-foot">${RX_NOTE}<br>Generated by Wilsons HQ · ${cxDate()}</div>`;
+  try{document.getElementById('rxDlg').close();}catch(e){}
+  document.body.classList.add('custprint');
+  const done=()=>{document.body.classList.remove('custprint');window.removeEventListener('afterprint',done);};
+  window.addEventListener('afterprint',done);
+  setTimeout(()=>{window.print(); setTimeout(done,500);},80);
+}
+function rxXLS(){
+  const names=rxSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
+  const data=rxData(names), cols=rxCols(), money=rxOpt('perkg')||rxOpt('cost');
+  const NAVY='#143644', CORAL='#e2606c', CREAM='#f7f4ec', N=cols.length;
+  const th=h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Ingredient'||h==='Supplier'?'left':'right'}">${esc(h)}</td>`;
+  let rows=`
+  <tr><td colspan="${N}" style="background:${NAVY};color:#fff;font-size:20pt;font-weight:700;padding:16px 12px;font-family:Georgia,serif">WILSONS PET FOOD</td></tr>
+  <tr><td colspan="${N}" style="background:${NAVY};color:#f6c1c7;font-size:11pt;padding:0 12px 14px">Recipe specification — prepared ${cxDate()}</td></tr>
+  <tr><td colspan="${N}" style="padding:6px"></td></tr>`;
+  data.forEach(g=>{
+    rows+=`<tr><td colspan="${N}" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>`;
+    g.recipes.forEach(rc=>{
+      // Recipe name on its own band, then its ingredients underneath — the blocked layout Kamil asked
+      // for, rather than one flat list with the recipe name repeated on every row.
+      rows+=`<tr><td colspan="${N}" style="font-weight:700;color:${NAVY};font-size:12pt;padding:10px 8px 2px">${esc(rc.label)}`
+        +`<span style="font-weight:400;color:#6b7c86;font-size:9pt"> — ${rc.ings.length} ingredient${rc.ings.length===1?'':'s'}${rxOpt('tot')?' · base '+NUM(rc.totKg)+' kg':''}${rc.packs.length?' · packs: '+esc(rc.packs.join(', ')):''}</span>`
+        +`${(money&&rc.unpriced)?`<span style="color:#b4231f;font-size:9pt"> · PROVISIONAL — ${rc.unpriced} unpriced</span>`:''}</td></tr>`;
+      rows+=`<tr>${cols.map(c=>th(c.h)).join('')}</tr>`;
+      rc.ings.forEach(i=>{
+        rows+=`<tr>${cols.map(c=>{
+          const left=(c.k==='name'||c.k==='sup');
+          const raw = c.k==='kg'?(i.kg||0) : c.k==='pct'?(rc.totKg>0?(i.kg/rc.totKg*100):null) : c.k==='perkg'?i.perKg : c.k==='cost'?i.cost : null;
+          if(c.k==='name'||c.k==='sup') return `<td style="text-align:left;padding:4px 8px;border-bottom:1px solid #eee${c.k==='name'?';font-weight:700;color:'+NAVY:''}">${rxCell(c,i,rc)}</td>`;
+          const fmt = (c.k==='perkg'||c.k==='cost') ? `mso-number-format:'£ 0\\.00';` : (c.k==='pct' ? `mso-number-format:'0\\.0\\%';` : '');
+          const val = raw==null ? '' : (c.k==='pct' ? (raw/100) : raw);
+          return `<td style="${fmt}text-align:right;padding:4px 8px;border-bottom:1px solid #eee">${val===''?'':val}</td>`;
+        }).join('')}</tr>`;
+      });
+      if(rxOpt('tot')){
+        rows+=`<tr>${cols.map(c=>{
+          const base=`background:${CREAM};font-weight:700;padding:4px 8px;border-bottom:1px solid #eee`;
+          if(c.k==='name') return `<td style="${base};text-align:left">Total</td>`;
+          if(c.k==='kg')   return `<td style="${base};text-align:right">${rc.totKg}</td>`;
+          if(c.k==='pct')  return `<td style="mso-number-format:'0\\.0\\%';${base};text-align:right">${rc.totKg>0?1:''}</td>`;
+          if(c.k==='cost') return `<td style="mso-number-format:'£ 0\\.00';${base};text-align:right">${rc.totCost||''}</td>`;
+          return `<td style="${base}"></td>`;
+        }).join('')}</tr>`;
+      }
+      rows+=`<tr><td colspan="${N}" style="padding:5px"></td></tr>`;
+    });
+  });
+  rows+=`<tr><td colspan="${N}" style="font-size:8pt;color:#6b7c86;padding:8px">${RX_NOTE}</td></tr>`;
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Wilsons Recipes</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table cellspacing="0" style="font-family:Effra,Arial,sans-serif;font-size:10pt">${rows}</table></body></html>`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+html],{type:'application/vnd.ms-excel'}));
+  a.download='Wilsons-recipes-'+new Date().toISOString().slice(0,10)+'.xls'; a.click(); URL.revokeObjectURL(a.href);
+  try{document.getElementById('rxDlg').close();}catch(e){}
 }
 
 /* ================= SUPPLIERS ================= */
