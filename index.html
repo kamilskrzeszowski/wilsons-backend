@@ -1967,7 +1967,18 @@ let _recSyncT=null;
 window.addEventListener('message',e=>{ if(e.data && e.data.recipesSynced){ clearTimeout(_recSyncT); _recSyncT=setTimeout(reloadRecipesLive,400); } });
 async function reloadRecipesLive(){
   try{
-    const rows=await api('/api/recipes');
+    // Ingredients and suppliers must come along with the recipes (v41). A costing sync mints a NEW
+    // ingredient row for any renamed or newly-added ingredient, so the pulled recipes reference ids
+    // this page has never seen. Fetching recipes alone left state.ingredients frozen as it was at
+    // login, ingName() failed its lookup, and the mixing sheet printed "(deleted ingredient)" for a
+    // row whose data was in fact perfectly fine on the server.
+    const [rows,ings,sups]=await Promise.all([
+      api('/api/recipes'),
+      api('/api/ingredients').catch(()=>null),
+      api('/api/suppliers').catch(()=>null)
+    ]);
+    if(Array.isArray(ings)) state.ingredients=ings;
+    if(Array.isArray(sups)) state.suppliers=sups;
     if(Array.isArray(rows)){
       state.recipes=rows.map(r=>Object.assign({},r,{packs:r.packs||[],ingredients:r.ingredients||[]}));
       snapServer();   // the pulled recipes are already on the server — without this, the next save() tried to re-create them and every save failed until a reload
@@ -2204,10 +2215,20 @@ async function startApp(){
   navTo('home');
   loadPlanningNudge();
   setSync('● Shared');
-  checkVersion();
+  startVersionWatch();
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v42', date:'21 Jul 2026', notes:[
+    'Users screen now shows who’s currently using Wilsons HQ and which version they’re on, so you can see at a glance if anyone is still working from an old copy. Anyone on a version older than v41 shows as “not since the update” until they close and reopen once.',
+    'New “Reload everyone” button on the Users screen: asks every open copy of the app to move onto the current version. Anyone not part-way through typing reloads on their own within a minute; anyone mid-entry gets a “Reload now” bar instead, so nothing half-finished is ever lost.'
+  ]},
+  {v:'v41', date:'21 Jul 2026', notes:[
+    'Fixed: renaming an ingredient (or adding a new one) in Recipe Costing made the Mixing Sheet show “(deleted ingredient)” until you refreshed the page. Nothing was ever actually deleted — the screen just hadn’t re-read the ingredient list. The correct name now appears straight away.',
+    'Recipe Costing: you can now pick any supplier you already use for an ingredient that doesn’t have one yet. Previously the only option was to type in a brand-new supplier, even when the right one already existed.',
+    'The app now notices when a newer version has gone live and offers you a Reload button, instead of quietly leaving you on an old copy. It reloads by itself only when you’ve been away from the tab, so it can never interrupt you mid-way through entering something.',
+    'Recipe and ingredient changes made by one person now appear on everyone else’s screen within a minute, without anyone pressing refresh — so a mixing sheet left open on a factory screen stays current.'
+  ]},
   {v:'v40', date:'19 Jul 2026', notes:[
     'Fixed: tagging an email with "Task" wasn’t actually creating a task — Microsoft was silently rejecting the search Wilsons HQ used every 5 minutes to look for tagged emails, ever since this feature was first extended (v35). Found from the real error in Kamil’s Railway logs and fixed by changing how tagged emails are found. Nothing you do in Outlook changes — tag with "Task" or "Task: Name" exactly as before.'
   ]},
@@ -2366,20 +2387,103 @@ function showVersionHistory(){
     ${items}</div>`);
 }
 window.showVersionHistory=showVersionHistory;
-/* Version check: the page says v16; ask the server what version IT is running.
-   If they differ, only some files went live — flag it so you know the upload was incomplete. */
-const APP_VERSION='v40';
-async function checkVersion(){
-  const el=document.getElementById('sbVer'); if(!el) return;
+/* Version + data watch (v41).
+   One small request every minute answers two questions at once:
+     1. is the copy of the app in THIS browser out of date?  (people leave tabs open for days)
+     2. has someone changed a recipe/ingredient since we last looked?
+   Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
+   that nobody reads — so a stale tab stayed stale and silently wrong all day. */
+const APP_VERSION='v42';
+let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
+// v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
+// from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
+// Comparing against what we first saw (rather than a clock) means a PC with the wrong time can't
+// either loop forever or miss the reload entirely.
+let _forceSeen=null;
+// 'v41' -> 41, so we can tell WHICH side is behind. Older page than server = this browser needs to
+// reload. Newer page than server = a half-finished upload, which is Kamil's problem, not staff's.
+function verNum(v){ const m=String(v||'').match(/(\d+)/); return m?+m[1]:null; }
+// Never redraw the screen out from under someone mid-entry: refreshAll() rebuilds the recipe editor
+// and the ingredients table, which would throw away whatever they were part-way through typing.
+// If anything is focused or a save is still in flight, skip this round and try again next tick.
+function safeToRefreshData(){
   try{
-    const d=await api('/api/version');
-    if(d && d.version && d.version!==APP_VERSION){
-      el.textContent='Wilsons HQ '+APP_VERSION+' / server '+d.version+' — upload incomplete';
-      el.classList.add('mismatch');
-    } else if(d && d.version){
-      el.textContent='Wilsons HQ '+d.version;
+    if(typeof saveTimer!=='undefined' && saveTimer) return false;
+    const bg=document.getElementById('modalBg');
+    if(bg && bg.classList.contains('open')) return false;
+    const a=document.activeElement; if(!a) return true;
+    if(a.isContentEditable) return false;
+    return !/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'');
+  }catch(e){ return false; }
+}
+function showReloadBanner(serverVer,pushed){
+  // A pushed reload ignores any earlier "Later" — an admin has deliberately asked for this one.
+  if(_verBannerUp || (!pushed && Date.now()<_verSnoozeUntil)) return;
+  _verBannerUp=true;
+  const b=document.createElement('div'); b.id='verBanner';
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;background:var(--navy,#143644);color:#fff;'
+    +'padding:10px 16px;display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;'
+    +'font-size:14px;box-shadow:0 6px 18px -8px rgba(0,0,0,.55)';
+  b.innerHTML='<span>'+(pushed?'The office has asked everyone to reload Wilsons HQ.':'A newer version of Wilsons HQ ('+escapeHtml(serverVer)+') is ready.')+'</span>'
+    +'<button type="button" id="verGo" style="background:var(--coral-deep,#e2606c);color:#fff;border:none;border-radius:8px;padding:7px 16px;font-weight:700;font-size:14px;cursor:pointer">Reload now</button>'
+    +'<button type="button" id="verLater" style="background:transparent;color:#fff;opacity:.8;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer">Later</button>';
+  document.body.appendChild(b);
+  // Push the page down rather than sitting on top of it — the banner is fixed, so without this it
+  // covers the Back/Home bar and people can't navigate while it's up.
+  const shift=()=>{ document.body.style.paddingTop=b.offsetHeight+'px'; };
+  shift(); window.addEventListener('resize',shift);
+  const dismiss=()=>{ window.removeEventListener('resize',shift); b.remove(); document.body.style.paddingTop=''; _verBannerUp=false; };
+  document.getElementById('verGo').onclick=()=>location.reload();
+  // "Later" is respected for half an hour — for the nag AND for the silent reload-on-return below,
+  // so choosing Later can't be quietly overridden the moment they switch tabs.
+  document.getElementById('verLater').onclick=()=>{ dismiss(); _verSnoozeUntil=Date.now()+30*60000; };
+}
+async function checkVersion(opts){
+  try{
+    // Tell the server which version we're on — that's what fills the "who's on what" list in Users.
+    const d=await api('/api/version?v='+encodeURIComponent(APP_VERSION));
+    if(!d || !d.version) return;
+    // An admin pressing "Reload everyone" outranks everything below: reload if this person isn't
+    // part-way through typing, otherwise show the banner and let them finish first.
+    if(d.forceReload!=null){
+      if(_forceSeen==null) _forceSeen=d.forceReload;          // first look — this is our baseline
+      else if(d.forceReload!==_forceSeen){
+        if(safeToRefreshData()){ location.reload(); return; }
+        showReloadBanner(d.version, true);
+        // deliberately do NOT update _forceSeen — we still owe them a reload, so we ask again next tick
+      }
     }
-  }catch(e){ /* older server with no version endpoint — leave the page label as-is */ }
+    const differs=d.version!==APP_VERSION, mine=verNum(APP_VERSION), theirs=verNum(d.version);
+    const iAmBehind = differs && (mine==null || theirs==null || theirs>mine);
+    const el=document.getElementById('sbVer');
+    if(el){
+      if(differs && !iAmBehind){ el.textContent='Wilsons HQ '+APP_VERSION+' / server '+d.version+' — upload incomplete'; el.classList.add('mismatch'); }
+      else if(differs){ el.textContent='Wilsons HQ '+d.version+' ready — reload'; el.classList.add('mismatch'); }
+      else { el.textContent='Wilsons HQ '+d.version; el.classList.remove('mismatch'); }
+    }
+    if(iAmBehind){
+      // Coming back to a tab that was in the background is the one moment we can reload without
+      // interrupting anybody — they demonstrably weren't typing.
+      if(opts && opts.returning && Date.now()>=_verSnoozeUntil){ location.reload(); return; }
+      showReloadBanner(d.version);
+    }
+    if(d.dataRev!=null){
+      if(_lastDataRev==null) _lastDataRev=d.dataRev;                    // first look — just remember where we came in
+      else if(d.dataRev!==_lastDataRev && safeToRefreshData()){
+        _lastDataRev=d.dataRev; reloadRecipesLive();                     // someone changed a recipe/ingredient — pick it up quietly
+      }
+    }
+  }catch(e){ /* offline, or an older server with no version endpoint — leave everything as it is */ }
+}
+function startVersionWatch(){
+  checkVersion();
+  clearInterval(_verTimer);
+  _verTimer=setInterval(()=>checkVersion(), 60000);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){ _wasHidden=true; return; }
+    const returning=_wasHidden; _wasHidden=false; checkVersion({returning});
+  });
+  window.addEventListener('focus',()=>checkVersion());
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
@@ -4281,18 +4385,45 @@ function cplExport(){
 }
 window.cplExport=cplExport;
 
+/* ---- who's actually using the app, and on which version (v42) ----
+ * Filled in by the once-a-minute check every browser makes. The honest caveat: only v41+ browsers
+ * check in at all, so anyone on an older copy reads as "not since the update" even while they're
+ * using it — which is exactly the list of people who still need to close and reopen. */
+function presenceCell(u){
+  const seen=u.last_seen?Date.parse(u.last_seen):NaN;
+  if(!seen||isNaN(seen)) return '<span class="small muted">⚪ not since the update</span>';
+  const mins=Math.floor((Date.now()-seen)/60000);
+  const dot = mins<3?'🟢':(mins<20?'🟡':'⚪');
+  const when = mins<2?'online now':(mins<60?mins+' min ago':(mins<1440?Math.floor(mins/60)+' hr ago':Math.floor(mins/1440)+' d ago'));
+  const behind = u.last_version && u.last_version!==APP_VERSION;
+  const ver = u.last_version
+    ? ` · <span class="small${behind?'" style="color:var(--warn,#c0563b);font-weight:600':' muted'}">${escapeHtml(u.last_version)}${behind?' — out of date':''}</span>`
+    : '';
+  return `<span class="small">${dot} ${escapeHtml(when)}</span>${ver}`;
+}
 async function renderUsers(){
   const root=document.getElementById('rootUsers'); if(!root) return;
-  root.innerHTML=`<div class="toolbar"><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
-    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Email</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody></table></div>
+  root.innerHTML=`<div class="toolbar"><button class="btn ghost sm" id="usPush" title="Ask every open copy of Wilsons HQ to reload onto the current version">${svg('history')} Reload everyone</button><div class="spacer"></div><button class="btn ghost sm" id="usInvite">${svg('mail')} Invite someone</button> <button class="btn coral sm" id="usAdd">＋ Add user</button></div>
+    <p class="hint" style="margin:0 0 10px">“Last seen” and the version each person is on are reported by their browser every minute. Anyone still on a version older than v41 doesn’t report in at all, so they show as <b>not since the update</b> until they close and reopen the app once.</p>
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Username</th><th>Role</th><th>Last seen · version</th><th>Email</th><th>Access</th><th>Created</th><th></th></tr></thead><tbody id="usBody"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>
     <div id="usInvites"></div>`;
   document.getElementById('usAdd').onclick=()=>userModal(null);
   document.getElementById('usInvite').onclick=()=>inviteModal();
+  document.getElementById('usPush').onclick=pushReloadToEveryone;
   try{ const rows=await api('/api/users'); window._users=rows;
-    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
-  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="6" class="muted">${escapeHtml(e.message)}</td></tr>`; }
+    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td style="white-space:nowrap">${presenceCell(u)}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
+  catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="7" class="muted">${escapeHtml(e.message)}</td></tr>`; }
   renderInvites();
 }
+async function pushReloadToEveryone(){
+  if(!confirm('Ask every open copy of Wilsons HQ to reload?\n\nAnyone who isn’t part-way through typing something will reload on their own within a minute. Anyone mid-entry gets a “Reload now” bar instead, so nothing half-finished is lost.')) return;
+  try{
+    await api('/api/force-reload','POST',{});
+    alert('Done. Everyone will pick this up within a minute.\n\nWatch the “Last seen · version” column — people will reappear on the current version as they reload.');
+    renderUsers();
+  }catch(e){ alert('Could not send the reload: '+e.message); }
+}
+window.pushReloadToEveryone=pushReloadToEveryone;
 /* ---- Email screen: its own menu item (moved out of Users) — just hosts the mail panel below ---- */
 function renderEmail(){
   const root=document.getElementById('rootEmail'); if(!root) return;

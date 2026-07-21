@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v40';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v42';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -72,6 +72,22 @@ function mailOn() { return mailConfigured() && !mailPaused(); }
 // imported) — a meaningfully bigger step than sending mail, so it needs its own explicit opt-in
 // on top of mailOn(), not just "Mail.Read happens to be granted." Off by default.
 function emailImportEnabled() { try { return db.prepare("SELECT value FROM meta WHERE key='emailImportEnabled'").get()?.value === '1'; } catch (e) { return false; } }
+// v41 — a counter bumped whenever recipes/ingredients/suppliers change. Everyone's browser polls it
+// (alongside the version stamp, same request) and quietly re-reads the data when it moves, so a
+// mixing sheet left open on a factory screen stops showing a name someone renamed an hour ago.
+// Deliberately one integer in `meta`, not a timestamp: no clock/timezone questions, and a restart
+// can't make it go backwards. Never throws — a failed bump must never fail the write it follows.
+function bumpDataRev() {
+  try { db.prepare("INSERT INTO meta(key,value) VALUES('dataRev','1') ON CONFLICT(key) DO UPDATE SET value = CAST((CAST(meta.value AS INTEGER) + 1) AS TEXT)").run(); } catch (e) {}
+}
+function dataRev() { try { return +(db.prepare("SELECT value FROM meta WHERE key='dataRev'").get()?.value || 0) || 0; } catch (e) { return 0; } }
+// v42 — same idea, but for "an admin has asked everyone to reload". A counter rather than a timestamp
+// on purpose: browsers compare it against the value they saw when THEY loaded, so a clock that's a few
+// minutes out on someone's PC can't cause a reload loop (or a reload that never arrives).
+function bumpForceReload() {
+  try { db.prepare("INSERT INTO meta(key,value) VALUES('forceReload','1') ON CONFLICT(key) DO UPDATE SET value = CAST((CAST(meta.value AS INTEGER) + 1) AS TEXT)").run(); } catch (e) {}
+}
+function forceReloadRev() { try { return +(db.prepare("SELECT value FROM meta WHERE key='forceReload'").get()?.value || 0) || 0; } catch (e) { return 0; } }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 let _graphTok = { val: '', exp: 0 };
@@ -201,6 +217,13 @@ try { db.exec("ALTER TABLE users ADD COLUMN prefs TEXT DEFAULT ''"); } catch (e)
 try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''"); } catch (e) {}   // for Microsoft 365 notifications & reminders
 try { db.exec("ALTER TABLE users ADD COLUMN digest_opt_in INTEGER DEFAULT 0"); } catch (e) {}   // v33: daily "what's on your plate" email — opt-in, off by default
 try { db.exec("ALTER TABLE users ADD COLUMN digest_time TEXT DEFAULT '07:30'"); } catch (e) {}  // v33: preferred send time, HH:MM 24h local (Europe/London)
+// v42: who is actually using the app, and on which version. Both are stamped by the once-a-minute
+// version check every browser already makes, so this costs one row update per person per minute and
+// needs no separate heartbeat. last_version is the honest answer to "has everyone picked up the
+// update yet" — but note only v41+ browsers check in at all, so someone on an older copy shows as
+// never-seen even while they're using it. That's the point: they're exactly who needs chasing.
+try { db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN last_version TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN julian_code TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN best_before TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN filled_date TEXT DEFAULT ''"); } catch (e) {}
@@ -1494,10 +1517,30 @@ const server = http.createServer(async (req, res) => {
           });
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'sync failed: ' + e.message }); }
+        bumpDataRev();   // after COMMIT, never before — a rolled-back sync must not tell everyone to re-read
         return json(res, 200, { ok: true, created, updated, adopted, renamed, removed, skipped });
       }
       // ---- version stamp: lets the app confirm the newest code is actually live ----
-      if (url === '/api/version' && m === 'GET') return json(res, 200, { version: APP_VERSION });
+      // v41: also carries dataRev, so the single poll every browser makes answers BOTH "is my copy of
+      // the app out of date" and "has someone changed a recipe/ingredient since I last looked".
+      // v42: doubles as the presence heartbeat (who's here, on what version) and carries forceReload,
+      // the counter an admin bumps to push everyone onto a fresh copy.
+      if (url === '/api/version' && m === 'GET') {
+        try {
+          const q = new URLSearchParams(req.url.split('?')[1] || '');
+          const cv = String(q.get('v') || '').slice(0, 12);   // the browser tells us which version IT is running
+          db.prepare('UPDATE users SET last_seen=?, last_version=? WHERE id=?').run(now(), cv, user.id);
+        } catch (e) {}   // presence is a nicety — it must never break the version check itself
+        return json(res, 200, { version: APP_VERSION, dataRev: dataRev(), forceReload: forceReloadRev() });
+      }
+      // ---- push a reload to every open browser (admins only) ----
+      // Bumps a counter; each browser notices on its next check and reloads — silently if the person
+      // isn't mid-entry, otherwise it shows them the banner so nothing half-typed is thrown away.
+      if (url === '/api/force-reload' && m === 'POST') {
+        if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
+        bumpForceReload();
+        return json(res, 200, { ok: true, forceReload: forceReloadRev() });
+      }
       // ---- sidebar menu layout: admins choose which screens sit in Production / Technical / Office ----
       if (url === '/api/menu-layout' && m === 'GET') {
         const row = db.prepare("SELECT value FROM meta WHERE key='menuLayout'").get();
@@ -1854,15 +1897,15 @@ const server = http.createServer(async (req, res) => {
       for (const key in coll) {
         const c = coll[key];
         if (url === '/api/' + key && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM ' + c.table).all());
-        if (url === '/api/' + key && m === 'POST') { const b = await readBody(req); if (!b.id) b.id = uid(key[0]); db.prepare('INSERT INTO ' + c.table + '(' + c.cols.join(',') + ') VALUES(' + c.cols.map(() => '?').join(',') + ')').run(...c.cols.map(k => b[k] != null ? b[k] : '')); return json(res, 200, { ok: true, id: b.id }); }
-        if (url.startsWith('/api/' + key + '/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const set = c.cols.filter(k => k !== 'id'); db.prepare('UPDATE ' + c.table + ' SET ' + set.map(k => k + '=?').join(',') + ' WHERE id=?').run(...set.map(k => b[k] != null ? b[k] : ''), id); return json(res, 200, { ok: true }); }
-        if (url.startsWith('/api/' + key + '/') && m === 'DELETE') { db.prepare('DELETE FROM ' + c.table + ' WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
+        if (url === '/api/' + key && m === 'POST') { const b = await readBody(req); if (!b.id) b.id = uid(key[0]); db.prepare('INSERT INTO ' + c.table + '(' + c.cols.join(',') + ') VALUES(' + c.cols.map(() => '?').join(',') + ')').run(...c.cols.map(k => b[k] != null ? b[k] : '')); bumpDataRev(); return json(res, 200, { ok: true, id: b.id }); }
+        if (url.startsWith('/api/' + key + '/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const set = c.cols.filter(k => k !== 'id'); db.prepare('UPDATE ' + c.table + ' SET ' + set.map(k => k + '=?').join(',') + ' WHERE id=?').run(...set.map(k => b[k] != null ? b[k] : ''), id); bumpDataRev(); return json(res, 200, { ok: true }); }
+        if (url.startsWith('/api/' + key + '/') && m === 'DELETE') { db.prepare('DELETE FROM ' + c.table + ' WHERE id=?').run(decodeURIComponent(url.split('/').pop())); bumpDataRev(); return json(res, 200, { ok: true }); }
       }
 
       // recipes (ingredients/packs stored as JSON)
       if (url === '/api/recipes' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM recipes').all().map(r => ({ ...r, packs: JSON.parse(r.packs || '[]'), ingredients: JSON.parse(r.ingredients || '[]') })));
-      if (url === '/api/recipes' && m === 'POST') { const b = await readBody(req); const id = b.id || uid('r'); db.prepare('INSERT INTO recipes(id,brand,name,packs,ingredients,updated) VALUES(?,?,?,?,?,?)').run(id, b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now()); snapshotRecipe(id, user.username, 'created'); return json(res, 200, { ok: true, id }); }
-      if (url.startsWith('/api/recipes/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); db.prepare('UPDATE recipes SET brand=?,name=?,packs=?,ingredients=?,updated=? WHERE id=?').run(b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now(), id); snapshotRecipe(id, user.username, 'edited'); return json(res, 200, { ok: true }); }
+      if (url === '/api/recipes' && m === 'POST') { const b = await readBody(req); const id = b.id || uid('r'); db.prepare('INSERT INTO recipes(id,brand,name,packs,ingredients,updated) VALUES(?,?,?,?,?,?)').run(id, b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now()); snapshotRecipe(id, user.username, 'created'); bumpDataRev(); return json(res, 200, { ok: true, id }); }
+      if (url.startsWith('/api/recipes/') && m === 'PUT') { const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); db.prepare('UPDATE recipes SET brand=?,name=?,packs=?,ingredients=?,updated=? WHERE id=?').run(b.brand, b.name, JSON.stringify(b.packs || []), JSON.stringify(b.ingredients || []), now(), id); snapshotRecipe(id, user.username, 'edited'); bumpDataRev(); return json(res, 200, { ok: true }); }
       // version history for one recipe (traceability: what changed, when, by whom)
       if (url === '/api/recipe-versions' && m === 'GET') {
         const q = new URLSearchParams((req.url.split('?')[1] || ''));
@@ -1872,10 +1915,10 @@ const server = http.createServer(async (req, res) => {
             return { version: v.version, brand: v.brand, name: v.name, packs, ingredients: ings, shelf_months: v.shelf_months, saved: v.saved, by: v.by, note: v.note }; });
         return json(res, 200, { recipe_id: rid, versions: rows });
       }
-      if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); bumpDataRev(); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
-      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory,email FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
+      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory,email,last_seen,last_version FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
       if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory,email) VALUES(?,?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || '', (b.email || '').trim()); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
       if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.email !== undefined) db.prepare('UPDATE users SET email=? WHERE id=?').run((b.email || '').trim(), id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
       if (url.startsWith('/api/users/') && m === 'DELETE') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); if (+id === user.id) return json(res, 400, { error: 'cannot delete yourself' }); db.prepare('DELETE FROM users WHERE id=?').run(id); return json(res, 200, { ok: true }); }
@@ -1917,7 +1960,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // static (serve the app if index.html is bundled)
-    if (m === 'GET') { fs.readFile(path.join(__dirname, 'index.html'), (e, data) => { if (e) { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('Wilsons Production Manager API is running. Front-end not bundled yet.'); } res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(data); }); return; }
+    // 'no-store' matters here (v41): without it browsers apply their own heuristic caching and can
+    // serve a saved copy of the app for hours without ever asking whether it changed — which is how
+    // people ended up quietly running an old version. Every other HTML route already sets this; this
+    // one, the main app page, was the only one missing it.
+    if (m === 'GET') { fs.readFile(path.join(__dirname, 'index.html'), (e, data) => { if (e) { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('Wilsons Production Manager API is running. Front-end not bundled yet.'); } res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(data); }); return; }
     res.writeHead(405); res.end();
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });

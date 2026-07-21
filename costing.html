@@ -860,6 +860,11 @@ function ingredientsView(){
   }
   ING_VIEW = rows;
   const suppliers = [...new Set(rowsAll.map(i=>i.sup).filter(Boolean))].sort();
+  // v41: every supplier known anywhere in costing — the ones already assigned to an ingredient PLUS
+  // anyone who's ever been quoted for anything. The per-ingredient picker below used to offer only
+  // suppliers quoted for THAT ingredient, so an ingredient with no quotes yet gave you no way to
+  // choose an existing supplier at all — "+ add a supplier…" was the only option on the list.
+  const allSups = [...new Set([...suppliers, ...store.supplierDB.map(e=>e.supplier)].filter(Boolean))].sort();
   const cols=[['disp','Ingredient'],['sup','Supplier'],['procs','Used in (process)'],['nRecs','Recipes'],['base','Target £/kg (ex del.)'],['ship','Delivery £/kg'],['shipT','Delivery £/t'],['target','Target £/kg delivered'],['actual','Actual £/kg delivered'],['variance','Variance'],['nPurch','Purchases'],['monthlyUsageKg','Usage kg/mo']];
   const body = rows.map((i,x)=>{
     const vcol = i.variance==null?'':(i.variance>0.0005?'style="color:var(--warn);font-weight:600"':(i.variance<-0.0005?'style="color:var(--ok);font-weight:600"':''));
@@ -867,10 +872,12 @@ function ingredientsView(){
     <td>${(()=>{
       const quotes = store.supplierDB.filter(e=>e.ing===i.key);
       const names = [...new Set([i.sup, ...quotes.map(e=>e.supplier)])].filter(Boolean);
+      const others = allSups.filter(s=>!names.includes(s));   // known elsewhere, just never quoted for this one
       return `<select onchange="ingPickSup(${x},this.value)" style="max-width:170px;padding:5px 8px;border:1px solid var(--line);border-radius:6px${!i.sup?';color:var(--capp)':''}">
         <option value="" ${!i.sup?'selected':''}>— no supplier yet —</option>
         ${names.map(s=>{const q=quotes.find(o=>o.supplier===s);
           return `<option value="${esc(s)}" ${s===i.sup?'selected':''}>${esc(s)}${q?` — ${GBP(q.perKg+(q.del||0))}`:''}</option>`}).join('')}
+        ${others.length?`<optgroup label="Other suppliers">${others.map(s=>`<option value="${esc(s)}" ${s===i.sup?'selected':''}>${esc(s)}</option>`).join('')}</optgroup>`:''}
         <option value="__new">+ add a supplier…</option>
       </select>`;
     })()}</td>
