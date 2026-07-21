@@ -1820,38 +1820,45 @@ function custExportPDF(){
   window.addEventListener('afterprint',done);
   setTimeout(()=>{window.print(); setTimeout(done,500);},80);
 }
-function custExportXLS(){
+/* v43: was an HTML table saved as .xls, which made Excel warn the recipient that the format and
+   extension didn't match — an unhelpful thing to greet a customer with. Now a genuine .xlsx built
+   by the same route and style palette as the recipe export, so it keeps the Wilsons navy/coral
+   banding AND opens cleanly. Money is written as real numbers with a £ format, so a customer can
+   total a column instead of retyping it. */
+async function custExportXLS(){
   const names=custSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
   const data=custExportData(names);
-  const NAVY='#143644', CORAL='#e2606c', CREAM='#f7f4ec';
-  const num=`style="mso-number-format:'£ 0\\.00';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
-  const num2=`style="mso-number-format:'£ 0\\.00';text-align:right;padding:4px 8px;border-bottom:1px solid #eee"`;
-  let rows=`
-  <tr><td colspan="7" style="background:${NAVY};color:#fff;font-size:20pt;font-weight:700;padding:16px 12px;font-family:Georgia,serif">WILSONS PET FOOD</td></tr>
-  <tr><td colspan="7" style="background:${NAVY};color:#f6c1c7;font-size:11pt;padding:0 12px 14px">Product costing — prepared ${cxDate()}</td></tr>
-  <tr><td colspan="7" style="padding:6px"></td></tr>`;
+  const HEAD=['Product','Pack','Materials £','Production £','Packaging £','Total cost £','Cost per kg £'];
+  const N=HEAD.length, band=v=>Array.from({length:N},(_,x)=>({v:x===0?v:'',s:'band'}));
+  const rows=[
+    Array.from({length:N},(_,x)=>({v:x===0?'WILSONS PET FOOD':'',s:'title'})),
+    Array.from({length:N},(_,x)=>({v:x===0?'Product costing — prepared '+cxDate():'',s:'subtitle'})),
+    []
+  ];
   data.forEach(g=>{
-    rows+=`<tr><td colspan="7" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>
-    <tr>${['Product','Pack','Materials £','Production £','Packaging £','Total cost £','Cost per kg £'].map(h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Product'||h==='Pack'?'left':'right'}">${h}</td>`).join('')}</tr>`;
+    rows.push(band(g.group));
+    rows.push(HEAD.map(h=>({v:h,s:'head'})));
     g.recipes.forEach(rc=>{
-      const lbl=esc(rc.label)+(rc.unpriced?` <span style="color:#b4231f;font-size:8pt">(PROVISIONAL — ${rc.unpriced} unpriced)</span>`:'');
-      if(!rc.packs.length){ rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${lbl}</td><td style="padding:4px 8px">per kg</td><td ${num}>${(+rc.perKg).toFixed(2)}</td><td></td><td></td><td></td><td></td></tr>`; return; }
-      rc.packs.forEach((p,pi)=>{
-        rows+=`<tr><td style="font-weight:700;color:${NAVY};padding:4px 8px">${pi===0?lbl:''}</td>
-        <td style="padding:4px 8px;border-bottom:1px solid #eee">${p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg'}</td>
-        <td ${num}>${p.mat.toFixed(2)}</td><td ${num}>${p.production.toFixed(2)}</td><td ${num}>${p.packaging.toFixed(2)}</td>
-        <td style="mso-number-format:'£ 0\\.00';text-align:right;font-weight:700;background:${CREAM};padding:4px 8px;border-bottom:1px solid #eee">${p.total.toFixed(2)}</td>
-        <td ${num2}>${p.perKg.toFixed(2)}</td></tr>`;
-      });
+      if(rc.unpriced) rows.push([{v:rc.label+' — PROVISIONAL, '+rc.unpriced+' ingredient price'+(rc.unpriced===1?'':'s')+' outstanding',s:'warn'}]);
+      if(!rc.packs.length){
+        rows.push([{v:rc.label,s:'recipe'},{v:'per kg',s:'text'},{v:+(+rc.perKg).toFixed(2),s:'money'}]);
+        return;
+      }
+      rc.packs.forEach((p,pi)=>rows.push([
+        {v: pi===0?rc.label:'', s:'recipe'},
+        {v: p.kg<1?Math.round(p.kg*1000)+' g':NUM(p.kg)+' kg', s:'text'},
+        {v:+p.mat.toFixed(2),s:'money'}, {v:+p.production.toFixed(2),s:'money'}, {v:+p.packaging.toFixed(2),s:'money'},
+        {v:+p.total.toFixed(2),s:'totalMoney'}, {v:+p.perKg.toFixed(2),s:'money'}
+      ]));
     });
-    rows+=`<tr><td colspan="7" style="padding:6px"></td></tr>`;
+    rows.push([]);
   });
-  rows+=`<tr><td colspan="7" style="font-size:8pt;color:#6b7c86;padding:8px">${CX_DISC}</td></tr>`;
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Wilsons Costing</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table cellspacing="0" style="font-family:Effra,Arial,sans-serif;font-size:10pt">${rows}</table></body></html>`;
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob(['﻿'+html],{type:'application/vnd.ms-excel'}));
-  a.download='Wilsons-costing-'+new Date().toISOString().slice(0,10)+'.xls'; a.click(); URL.revokeObjectURL(a.href);
-  try{document.getElementById('cxDlg').close();}catch(e){}
+  rows.push([{v:CX_DISC,s:'note'}]);
+  try{
+    await xlsxDownload('Wilsons-costing-'+new Date().toISOString().slice(0,10),
+      [{name:'Costing',rows,cols:[38,12,14,14,14,15,15]}]);
+    try{document.getElementById('cxDlg').close();}catch(e){}
+  }catch(e){ alert('Could not build the Excel file: '+e.message); }
 }
 
 /* ================= RECIPE & INGREDIENT EXPORT (v43) =================
@@ -1977,53 +1984,69 @@ function rxPDF(){
   window.addEventListener('afterprint',done);
   setTimeout(()=>{window.print(); setTimeout(done,500);},80);
 }
-function rxXLS(){
+/* Shared by both Excel exports (v43): POST rows to /api/xlsx, which wraps them with the same
+   buildXlsx() that makes the nightly backup, and download the real file it returns. Styles are
+   named ('title', 'band', 'head', 'money'…) and resolved server-side, so the palette lives in
+   one place rather than being re-invented per export. */
+async function xlsxDownload(filename, sheets){
+  const r=await fetch('/api/xlsx',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},
+    body:JSON.stringify({filename, sheets})});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const blob=await r.blob();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=filename+'.xlsx'; a.click(); URL.revokeObjectURL(a.href);
+}
+/* Real .xlsx, not an HTML table wearing a .xls extension (v43).
+   The masquerade trick lets you colour things in, but Excel greets the recipient with "the file
+   format and extension don't match — the file could be corrupted or unsafe", which is no way to
+   send anything to an auditor. This posts the rows to /api/xlsx, which wraps them with the same
+   buildXlsx() that already makes the backup workbook. Plainer, but it opens without a murmur and
+   numbers arrive as numbers, so whoever gets it can total a column. The branded, colourful version
+   of this document is the PDF. */
+async function rxXLS(){
   const names=rxSelected(); if(!names.length){alert('Tick at least one recipe or group first.');return;}
   const data=rxData(names), cols=rxCols(), money=rxOpt('perkg')||rxOpt('cost');
-  const NAVY='#143644', CORAL='#e2606c', CREAM='#f7f4ec', N=cols.length;
-  const th=h=>`<td style="background:${CREAM};color:${NAVY};font-weight:700;padding:6px 8px;border-bottom:2px solid ${NAVY};text-align:${h==='Ingredient'||h==='Supplier'?'left':'right'}">${esc(h)}</td>`;
-  let rows=`
-  <tr><td colspan="${N}" style="background:${NAVY};color:#fff;font-size:20pt;font-weight:700;padding:16px 12px;font-family:Georgia,serif">WILSONS PET FOOD</td></tr>
-  <tr><td colspan="${N}" style="background:${NAVY};color:#f6c1c7;font-size:11pt;padding:0 12px 14px">Recipe specification — prepared ${cxDate()}</td></tr>
-  <tr><td colspan="${N}" style="padding:6px"></td></tr>`;
+  const N=cols.length, band=v=>Array.from({length:N},(_,x)=>({v:x===0?v:'',s:'band'}));
+  const rows=[
+    Array.from({length:N},(_,x)=>({v:x===0?'WILSONS PET FOOD':'',s:'title'})),
+    Array.from({length:N},(_,x)=>({v:x===0?'Recipe specification — prepared '+cxDate():'',s:'subtitle'})),
+    []
+  ];
   data.forEach(g=>{
-    rows+=`<tr><td colspan="${N}" style="background:${CORAL};color:#fff;font-size:13pt;font-weight:700;padding:9px 12px">${esc(g.group)}</td></tr>`;
+    rows.push(band(g.group));
     g.recipes.forEach(rc=>{
-      // Recipe name on its own band, then its ingredients underneath — the blocked layout Kamil asked
-      // for, rather than one flat list with the recipe name repeated on every row.
-      rows+=`<tr><td colspan="${N}" style="font-weight:700;color:${NAVY};font-size:12pt;padding:10px 8px 2px">${esc(rc.label)}`
-        +`<span style="font-weight:400;color:#6b7c86;font-size:9pt"> — ${rc.ings.length} ingredient${rc.ings.length===1?'':'s'}${rxOpt('tot')?' · base '+NUM(rc.totKg)+' kg':''}${rc.packs.length?' · packs: '+esc(rc.packs.join(', ')):''}</span>`
-        +`${(money&&rc.unpriced)?`<span style="color:#b4231f;font-size:9pt"> · PROVISIONAL — ${rc.unpriced} unpriced</span>`:''}</td></tr>`;
-      rows+=`<tr>${cols.map(c=>th(c.h)).join('')}</tr>`;
-      rc.ings.forEach(i=>{
-        rows+=`<tr>${cols.map(c=>{
-          const left=(c.k==='name'||c.k==='sup');
-          const raw = c.k==='kg'?(i.kg||0) : c.k==='pct'?(rc.totKg>0?(i.kg/rc.totKg*100):null) : c.k==='perkg'?i.perKg : c.k==='cost'?i.cost : null;
-          if(c.k==='name'||c.k==='sup') return `<td style="text-align:left;padding:4px 8px;border-bottom:1px solid #eee${c.k==='name'?';font-weight:700;color:'+NAVY:''}">${rxCell(c,i,rc)}</td>`;
-          const fmt = (c.k==='perkg'||c.k==='cost') ? `mso-number-format:'£ 0\\.00';` : (c.k==='pct' ? `mso-number-format:'0\\.0\\%';` : '');
-          const val = raw==null ? '' : (c.k==='pct' ? (raw/100) : raw);
-          return `<td style="${fmt}text-align:right;padding:4px 8px;border-bottom:1px solid #eee">${val===''?'':val}</td>`;
-        }).join('')}</tr>`;
-      });
-      if(rxOpt('tot')){
-        rows+=`<tr>${cols.map(c=>{
-          const base=`background:${CREAM};font-weight:700;padding:4px 8px;border-bottom:1px solid #eee`;
-          if(c.k==='name') return `<td style="${base};text-align:left">Total</td>`;
-          if(c.k==='kg')   return `<td style="${base};text-align:right">${rc.totKg}</td>`;
-          if(c.k==='pct')  return `<td style="mso-number-format:'0\\.0\\%';${base};text-align:right">${rc.totKg>0?1:''}</td>`;
-          if(c.k==='cost') return `<td style="mso-number-format:'£ 0\\.00';${base};text-align:right">${rc.totCost||''}</td>`;
-          return `<td style="${base}"></td>`;
-        }).join('')}</tr>`;
-      }
-      rows+=`<tr><td colspan="${N}" style="padding:5px"></td></tr>`;
+      let note=rc.ings.length+' ingredient'+(rc.ings.length===1?'':'s');
+      if(rxOpt('tot')) note+=' · base '+NUM(rc.totKg)+' kg';
+      if(rc.packs.length) note+=' · packs: '+rc.packs.join(', ');
+      rows.push([{v:rc.label,s:'recipe'},{v:note,s:'text'}]);
+      if(money&&rc.unpriced) rows.push([{v:'PROVISIONAL — '+rc.unpriced+' ingredient price'+(rc.unpriced===1?'':'s')+' outstanding',s:'warn'}]);
+      rows.push(cols.map(c=>({v:c.h,s:'head'})));
+      rc.ings.forEach(i=>rows.push(cols.map(c=>{
+        if(c.k==='name')  return {v:i.name,s:'text'};
+        if(c.k==='sup')   return {v:i.sup||'',s:'text'};
+        if(c.k==='kg')    return {v:i.kg,s:'num'};
+        if(c.k==='pct')   return {v: rc.totKg>0 ? +(i.kg/rc.totKg*100).toFixed(2) : '', s:'pct'};
+        if(c.k==='perkg') return {v: i.perKg>0 ? +(+i.perKg).toFixed(4) : '', s:'money'};   // blank, never 0 — see rxCell
+        if(c.k==='cost')  return {v: i.perKg>0 ? +(+i.cost).toFixed(2) : '', s:'money'};
+        return {v:''};
+      })));
+      if(rxOpt('tot')) rows.push(cols.map(c=>{
+        if(c.k==='name') return {v:'Total',s:'total'};
+        if(c.k==='kg')   return {v:+rc.totKg.toFixed(2),s:'totalNum'};
+        if(c.k==='pct')  return {v: rc.totKg>0?100:'', s:'totalNum'};
+        if(c.k==='cost') return {v:+rc.totCost.toFixed(2),s:'totalMoney'};
+        return {v:'',s:'total'};
+      }));
+      rows.push([]);
     });
   });
-  rows+=`<tr><td colspan="${N}" style="font-size:8pt;color:#6b7c86;padding:8px">${RX_NOTE}</td></tr>`;
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Wilsons Recipes</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table cellspacing="0" style="font-family:Effra,Arial,sans-serif;font-size:10pt">${rows}</table></body></html>`;
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob(['﻿'+html],{type:'application/vnd.ms-excel'}));
-  a.download='Wilsons-recipes-'+new Date().toISOString().slice(0,10)+'.xls'; a.click(); URL.revokeObjectURL(a.href);
-  try{document.getElementById('rxDlg').close();}catch(e){}
+  rows.push([{v:RX_NOTE,s:'note'}]);
+  // First column carries ingredient names, so give it room; the rest are numbers.
+  const widths=cols.map(c=>c.k==='name'?38:(c.k==='sup'?22:14));
+  try{
+    await xlsxDownload('Wilsons-recipes-'+new Date().toISOString().slice(0,10),[{name:'Recipes',rows,cols:widths}]);
+    try{document.getElementById('rxDlg').close();}catch(e){}
+  }catch(e){ alert('Could not build the Excel file: '+e.message); }
 }
 
 /* ================= SUPPLIERS ================= */

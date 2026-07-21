@@ -1223,6 +1223,30 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="wilsons-backup-' + now().slice(0, 10) + '.xlsx"' });
       res.end(buf); return;
     }
+    // --- turn rows into a REAL .xlsx (v43) ---
+    // The client-side exports write an HTML table with a .xls extension. Excel opens it, but only
+    // after warning that the format and extension don't match — which is alarming to receive and
+    // not something to send an auditor. buildXlsx() already produces a genuine OOXML workbook for
+    // the backup, but it needs node:zlib so it can't run in the browser. This route is a pure
+    // formatter: the browser posts rows it already has, and gets a proper file back. No data is
+    // read from the database here, so it can't expose anything the caller didn't already hold.
+    if (url === '/api/xlsx' && m === 'POST') {
+      const u = authUser(req);
+      if (!u) return json(res, 401, { error: 'Not signed in' });
+      const b = await readBody(req);
+      const sheets = (b && Array.isArray(b.sheets)) ? b.sheets : null;
+      if (!sheets || !sheets.length) return json(res, 400, { error: 'no sheets supplied' });
+      const clean = sheets.slice(0, 12).map((s, i) => ({
+        name: String(s && s.name || ('Sheet' + (i + 1))).slice(0, 31),
+        rows: Array.isArray(s && s.rows) ? s.rows.slice(0, 20000).map(r => Array.isArray(r) ? r.slice(0, 200) : []) : [],
+        cols: Array.isArray(s && s.cols) ? s.cols.slice(0, 200).map(w => +w || 12) : undefined,
+        merges: Array.isArray(s && s.merges) ? s.merges.slice(0, 500).filter(x => typeof x === 'string' && /^[A-Z]+\d+:[A-Z]+\d+$/.test(x)) : undefined
+      }));
+      const fname = String((b && b.filename) || 'wilsons-export').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 60) || 'wilsons-export';
+      const buf = buildXlsx(clean);
+      res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="' + fname + '.xlsx"', 'Cache-Control': 'no-store' });
+      res.end(buf); return;
+    }
     // --- brand assets (fonts + images for the new look) — served from backend/assets ---
     if (m === 'GET' && url.startsWith('/assets/')) {
       const ASSETS = { 'logo-grapefruit.svg': 'image/svg+xml', 'wilson-pup.png': 'image/png', 'tartan.png': 'image/png', 'BobbyJones-Regular.otf': 'font/otf', 'Effra_Rg.ttf': 'font/ttf', 'Effra_Md.ttf': 'font/ttf', 'Effra_Bd.ttf': 'font/ttf', 'chart.umd.min.js': 'application/javascript', 'xlsx.full.min.js': 'application/javascript' };
