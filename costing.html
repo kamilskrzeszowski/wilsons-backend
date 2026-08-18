@@ -672,7 +672,7 @@ function productsView(){
     const g = p.name!==lastName ? ' class="group-start"' : '';
     lastName = p.name;
     const open = `show('recipeDetail','${esc(p.name).replace(/'/g,"\\'")}')`;
-    if(p.none) return `<tr${g}>${selCol?'<td class="no-print"></td>':''}<td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}</td>
+    if(p.none) return `<tr${g}>${selCol?'<td class="no-print"><input type="checkbox" disabled title="No pack sizes yet — set sizes before this recipe can be exported"></td>':''}<td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}</td>
       <td colspan="${dataCols-2}" class="muted">no pack sizes set yet</td>
       <td class="no-print"><button class="btn small accent" onclick="${open}">Set up sizes</button></td></tr>`;
     const key = p.name+'||'+p.pid;
@@ -2389,9 +2389,12 @@ function refresh(){
   const focusId = ae && ae.id ? ae.id : null;
   const selStart = focusId && ae.selectionStart!=null ? ae.selectionStart : null;
   const sx=window.scrollX, sy=window.scrollY;   // a refresh re-draws in place — never jump back to the top
+  // tables scroll INSIDE their .card (sticky headers), so also keep that inner scroll position
+  const cardScroll=[...document.querySelectorAll('#main .card')].map(c=>c.scrollTop);
   if(view==='builder'){ document.getElementById('main').innerHTML = builderView(); }
   else show(view);
   window.scrollTo(sx, sy);
+  { const cards=document.querySelectorAll('#main .card'); cardScroll.forEach((t,i)=>{ if(cards[i]&&t) cards[i].scrollTop=t; }); }
   if(focusId){
     const el = document.getElementById(focusId);
     if(el){ el.focus(); if(selStart!=null){try{el.setSelectionRange(selStart,selStart)}catch(e){}} }

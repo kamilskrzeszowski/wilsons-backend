@@ -346,7 +346,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v25</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v45</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2219,6 +2219,15 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v45', date:'18 Aug 2026', notes:[
+    'Filling Dashboard — the Baskets table now lists the recipe(s) in each basket with the bags of each, so a basket made from two recipes shows both (e.g. “Wild — Fish · 400g, 13 bags” and “Wild — Beef · 400g, 221 bags”). A new Packs/min column shows how fast each basket was filled against the line target (target adjusts for how many people were on), with slow baskets flagged in red.',
+    'Recipe Costing → Products: when you pick specific rows to export, the list no longer jumps back to the top after each tick — it stays where you are so you can select several in a row.',
+    'Recipe Costing → Products: rows for recipes with no pack sizes yet used to show a blank where the tick-box goes, which looked broken. They now show a greyed-out box that explains (on hover) they need pack sizes set before they can be exported.'
+  ]},
+  {v:'v44', date:'18 Aug 2026', notes:[
+    'Filling Sheet now resets for a new day. Previously, if the tablet was left on (or reopened) the next morning, it still showed yesterday’s trolley/stack number, date and Julian code. Now a left-over basket from a previous day is cleared and you start fresh for today. A basket that’s genuinely part-way through filling (started but not finished — e.g. running across midnight) is still kept, so nothing in progress is ever lost.',
+    'Filling Dashboard: the ▶ next-day arrow works again — you can move forward a day (e.g. to look at tomorrow’s planned production), not just backwards. A “Today” button appears whenever you’re not on today so you can jump straight back.'
+  ]},
   {v:'v43', date:'21 Jul 2026', notes:[
     'Recipe Costing: new “Recipe & ingredients…” export under Export ▾. Tick whole brands or single recipes, choose what to include (amounts, % of mix, supplier, prices), then export as a Wilsons-branded PDF or Excel. Each recipe appears as its own block — the recipe name, then its ingredients underneath — rather than one long list.',
     'Price columns are off by default, so an export meant for an auditor or co-packer doesn’t carry ingredient pricing unless you deliberately switch it on.',
@@ -2399,7 +2408,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v43';
+const APP_VERSION='v45';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -2919,7 +2928,11 @@ function persistFill(){ try{ if(fillBasket && canEdit('filling')) localStorage.s
 function restoreFill(){ try{ const s=localStorage.getItem('wpm_fillbasket'); if(s){ const b=JSON.parse(s); if(b && typeof b==='object' && 'lines' in b) return b; } }catch(e){} return null; }
 function dropFill(){ try{ localStorage.removeItem('wpm_fillbasket'); }catch(e){} }
 function julianToday(){ const d=new Date(); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const s=new Date(d.getFullYear(),0,1); const day=Math.round((t-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }   // Math.round absorbs the 1-hour DST offset that made the code a day out just after midnight in summer
-function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}]}; }
+function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}],_day:todayISO()}; }
+/* A saved basket is "stale" if it was created on a previous day AND isn't actively being filled.
+   That's the leftover from yesterday (basket number, date, Julian code) we must NOT carry into today.
+   A basket that's genuinely mid-fill (started, not finished — e.g. running across midnight) is kept. */
+function fillIsStale(b){ if(!b) return false; if(b.fillStart && !b.fillFinish) return false; const day=b._day||b.filled||''; return !!(day && day!==todayISO()); }
 function goFullscreen(){ try{ const el=document.documentElement; if(el.requestFullscreen && !document.fullscreenElement){ const p=el.requestFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function exitFullscreen(){ try{ if(document.fullscreenElement && document.exitFullscreen){ const p=document.exitFullscreen(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
 function fmtTime(iso){ if(!iso)return '—'; try{ return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
@@ -2943,7 +2956,11 @@ function tempAlert(){ pop(`<div style="text-align:center;padding:6px 4px">
    <p style="font-size:15px">The product must be frozen (<b>0&nbsp;°C or below</b>). Do <b>not</b> continue filling this basket.<br><br>Stop now, get your <b>manager</b>, and re-evaluate before recording it.</p>
    <button class="btn coral" onclick="closeModal()" style="margin-top:6px;font-size:16px;padding:14px 26px">OK — I'll get my manager</button></div>`); }
 function tempIsBad(v){ const n=parseFloat(v); return !isNaN(n)&&n>0; }
-function renderFilling(){ if(!fillBasket) fillBasket=restoreFill()||newFillBasket(); if(fillBasket.fillStart&&!fillBasket.fillFinish) reportLiveFill(); goFullscreen(); drawFill(); }
+function renderFilling(){
+  if(!fillBasket){ const s=restoreFill(); fillBasket = fillIsStale(s) ? (dropFill(),newFillBasket()) : (s||newFillBasket()); }
+  else if(fillIsStale(fillBasket)){ dropFill(); fillBasket=newFillBasket(); }   // tablet left on overnight — start the new day fresh
+  if(fillBasket.fillStart&&!fillBasket.fillFinish) reportLiveFill(); goFullscreen(); drawFill();
+}
 function fillAddLine(){ fillBasket.lines.push({recipeId:'',pack:'',bags:''}); drawFill(); }
 function fillDelLine(i){ fillBasket.lines.splice(i,1); if(!fillBasket.lines.length)fillBasket.lines=[{recipeId:'',pack:'',bags:''}]; drawFill(); }
 function fillStartNow(){ fillBasket.fillStart=new Date().toISOString(); fillBasket.fillFinish=''; reportLiveFill(); drawFill(); }
@@ -3208,8 +3225,10 @@ async function drawFilldash(){
   const progPct=planBags>0?Math.min(100,Math.round(actBags/planBags*100)):0;
   // baskets
   const bMap={};
-  act.forEach(p=>{ const bk=(p.basket||'—'); if(!bMap[bk])bMap[bk]={basket:bk,ops:p.operators||0,bags:0,prods:new Set(),start:null,finish:null,open:false};
+  act.forEach(p=>{ const bk=(p.basket||'—'); if(!bMap[bk])bMap[bk]={basket:bk,ops:p.operators||0,bags:0,prods:new Set(),items:{},start:null,finish:null,open:false};
     const o=bMap[bk]; o.bags+=(+p.qty||0); if(p.product)o.prods.add(p.product); if(p.operators)o.ops=p.operators;
+    // per-recipe breakdown within the basket (a basket can hold two or more recipes)
+    const ik=(p.product||'(unknown)')+'||'+(p.pack||''); if(!o.items[ik]) o.items[ik]={product:p.product||'(unknown)',pack:p.pack||'',bags:0}; o.items[ik].bags+=(+p.qty||0);
     if(p.fill_start && (!o.start||p.fill_start<o.start))o.start=p.fill_start;
     if(p.fill_finish){ if(!o.finish||p.fill_finish>o.finish)o.finish=p.fill_finish; } });
   Object.values(bMap).forEach(o=>{ o.open=!!(o.start&&!o.finish); });
@@ -3253,7 +3272,7 @@ async function drawFilldash(){
    <div class="card" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
      <button class="btn ghost sm" id="fdPrev" title="Previous day">◀</button>
      <label class="fld" style="margin:0">Day<input type="date" id="fdDate" value="${date}"></label>
-     <button class="btn ghost sm" id="fdNext" title="Next day" ${isToday?'disabled':''}>▶</button>
+     <button class="btn ghost sm" id="fdNext" title="Next day">▶</button>
      ${isToday?'':'<button class="btn ghost sm" id="fdToday">Today</button>'}
      <span class="fdpill" style="background:${pillBg};color:${pillFg}">${pillTxt}</span>
      <span class="hint">${plan.hasPlan?('Plan: '+planBags.toLocaleString()+' bags · '+fmt(planKg)+' kg · '+ops+' people · target finish ~'+minToHHMM(targetFinishMin)):''}</span>
@@ -3277,9 +3296,16 @@ async function drawFilldash(){
      <tfoot><tr><th>Total</th><th></th><th class="num">${planBags.toLocaleString()}</th><th class="num">${actBags.toLocaleString()}</th><th class="num">${progPct}%</th><th></th></tr></tfoot></table>
    </div>
    <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Baskets — ${date}</h3>
-     <table><thead><tr><th>Basket</th><th class="num">People</th><th class="num">Products</th><th class="num">Bags</th><th>Start</th><th>Finish</th><th class="num">Time</th></tr></thead>
-     <tbody>${baskets.length?baskets.map(b=>{ const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
-       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td class="num">${b.prods.size}</td><td class="num">${b.bags.toLocaleString()}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td></tr>`; }).join(''):'<tr><td colspan="7" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
+     <table><thead><tr><th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th></tr></thead>
+     <tbody>${baskets.length?baskets.map(b=>{
+       const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
+       const items=Object.values(b.items);
+       const recipesHtml=items.length?items.map(it=>`<div style="padding:1px 0">${escapeHtml(it.product)}${it.pack?' · '+escapeHtml(it.pack):''} <span class="muted">${it.bags.toLocaleString()} bag${it.bags===1?'':'s'}</span></div>`).join(''):'<span class="muted">—</span>';
+       const mins=(b.start&&b.finish)?(new Date(b.finish)-new Date(b.start))/60000:null;
+       let ppmHtml='<span class="muted">—</span>';
+       if(mins&&mins>0){ const actPpm=b.bags/mins; let tgtMin=0; items.forEach(it=>{ const g=Math.round((packSizeKg(it.pack)||0)*1000); tgtMin+=it.bags/ppmFor(g,b.ops||2); }); const tgtPpm=tgtMin>0?b.bags/tgtMin:null; const behind=tgtPpm&&actPpm<tgtPpm*0.9; ppmHtml=`<b style="color:${behind?'#b4231f':'var(--navy)'}">${actPpm.toFixed(1)}</b>${tgtPpm?` <span class="muted">/ ${tgtPpm.toFixed(0)}</span>`:''}`; }
+       else if(b.open){ ppmHtml='<span style="color:var(--coral-deep)">filling…</span>'; }
+       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td></tr>`; }).join(''):'<tr><td colspan="8" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
    </div>
   </div>`;
   document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
