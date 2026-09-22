@@ -101,7 +101,12 @@
   .pal-item{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:5px;cursor:grab;font-size:12.5px;background:#fff}
   .pal-item:hover{box-shadow:0 2px 6px rgba(0,0,0,.1)}
   .pal-item:active{cursor:grabbing}
-  .week{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding-bottom:4px}
+  .week{display:grid;grid-template-columns:var(--wk,repeat(5,minmax(0,1fr)));gap:10px;padding-bottom:4px;overflow-x:auto}
+  .daystub{border:1px dashed var(--accent);background:#f1f7f3;color:var(--accent);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.04em;writing-mode:vertical-rl;transform:rotate(180deg);padding:12px 4px;min-height:160px;font-family:var(--font-body)}
+  .daystub:hover{background:#e3f0e8}
+  .dayfold{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:11px;padding:0 3px;line-height:1;vertical-align:middle}
+  .dayfold:hover{color:var(--coral)}
+  .pill.rp1{background:#e3f0ff;color:#1c4f8a} .pill.rp2{background:#efe3ff;color:#5a2d8f} .pill.rp0{background:#eef0ea;color:#4b5f6d}
   .daycol{background:var(--card);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:160px}
   .daycol.dragover{outline:2px dashed var(--accent);outline-offset:-3px;background:#f1f7f3}
   .dayhd{padding:8px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:6px}
@@ -125,7 +130,7 @@
   .dayadd{margin:0 8px 8px;display:flex;gap:5px}
   .dayadd select{flex:1;width:100%;min-width:0;font-size:11px;padding:4px}
   .linkbtn{background:none;border:0;color:var(--accent2);cursor:pointer;font-size:11px;padding:0;text-decoration:underline}
-  @media (max-width:900px){ .plan-layout{grid-template-columns:1fr} .palette{position:static;max-height:none} .week{grid-template-columns:1fr} }
+  @media (max-width:900px){ .plan-layout{grid-template-columns:1fr} .palette{position:static;max-height:none} .week{grid-template-columns:1fr} .daystub{writing-mode:horizontal-tb;transform:none;min-height:0;padding:10px} }
   /* ===== Phone / tablet (iPhone etc.) ===== */
   @media (max-width:680px){
     header.appbar{padding:8px 12px;gap:8px}
@@ -346,7 +351,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v45</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v46</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -1181,6 +1186,9 @@ function packSizeKg(label){ const s=String(label||'');
 function weekObj(){ const k=isoDate(planWeek); if(!state.weekPlans[k]) state.weekPlans[k]={days:{}}; const w=state.weekPlans[k]; if(!w.days) w.days={}; if(!w.ops) w.ops={}; return w; }
 function dayJobs(idx){ const w=weekObj(); if(!w.days[idx]) w.days[idx]=[]; return w.days[idx]; }
 function dayOps(idx){ const w=weekObj(); return +(w.ops[idx])||2; }
+/* how many days this week runs: 5 = Mon–Fri, 6 = +Saturday, 7 = +Sunday. Stored per week; defaults to 5 so every existing week is untouched. */
+function weekLen(){ const n=+(weekObj().len)||5; return Math.min(7,Math.max(5,n)); }
+function setWeekLen(n){ weekObj().len=Math.min(7,Math.max(5,+n||5)); saveWeek(); renderBoard(); const po=document.getElementById('planOutput'); if(po) po.innerHTML=''; }
 function setDayOps(idx,n){ const w=weekObj(); w.ops[idx]=+n; saveWeek(); const oe=document.getElementById('oe-'+idx); if(oe) oe.innerHTML=dayEstHtml(idx); }
 /* a day's planned pack rows: [{grams,bags,kg}] (one per recipe×pack with kg>0) */
 function dayPlanRows(idx){ const out=[]; dayJobs(idx).forEach(j=>{ const r=byId(j.recipeId); if(!r)return; (r.packs||[]).forEach(p=>{ const skg=packSizeKg(p); const kg=parseFloat((j.alloc||{})[p])||0; if(!skg||kg<=0)return; out.push({grams:Math.round(skg*1000),bags:Math.round(kg/skg),kg}); }); }); return out; }
@@ -1211,7 +1219,7 @@ function dayCookPlan(idx){
 // Whole-week combined picking (ingredients summed across all 5 days)
 function weekPick(){
   const agg={};
-  for(let idx=0;idx<5;idx++){ dayJobs(idx).forEach(j=>{ const r=byId(j.recipeId); if(!r) return; const base=baseKg(r); const tot=jobTotal(j); if(tot<=0) return; const f=base>0?tot/base:0;
+  for(let idx=0;idx<weekLen();idx++){ dayJobs(idx).forEach(j=>{ const r=byId(j.recipeId); if(!r) return; const base=baseKg(r); const tot=jobTotal(j); if(tot<=0) return; const f=base>0?tot/base:0;
     r.ingredients.forEach(li=>{ if(!agg[li.ingId]) agg[li.ingId]={name:ingName(li.ingId),kg:0}; agg[li.ingId].kg+=li.kg*f; }); }); }
   const arr=Object.values(agg).sort((a,b)=>b.kg-a.kg);
   return {arr, grand:arr.reduce((a,i)=>a+i.kg,0)};
@@ -1219,7 +1227,7 @@ function weekPick(){
 // Whole-week cook plan (cooks counted per day, then summed by size category)
 function weekCookPlan(){
   const cat={};
-  for(let idx=0;idx<5;idx++){ dayCookPlan(idx).rows.forEach(r=>{ if(!cat[r.cat]) cat[r.cat]={bags:0,cooks:0,time:0,timeH:r.timeH,cap:r.cap}; cat[r.cat].bags+=r.bags; cat[r.cat].cooks+=r.cooks; cat[r.cat].time+=r.time; }); }
+  for(let idx=0;idx<weekLen();idx++){ dayCookPlan(idx).rows.forEach(r=>{ if(!cat[r.cat]) cat[r.cat]={bags:0,cooks:0,time:0,timeH:r.timeH,cap:r.cap}; cat[r.cat].bags+=r.bags; cat[r.cat].cooks+=r.cooks; cat[r.cat].time+=r.time; }); }
   const rows=Object.keys(cat).map(c=>({cat:c,...cat[c]})).sort((a,b)=>b.bags-a.bags);
   return {rows, totalCooks:rows.reduce((a,r)=>a+r.cooks,0), totalHours:rows.reduce((a,r)=>a+r.time,0)};
 }
@@ -1250,13 +1258,18 @@ function renderBoard(){
   const board=document.getElementById('weekBoard'); board.innerHTML='';
   const recipeOpts='<option value="">+ add…</option>'+[...new Set(VREC().map(r=>r.brand))].map(br=>
     '<optgroup label="'+escapeHtml(br)+'">'+VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')+'</optgroup>').join('');
-  for(let idx=0;idx<5;idx++){
+  const len=weekLen();
+  /* Mon–Fri weeks keep today's exact layout. A 6/7-day week gives every column a minimum width and the
+     board scrolls sideways instead of squashing the recipe rows. Folded weekend days become slim tabs. */
+  board.style.setProperty('--wk',(len>5?`repeat(${len},minmax(200px,1fr))`:'repeat(5,minmax(0,1fr))')+' 34px'.repeat(7-len));
+  for(let idx=0;idx<len;idx++){
     const date=addDays(planWeek,idx);
     const jobs=dayJobs(idx);
     const tot=jobs.reduce((a,j)=>a+jobTotal(j),0);
     const cp=dayCookPlan(idx);
     const col=document.createElement('div'); col.className='daycol'; col.dataset.idx=idx;
-    col.innerHTML=`<div class="dayhd"><div><div class="dn">${DAY_NAMES[idx]}</div><div class="dd">${dispDate(date)}</div></div><div class="daytot" id="dt-${idx}">${fmt(tot)} kg<br><span style="color:var(--accent2)">${dayBags(idx)} bags</span></div></div>
+    const canFold=idx>=5&&idx===len-1&&!jobs.length;   // only the last, empty weekend day can be folded away
+    col.innerHTML=`<div class="dayhd"><div><div class="dn">${DAY_NAMES[idx]}${canFold?' <button type="button" class="dayfold" data-fold="'+idx+'" title="Fold '+DAY_NAMES[idx]+' away">✕</button>':''}</div><div class="dd">${dispDate(date)}</div></div><div class="daytot" id="dt-${idx}">${fmt(tot)} kg<br><span style="color:var(--accent2)">${dayBags(idx)} bags</span></div></div>
       <div class="dayops"><label>👷&nbsp;<select data-ops="${idx}"><option value="2"${dayOps(idx)===2?' selected':''}>2 ops</option><option value="3"${dayOps(idx)===3?' selected':''}>3 ops</option></select></label><span class="opsest" id="oe-${idx}">${dayEstHtml(idx)}</span></div>
       <div class="daybody" id="db-${idx}">${jobs.length?'':'<div class="dayempty">Drag recipes here</div>'}</div>
       ${cp.totalCooks?`<div class="cookbar" id="ck-${idx}">🍳 ${cp.totalCooks} cook${cp.totalCooks>1?'s':''} · ${fmt(cp.totalHours)} h</div>`:`<div class="cookbar" id="ck-${idx}" style="display:none"></div>`}
@@ -1277,6 +1290,15 @@ function renderBoard(){
     col.querySelector('select[data-add]').addEventListener('change',e=>{ if(e.target.value){ addJob(idx,e.target.value); } });
     const ops=col.querySelector('select[data-ops]'); if(ops) ops.addEventListener('change',e=>setDayOps(idx,e.target.value));
     const pb=col.querySelector('button[data-pick]'); if(pb) pb.addEventListener('click',()=>dayOutput(idx));
+    const fb=col.querySelector('button[data-fold]'); if(fb) fb.addEventListener('click',()=>setWeekLen(idx));
+  }
+  // folded weekend days sit as slim "+ Sat" / "+ Sun" tabs at the right — click one to unfold it into a full column for this week
+  for(let idx=len;idx<7;idx++){
+    const st=document.createElement('button'); st.type='button'; st.className='daystub';
+    st.title=(idx===6&&len===5)?'Add Saturday and Sunday to this week':('Add '+DAY_NAMES[idx]+' to this week');
+    st.textContent='+ '+DAY_NAMES[idx].slice(0,3);
+    st.addEventListener('click',()=>setWeekLen(idx+1));
+    board.appendChild(st);
   }
 }
 function jobCard(idx,job){
@@ -1341,7 +1363,7 @@ function printWeekPlan(){
     <div><div class="t">Production Plan</div><div class="b"><b>Wilsons Pet Food</b> · Week of ${dispDate(planWeek)} – ${dispDate(addDays(planWeek,4))} ${planWeek.getFullYear()}</div></div>
     <div style="text-align:right"><div class="b"><b>Printed:</b> ${new Date().toLocaleDateString('en-GB')}</div></div></div>`;
   let wkKg=0, wkBags=0, wkCooks=0, wkHours=0;
-  for(let idx=0;idx<5;idx++){
+  for(let idx=0;idx<weekLen();idx++){
     const jobs=dayJobs(idx).filter(j=>byId(j.recipeId)&&jobTotal(j)>0);
     if(!jobs.length) continue; any=true;
     const cp=dayCookPlan(idx);
@@ -2219,6 +2241,12 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v46', date:'22 Sep 2026', notes:[
+    'Production Planner can now run past Friday. Saturday and Sunday sit folded as slim “+ Sat” / “+ Sun” tabs at the right of the week — click one and it unfolds into a full day column for that week only. Mon–Fri weeks look exactly as before; a 6- or 7-day week keeps every column at full width and scrolls sideways a little rather than squashing the recipe rows. An empty weekend day can be folded away again with the ✕ next to its name. Print plan, picking & cook plan and the Filling Dashboard all follow automatically.',
+    'Filling Dashboard — the “Bags per hour” graph now follows the real filling day. It always shows 07:00–14:00 and grows to the right for as long as filling actually ran, with each hour’s bags in their own hour. (Previously anything filled after 2pm was piled into the 2pm bar.) “Pace now” and “Projected finish” keep updating after 14:30 instead of freezing; the target line and the 14:30 line target stay as they are.',
+    'Record Production — a new Retort column shows which retort each basket was cooked in (coloured pill: Retort 1 / Retort 2; “—” if not cooked yet), sortable like the other columns. The Retort filter was already in the toolbar; now you can see what it’s filtering. Retort was already in the CSV export and the printed cooked-day sheet.',
+    'Record Production — the manual entry box no longer sits open at the top of the page. It’s now a “＋ Manual entry” button in the toolbar that opens a pop-up window (like Edit user); save and it closes, and the new rows appear in the table. Same form, same stock deduction — just tucked away because it’s rarely needed.'
+  ]},
   {v:'v45', date:'18 Aug 2026', notes:[
     'Filling Dashboard — the Baskets table now lists the recipe(s) in each basket with the bags of each, so a basket made from two recipes shows both (e.g. “Wild — Fish · 400g, 13 bags” and “Wild — Beef · 400g, 221 bags”). A new Packs/min column shows how fast each basket was filled against the line target (target adjusts for how many people were on), with slow baskets flagged in red.',
     'Recipe Costing → Products: when you pick specific rows to export, the list no longer jumps back to the top after each tick — it stays where you are so you can select several in a row.',
@@ -2408,7 +2436,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v45';
+const APP_VERSION='v46';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -3199,7 +3227,7 @@ function hourlyChartSvg(buckets,hours,target){
     if(v>0)bars+=`<text x="${x+bw/2}" y="${base-ht-4}" font-size="10" fill="#555" text-anchor="middle">${v}</text>`; });
   const ty=target>0?base-(target/maxV*(base-14)):base;
   const tline=target>0?`<line x1="${x0}" y1="${ty}" x2="${right}" y2="${ty}" stroke="#e0a23a" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${x0+4}" y="${Math.max(ty-4,10)}" font-size="10" fill="#b07d1a">target ~${Math.round(target)}/hr</text>`:'';
-  return `<svg viewBox="0 0 640 170" width="100%" role="img" aria-label="Bags filled per hour versus target"><line x1="${x0}" y1="${base}" x2="${right}" y2="${base}" stroke="#ccd2d8"/>${tline}${bars}</svg>`;
+  return `<svg viewBox="0 0 ${Math.max(640,right+20)} 170" width="100%" role="img" aria-label="Bags filled per hour versus target"><line x1="${x0}" y1="${base}" x2="${right}" y2="${base}" stroke="#ccd2d8"/>${tline}${bars}</svg>`;
 }
 function renderFilldash(){ stopDashTimers(); if(!_dashDate)_dashDate=todayISO(); drawFilldash(); }
 window.renderFilldash=renderFilldash;
@@ -3218,7 +3246,15 @@ async function drawFilldash(){
   const rows=plan.rows.concat(Object.values(extra)); const ops=plan.ops;
   let totalTargetMin=0; plan.rows.forEach(r=>{ totalTargetMin+=r.planBags/ppmFor(r.grams,ops); });
   const planBags=plan.totBags, planKg=plan.totKg;
-  const elapsedRun=isToday?runMinutesElapsedNow():DAY_RUN_MIN;
+  /* The filling day ends at whichever is later: 14:30, the last basket's finish, or right now if still filling.
+     So a day that runs to 17:00 is measured (and graphed) to 17:00, while a day that stops early still counts as a full day for "on track". */
+  const nowMinOfDay=(()=>{ const d=new Date(); return d.getHours()*60+d.getMinutes(); })();
+  const minOfDay=t=>{ const d=new Date(t); return d.getHours()*60+d.getMinutes(); };
+  let lastFillMin=0; act.forEach(p=>{ const t=p.fill_finish||p.fill_start; if(t) lastFillMin=Math.max(lastFillMin,minOfDay(t)); });
+  const stillFilling=isToday&&(act.some(p=>p.fill_start&&!p.fill_finish)||live.some(l=>l.fill_start));
+  const dayLastMin=Math.max(lastFillMin, stillFilling?nowMinOfDay:0);
+  const dayEndMin=Math.max(hmToMin(FILL_END_HHMM), dayLastMin);
+  const elapsedRun=runMinutesBetween(hmToMin(FILL_START_HHMM), isToday?Math.min(nowMinOfDay,dayEndMin):dayEndMin);
   const expectedFrac=totalTargetMin>0?Math.min(1,elapsedRun/totalTargetMin):0;
   const aheadBags=Math.round(actBags-expectedFrac*planBags);
   const aheadKg=Math.round(actKg-expectedFrac*planKg);
@@ -3239,15 +3275,18 @@ async function drawFilldash(){
   openB.forEach(b=>{ if(!b.start)return; const k=(b.basket||'')+'|'+b.start; if(seenLC[k])return; seenLC[k]=1; liveCards.push({basket:b.basket,start:b.start,who:'',products:''}); });
   // pace
   let firstStart=null,lastFinish=null; act.forEach(p=>{ if(p.fill_start&&(!firstStart||p.fill_start<firstStart))firstStart=p.fill_start; if(p.fill_finish&&(!lastFinish||p.fill_finish>lastFinish))lastFinish=p.fill_finish; });
-  let runSince=0; if(firstStart){ const fs=new Date(firstStart); const sMin=fs.getHours()*60+fs.getMinutes(); const endMin=isToday?Math.min(new Date().getHours()*60+new Date().getMinutes(),hmToMin(FILL_END_HHMM)):hmToMin(FILL_END_HHMM); runSince=runMinutesBetween(sMin,Math.max(sMin,endMin)); }
+  let runSince=0; if(firstStart){ const fs=new Date(firstStart); const sMin=fs.getHours()*60+fs.getMinutes(); const endMin=isToday?Math.min(nowMinOfDay,dayEndMin):(dayLastMin||hmToMin(FILL_END_HHMM)); runSince=runMinutesBetween(sMin,Math.max(sMin,endMin)); }   // pace is measured over the time actually filled
   const actualPace=runSince>0?actBags/runSince:0;
   const targetPace=totalTargetMin>0?planBags/totalTargetMin:0;
   const projFinishMin=clockAfterRunMinutes(actualPace>0?planBags/actualPace:(totalTargetMin||0));
   const targetFinishMin=clockAfterRunMinutes(totalTargetMin);
   const onTrack=aheadBags>=-Math.max(5,Math.round(planBags*0.02));
   // hourly buckets
-  const hours=[7,8,9,10,11,12,13,14]; const buckets={}; hours.forEach(h=>buckets[h]=0);
-  act.forEach(p=>{ const t=p.fill_finish||p.fill_start; if(!t)return; let h=new Date(t).getHours(); if(h<7)h=7; if(h>14)h=14; buckets[h]+=(+p.qty||0); });
+  // the graph always shows 07–14, and grows to the right for as long as filling actually ran (each hour's bags stay in their own hour)
+  const lastHour=Math.min(23,Math.max(14,Math.floor(dayLastMin/60)));
+  const hours=[]; for(let h=7;h<=lastHour;h++) hours.push(h);
+  const buckets={}; hours.forEach(h=>buckets[h]=0);
+  act.forEach(p=>{ const t=p.fill_finish||p.fill_start; if(!t)return; let h=new Date(t).getHours(); if(h<7)h=7; if(h>lastHour)h=lastHour; buckets[h]+=(+p.qty||0); });
   const targetPerHr=totalTargetMin>0?planBags/(totalTargetMin/60):0;
   // status pill
   let pillBg,pillFg,pillTxt;
@@ -3542,10 +3581,7 @@ function renderProduction(){
   const root=document.getElementById('rootProduction'); if(!root) return;
   if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:todayISO()}];
   const canEd=canEdit('production');
-  const entryCard=canEd?`<div class="card"><div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
-    <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
-    <div class="toolbar" style="margin-top:12px"><button class="btn" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div></div>`:'';
-  root.innerHTML=entryCard+`
+  root.innerHTML=`
     <h3>Cooked production records</h3><p class="sub" style="margin-top:-2px">Only <b>cooked</b> trolleys appear here, newest cook first. Filled-but-not-yet-cooked baskets live in the <b>Cooking</b> tab until they're cooked.</p>
     <div class="toolbar">
       <label class="fld">Cook date range<select id="prRange">
@@ -3561,6 +3597,7 @@ function renderProduction(){
       <label class="fld">Retort<select id="prRetort"><option value="">All</option></select></label>
       <label class="fld">Find<input id="prSearch" placeholder="batch / basket…" style="width:120px"></label>
       <span class="spacer"></span>
+      ${canEd?'<button class="btn sm" id="prManualEntry" title="Enter a basket by hand — rarely needed; baskets normally arrive from the Filling Sheet">＋ Manual entry</button>':''}
       ${canEd?'<button class="btn ghost sm" id="prUndo" disabled>↶ Undo</button>':''}
       ${canEd?'<button class="btn ghost sm" id="prManual">↕ Custom order</button>':''}
       <button class="btn ghost sm" id="prReset">Clear filters</button>
@@ -3580,29 +3617,23 @@ function renderProduction(){
           <th class="sortable num" data-k="kg">kg <span class="sa"></span></th>
           <th class="sortable" data-k="batch">Batch <span class="sa"></span></th>
           <th class="sortable" data-k="basket">Basket <span class="sa"></span></th>
+          <th class="sortable" data-k="retort">Retort <span class="sa"></span></th>
           <th class="sortable" data-k="mince_date">Mince <span class="sa"></span></th>
           <th class="sortable" data-k="filled_date">Filled <span class="sa"></span></th>
           <th>Fill start</th><th>Fill finish</th><th>Temp start</th><th>Temp finish</th>
           <th>By</th><th></th></tr></thead>
-        <tbody id="prHist"><tr><td colspan="${canEd?16:15}" class="muted">Loading…</td></tr></tbody>
+        <tbody id="prHist"><tr><td colspan="${canEd?17:16}" class="muted">Loading…</td></tr></tbody>
         <tfoot><tr>
           <th colspan="${canEd?4:3}" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftLabel">TOTAL</th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftBags"></th>
           <th class="num" style="position:sticky;bottom:0;background:#143644;color:#fff" id="ftKg"></th>
-          <th colspan="10" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
+          <th colspan="11" style="position:sticky;bottom:0;background:#143644"></th></tr></tfoot>
       </table>
     </div>
     <h4 style="margin:16px 0 6px">Totals by product <span class="hint">(current filter)</span></h4>
     <div class="card" style="padding:0;overflow:auto;max-height:40vh"><table><thead><tr><th>Product</th><th class="num">Bags</th><th class="num">kg</th></tr></thead><tbody id="prByProd"></tbody></table></div>`;
   if(canEd){
-    drawProdLines();
-    document.getElementById('prAdd').onclick=()=>{
-      const last=prodLines[prodLines.length-1]||{};
-      const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):'';
-      prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||todayISO()});
-      drawProdLines();
-    };
-    document.getElementById('prSave').onclick=saveProduction;
+    document.getElementById('prManualEntry').onclick=openManualEntry;
     document.getElementById('prUndo').onclick=undoProd; updateUndoBtn();
     document.getElementById('prManual').onclick=()=>{ if(prSort.k==='seq'){ prSort.k='date'; prSort.dir=-1; } else { prSort.k='seq'; prSort.dir=1; } drawProdHist(); };
     document.getElementById('prAll').onclick=e=>{ document.querySelectorAll('#prHist .prSel').forEach(c=>{ c.checked=e.target.checked; prodSel[c.checked?'add':'delete'](c.dataset.id); }); };
@@ -3618,6 +3649,19 @@ function renderProduction(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>th.onclick=()=>{ const k=th.dataset.k; if(prSort.k===k) prSort.dir*=-1; else { prSort.k=k; prSort.dir=1; } drawProdHist(); });
   loadProd();
 }
+/* the manual entry form — rarely needed (baskets normally arrive from the Filling Sheet), so it lives in a pop-up rather than on the page */
+function openManualEntry(){
+  if(!prodLines.length) prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:todayISO()}];
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Enter a basket manually</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
+   <p class="hint" style="margin:6px 0 10px">For the odd basket that didn’t come through the Filling Sheet. Stock is deducted by recipe percentage when you save.</p>
+   <div class="toolbar"><label class="fld">Date<input type="date" id="prDate" value="${todayISO()}"></label></div>
+   <div id="prLines"></div><button class="btn ghost sm" id="prAdd">+ Add line</button>
+   <div class="toolbar" style="margin-top:12px"><button class="btn coral" id="prSave">Save day &amp; deduct stock</button><span class="hint" id="prMsg"></span></div>`);
+  drawProdLines();
+  document.getElementById('prAdd').onclick=()=>{ const last=prodLines[prodLines.length-1]||{}; const nb=(last.basket&&/^\d+$/.test(last.basket))?String(+last.basket+1):''; prodLines.push({recipeId:last.recipeId||'',pack:last.pack||'',bags:'',batch:last.batch||'',basket:nb,mince:last.mince||'',cook:last.cook||todayISO()}); drawProdLines(); };
+  document.getElementById('prSave').onclick=saveProduction;
+}
+window.openManualEntry=openManualEntry;
 let allProd=[], prSort={k:'cook_date',dir:-1}, prodSel=new Set(), prodUndo=[];
 function prodLineFromRow(p){ const r=p.recipe_id?byId(p.recipe_id):null; return {recipe_id:p.recipe_id||'',product:p.product,pack:p.pack,qty:+p.qty||0,kg:+p.kg||0,batch:p.batch||'',basket:p.basket||'',retort:p.retort||'',mince:p.mince_date||'',filled:p.filled_date||'',cook:p.cook_date||'',julian:p.julian_code||'',bestBefore:p.best_before||'',tempStart:p.temp_start||'',tempFinish:p.temp_finish||'',fillStart:p.fill_start||'',fillFinish:p.fill_finish||'',operators:p.operators||0,stackId:p.stack_id||'',stackComplete:(p.stack_complete==null?1:p.stack_complete),trays:p.trays||0,deductions:(r?deductionsFor(r,+p.qty||0,p.pack):[])}; }
 function pushUndo(e){ prodUndo.push(e); if(prodUndo.length>40) prodUndo.shift(); updateUndoBtn(); }
@@ -3671,6 +3715,8 @@ function populateProdFilters(){
   const rt=document.getElementById('prRetort'); if(rt){ const cr=rt.value; const rets=[...new Set(allProd.map(p=>p.retort).filter(Boolean))].sort(); rt.innerHTML='<option value="">All</option>'+rets.map(r=>`<option${r===cr?' selected':''}>${escapeHtml(r)}</option>`).join(''); }
 }
 async function loadProd(){ try{ allProd=await api('/api/production'); }catch(e){ return; } populateProdFilters(); drawProdHist(); }
+/* the retort a basket was cooked in, as a coloured pill so Retort 1 vs 2 reads at a glance; not cooked yet = — */
+function retortPill(v){ v=(v==null?'':''+v).trim(); if(!v) return '<span class="muted">—</span>'; const n=(v.match(/\d+/)||[''])[0]; const cls=n==='1'?'rp1':(n==='2'?'rp2':'rp0'); const label=/retort/i.test(v)?v:('Retort '+v); return `<span class="pill ${cls}">${escapeHtml(label)}</span>`; }
 function drawProdHist(){
   const rows=prFiltered();
   const bags=rows.reduce((a,p)=>a+(+p.qty||0),0), kg=rows.reduce((a,p)=>a+(+p.kg||0),0);
@@ -3682,7 +3728,7 @@ function drawProdHist(){
   document.querySelectorAll('#prTable thead th.sortable').forEach(th=>{ const sa=th.querySelector('.sa'); if(sa) sa.textContent = th.dataset.k===prSort.k ? (prSort.dir>0?'▲':'▼') : ''; });
   const canEd=canEdit('production'); const manual=prSort.k==='seq';
   const drag=(canEd&&manual)?'draggable="true"':'';
-  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?16:15}" class="muted">No records match the filter.</td></tr>`;
+  document.getElementById('prHist').innerHTML=rows.map(p=>`<tr data-id="${p.id}" ${drag} class="${manual&&canEd?'prDrag':''}">${canEd?`<td>${manual?'<span class="draghand" title="Drag to reorder">⠿</span> ':''}<input type="checkbox" class="prSel" data-id="${p.id}" ${prodSel.has(p.id)?'checked':''}></td>`:''}<td>${canEd?`<input type="date" class="prCook" data-id="${p.id}" value="${escapeHtml(p.cook_date||'')}" style="font-size:12px">`:escapeHtml(p.cook_date||'')}</td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td class="num">${fmt(p.kg)}</td><td>${escapeHtml(p.batch||'')}</td><td>${escapeHtml(p.basket||'')}</td><td>${retortPill(p.retort)}</td><td>${escapeHtml(p.mince_date||'')}</td><td>${escapeHtml(p.filled_date||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td><td>${escapeHtml(p.temp_start||'')}</td><td>${escapeHtml(p.temp_finish||'')}</td><td>${escapeHtml(p.by||'')}</td><td class="num" style="white-space:nowrap">${canEd?`<button class="btn ghost sm" onclick="editProd('${p.id}')">Edit</button> <button class="btn danger" onclick="delProd('${p.id}')">✕</button>`:''}</td></tr>`).join('')||`<tr><td colspan="${canEd?17:16}" class="muted">No records match the filter.</td></tr>`;
   if(canEd){
     document.querySelectorAll('#prHist .prSel').forEach(c=>c.onclick=()=>{ prodSel[c.checked?'add':'delete'](c.dataset.id); });
     document.querySelectorAll('#prHist .prCook').forEach(inp=>inp.onchange=()=>assignCookSingle(inp.dataset.id,inp.value));
@@ -3758,7 +3804,7 @@ async function saveProduction(){
   if(!lines.length){ document.getElementById('prMsg').textContent='Add at least one complete line.'; return; }
   document.getElementById('prMsg').textContent='Saving…';
   try{ await api('/api/production','POST',{date,lines}); await reloadStock(); prodLines=[{recipeId:'',pack:'',bags:'',batch:'',basket:'',mince:'',cook:''}];
-    document.getElementById('prMsg').textContent='Saved ✓ stock updated.'; drawProdLines(); loadProd();
+    closeModal(); loadProd();   // the pop-up closes and the new rows appear in the table
   }catch(e){ document.getElementById('prMsg').textContent='Failed: '+e.message; }
 }
 async function delProd(id){ if(!confirm('Delete this production line? You can press Undo to bring it back.'))return; const row=allProd.find(p=>p.id===id); await api('/api/production/'+encodeURIComponent(id),'DELETE'); if(row) pushUndo({type:'delete',row:Object.assign({},row),label:'delete'}); await reloadStock(); loadProd(); }
