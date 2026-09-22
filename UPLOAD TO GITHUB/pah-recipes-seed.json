@@ -1,0 +1,387 @@
+{
+ "version": 1,
+ "brand": "PAH",
+ "newIngredients": [
+  {
+   "name": "Lentils",
+   "category": "Plant",
+   "gbpPerKg": 4.0
+  }
+ ],
+ "recipes": [
+  {
+   "appName": "Chicken",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 48.5,
+     "perKg": 0.9
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 5.0,
+     "perKg": 1.45
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 10.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Beef",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Beef Trim",
+     "kg": 21.5,
+     "perKg": 1.5
+    },
+    {
+     "name": "Beef Heart",
+     "kg": 10.0,
+     "perKg": 1.9
+    },
+    {
+     "name": "Beef Lung",
+     "kg": 15.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Beef Liver",
+     "kg": 15.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 10.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Fish",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Cod",
+     "kg": 50.0,
+     "perKg": 1.0
+    },
+    {
+     "name": "Salmon Trim",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 4.0,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Game",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Venison Trim",
+     "kg": 17.0,
+     "perKg": 2.5
+    },
+    {
+     "name": "Pork Trimming",
+     "kg": 15.0,
+     "perKg": 1.0
+    },
+    {
+     "name": "Pork Heart",
+     "kg": 16.5,
+     "perKg": 0.9
+    },
+    {
+     "name": "Pork Liver",
+     "kg": 15.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Turkey",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Turkey Trim",
+     "kg": 44.0,
+     "perKg": 1.65
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 5.0,
+     "perKg": 1.5
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 15.0,
+     "perKg": 1.45
+    },
+    {
+     "name": "Carrot",
+     "kg": 12.5,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Poultry Puppy",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 48.5,
+     "perKg": 0.9
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 5.0,
+     "perKg": 1.45
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 10.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  },
+  {
+   "appName": "Lamb",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Lamb Trim",
+     "kg": 31.5,
+     "perKg": 2.2
+    },
+    {
+     "name": "Lamb MDM",
+     "kg": 20.0,
+     "perKg": 1.6
+    },
+    {
+     "name": "Lamb Liver",
+     "kg": 4.0,
+     "perKg": 1.45
+    },
+    {
+     "name": "Lamb Lung",
+     "kg": 8.0,
+     "perKg": 1.0
+    },
+    {
+     "name": "Carrot",
+     "kg": 13.0,
+     "perKg": 0.6
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 10.0,
+     "perKg": 0.8
+    },
+    {
+     "name": "Broccoli",
+     "kg": 8.0,
+     "perKg": 0.85
+    },
+    {
+     "name": "Mineral Mix",
+     "kg": 1.0,
+     "perKg": 3.0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 0.5,
+     "perKg": 1.9
+    },
+    {
+     "name": "Lentils",
+     "kg": 4.0,
+     "perKg": 4.0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,1951 @@
+{
+ "version": 1,
+ "brand": "PAH",
+ "initialRange": "Initial recipes",
+ "newIngredients": [
+  {
+   "name": "Beef Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Beetroot",
+   "category": "Plant"
+  },
+  {
+   "name": "Brewers Yeast",
+   "category": "Supplement"
+  },
+  {
+   "name": "Buckwheat",
+   "category": "Plant"
+  },
+  {
+   "name": "Cat Vitamin & Mineral Premix",
+   "category": "Premix"
+  },
+  {
+   "name": "Chicken Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Chicken Gizzard",
+   "category": "Meat"
+  },
+  {
+   "name": "Chicken Kidney",
+   "category": "Meat"
+  },
+  {
+   "name": "Chicory Root",
+   "category": "Plant"
+  },
+  {
+   "name": "Courgette",
+   "category": "Plant"
+  },
+  {
+   "name": "Cranberry",
+   "category": "Plant"
+  },
+  {
+   "name": "Dog Botanical Blend",
+   "category": "Premix"
+  },
+  {
+   "name": "Dog Vitamin & Mineral Premix",
+   "category": "Premix"
+  },
+  {
+   "name": "Duck Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Fish Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Fish Trimmings",
+   "category": "Meat"
+  },
+  {
+   "name": "Flaxseed Oil",
+   "category": "Oil"
+  },
+  {
+   "name": "Lamb Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Lamb Kidney",
+   "category": "Meat"
+  },
+  {
+   "name": "Pork Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Pork Kidney",
+   "category": "Meat"
+  },
+  {
+   "name": "Prawn",
+   "category": "Fish"
+  },
+  {
+   "name": "Red Lentils",
+   "category": "Plant"
+  },
+  {
+   "name": "Turkey Bone Broth",
+   "category": "Broth"
+  },
+  {
+   "name": "Turkey Gizzard",
+   "category": "Meat"
+  }
+ ],
+ "ranges": [
+  "Fresh Frozen Dog",
+  "Ambient Dog",
+  "Fresh Frozen Cat",
+  "Ambient Cat"
+ ],
+ "recipes": [
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Puppy Chicken & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Trim",
+     "kg": 24.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Broccoli",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Salmon & White Fish",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 30.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cod",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Trimmings",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Peas",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Courgette",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Blueberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Chicken",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 42.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 8.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Kidney",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Broccoli",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Kale",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Lamb",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Lamb Trim",
+     "kg": 42.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Heart",
+     "kg": 8.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Liver",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Buckwheat",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Kidney",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Quinoa",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beetroot",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Blueberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Pork",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Pork Trimming",
+     "kg": 42.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Heart",
+     "kg": 8.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Liver",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Kidney",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Courgette",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Kale",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Turkey & Duck",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Duck MDM",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Trim",
+     "kg": 24.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Buckwheat",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Quinoa",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Broccoli",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cranberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Dog",
+   "appName": "Duck & Venison",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Venison Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck MDM",
+     "kg": 24.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Buckwheat",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck Heart",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Quinoa",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Kale",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beetroot",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Blueberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Dog",
+   "appName": "Puppy Chicken & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Trim",
+     "kg": 24.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Broccoli",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Dog",
+   "appName": "Salmon & Cod",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 30.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cod",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Trimmings",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Peas",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Courgette",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Blueberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Dog",
+   "appName": "Chicken",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 42.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 8.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Kidney",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Broccoli",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Kale",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Dog",
+   "appName": "Pork",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Pork Trimming",
+     "kg": 42.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Heart",
+     "kg": 8.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Liver",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Red Lentils",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Kidney",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Green Bean",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Courgette",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Kale",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Apple",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Dog",
+   "appName": "Beef & Fish",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Cod",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beef Trim",
+     "kg": 24.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beef Bone Broth",
+     "kg": 8.81,
+     "perKg": 0
+    },
+    {
+     "name": "Buckwheat",
+     "kg": 6.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beef Heart",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beef Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Carrot",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Quinoa",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Spinach",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Beetroot",
+     "kg": 3.0,
+     "perKg": 0
+    },
+    {
+     "name": "Blueberry",
+     "kg": 2.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sweet Potato Starch",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Vitamin & Mineral Premix",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Sunflower Oil",
+     "kg": 1.0,
+     "perKg": 0
+    },
+    {
+     "name": "Flaxseed Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Brewers Yeast",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Dog Botanical Blend",
+     "kg": 0.19,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Cat",
+   "appName": "Kitten Turkey & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Turkey Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Cat",
+   "appName": "Chicken & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Cat",
+   "appName": "Salmon & Prawn",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 45.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cod",
+     "kg": 37.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Trimmings",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Prawn",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Cat",
+   "appName": "Turkey & Duck",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Turkey Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck MDM",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Fresh Frozen Cat",
+   "appName": "Lamb & Pork",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Lamb Trim",
+     "kg": 49.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Trimming",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Cat",
+   "appName": "Kitten Turkey & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Turkey Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Cat",
+   "appName": "Chicken & Salmon",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Chicken Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Trim",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Chicken Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Cat",
+   "appName": "Salmon & Prawn",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Salmon Trim",
+     "kg": 45.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cod",
+     "kg": 37.0,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Fish Trimmings",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Prawn",
+     "kg": 4.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Cat",
+   "appName": "Turkey & Duck",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Turkey Trim",
+     "kg": 44.0,
+     "perKg": 0
+    },
+    {
+     "name": "Duck MDM",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Turkey Gizzard",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  },
+  {
+   "range": "Ambient Cat",
+   "appName": "Lamb & Pork",
+   "batchSize": 100,
+   "wastePct": 0.05,
+   "ingredients": [
+    {
+     "name": "Lamb Trim",
+     "kg": 49.0,
+     "perKg": 0
+    },
+    {
+     "name": "Pork Trimming",
+     "kg": 26.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Heart",
+     "kg": 10.0,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Bone Broth",
+     "kg": 7.2,
+     "perKg": 0
+    },
+    {
+     "name": "Lamb Liver",
+     "kg": 5.0,
+     "perKg": 0
+    },
+    {
+     "name": "Cat Vitamin & Mineral Premix",
+     "kg": 1.5,
+     "perKg": 0
+    },
+    {
+     "name": "Salmon Oil",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Chicory Root",
+     "kg": 0.5,
+     "perKg": 0
+    },
+    {
+     "name": "Psyllium Husk",
+     "kg": 0.2,
+     "perKg": 0
+    },
+    {
+     "name": "Taurine",
+     "kg": 0.1,
+     "perKg": 0
+    }
+   ]
+  }
+ ]
+}
