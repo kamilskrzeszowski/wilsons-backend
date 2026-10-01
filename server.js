@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v46';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v48';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -1859,16 +1859,36 @@ const server = http.createServer(async (req, res) => {
       }
       if (url === '/api/mixes' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM mixes ORDER BY date DESC, created DESC').all());
       if (url === '/api/mixes' && m === 'POST') {
-        const b = await readBody(req); const id = uid('mx');
-        db.prepare('INSERT INTO mixes(id,date,recipe_id,batch,kg,by,created) VALUES(?,?,?,?,?,?,?)').run(id, b.date || '', b.recipe_id || '', b.batch || '', +b.kg || 0, user.username, now());
+        const b = await readBody(req);
         const ins = db.prepare('INSERT INTO mix_items(mix_id,ing_id,batch_code,qty) VALUES(?,?,?,?)');
+        // v48: editing an existing mix (e.g. a wrong batch picked) replaces its details and batch choices, keeping who/when
+        if (b.id && db.prepare('SELECT id FROM mixes WHERE id=?').get(b.id)) {
+          db.prepare('UPDATE mixes SET date=?,recipe_id=?,batch=?,kg=?,run_key=?,mince_date=?,prod_ids=?,by=?,updated=? WHERE id=?')
+            .run(b.date || '', b.recipe_id || '', b.batch || '', +b.kg || 0, b.run_key || '', b.mince_date || '', b.prod_ids || '', user.username, now(), b.id);
+          db.prepare('DELETE FROM mix_items WHERE mix_id=?').run(b.id);
+          (b.items || []).forEach(it => { if (it.ing_id && it.batch_code) ins.run(b.id, it.ing_id, it.batch_code, +it.qty || 0); });
+          return json(res, 200, { ok: true, id: b.id });
+        }
+        const id = uid('mx');
+        db.prepare('INSERT INTO mixes(id,date,recipe_id,batch,kg,by,created,run_key,mince_date,prod_ids) VALUES(?,?,?,?,?,?,?,?,?,?)')
+          .run(id, b.date || '', b.recipe_id || '', b.batch || '', +b.kg || 0, user.username, now(), b.run_key || '', b.mince_date || '', b.prod_ids || '');
         (b.items || []).forEach(it => { if (it.ing_id && it.batch_code) ins.run(id, it.ing_id, it.batch_code, +it.qty || 0); });
         return json(res, 200, { ok: true, id });
+      }
+      // v48: remembered "this old product name = this recipe" choices for runs that pre-date recipe links
+      if (url === '/api/run-aliases' && (m === 'GET' || m === 'PUT')) {
+        let v = {}; try { v = JSON.parse((db.prepare("SELECT value FROM meta WHERE key='runRecipeAliases'").get() || {}).value || '{}'); } catch (e) { v = {}; }
+        if (m === 'PUT') {
+          const b = await readBody(req);
+          if (b.product) { if (b.recipe_id) v[b.product] = b.recipe_id; else delete v[b.product]; }
+          db.prepare("INSERT INTO meta(key,value) VALUES('runRecipeAliases',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(v));
+        }
+        return json(res, 200, v);
       }
       if (url.startsWith('/api/mixes/') && m === 'GET') { const id = decodeURIComponent(url.split('/').pop()); const mix = db.prepare('SELECT * FROM mixes WHERE id=?').get(id); if (!mix) return json(res, 404, { error: 'not found' }); mix.items = db.prepare('SELECT ing_id,batch_code,qty FROM mix_items WHERE mix_id=?').all(id); return json(res, 200, mix); }
       if (url.startsWith('/api/mixes/') && m === 'DELETE') { const id = decodeURIComponent(url.split('/').pop()); db.prepare('DELETE FROM mix_items WHERE mix_id=?').run(id); db.prepare('DELETE FROM mixes WHERE id=?').run(id); return json(res, 200, { ok: true }); }
       // recall: which mixes used an ingredient batch code
-      if (url === '/api/trace/batch' && m === 'GET') { const q = new URLSearchParams((req.url.split('?')[1] || '')); const code = q.get('code') || ''; return json(res, 200, db.prepare('SELECT m.id,m.date,m.recipe_id,m.batch,m.kg,mi.ing_id,mi.qty FROM mix_items mi JOIN mixes m ON m.id=mi.mix_id WHERE mi.batch_code=? ORDER BY m.date DESC').all(code)); }
+      if (url === '/api/trace/batch' && m === 'GET') { const q = new URLSearchParams((req.url.split('?')[1] || '')); const code = q.get('code') || ''; return json(res, 200, db.prepare('SELECT m.id,m.date,m.recipe_id,m.batch,m.kg,m.prod_ids,m.mince_date,mi.ing_id,mi.qty FROM mix_items mi JOIN mixes m ON m.id=mi.mix_id WHERE mi.batch_code=? ORDER BY m.date DESC').all(code)); }
       // mark a stack complete / still-open (used when a part-full stack is topped up later)
       if (url === '/api/stack/complete' && m === 'POST') {
         const b = await readBody(req); if (!b.stack_id) return json(res, 400, { error: 'stack_id required' });
@@ -1993,7 +2013,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); importDeliveries2026(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 seedRecipeVersions(); freezeStockUsage();   // v26: recipe version history + frozen per-batch stock usage
 try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign, notifyAssignBatch, sendMail, emailShell, mailOn, graphFetch, mailFrom: MAIL.from, mailTaskCategory: MAIL.taskCategory, emailImportEnabled }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // v28: Planning routines (recurring/routine tasks) — generate today's due instances, then recheck
@@ -2022,3 +2042,59 @@ setInterval(runEmailImportTick, 5 * 60 * 1000);
 try { writeDailyBackup(); } catch (e) {}
 setInterval(() => { try { writeDailyBackup(); } catch (e) {} }, 24 * 3600 * 1000);
 server.listen(PORT, () => console.log('Wilsons HQ ' + APP_VERSION + ' backend on port ' + PORT + '  (db: ' + DB_FILE + ')'));
+
+/* ============================================================================
+ * v47 — one-time load of the goods-in rows that were only in the Ayr spreadsheet
+ * (the "Deliveries Log" sheet, 15 Jun → 30 Sep 2026, plus a few earlier stragglers).
+ * Reads deliveries-seed-2026-09.json next to this file. Safe to leave in place:
+ *   • runs once (meta key delivImport2026v), additive only, inside a transaction;
+ *   • skips any row already present (same date + ingredient text + kg + batch);
+ *   • rows dated AFTER the stock snapshot (15 Jun 2026) are hist=0 so they count
+ *     toward stock — they are the arrivals missing while live production deducted;
+ *     rows on/before it are hist=1 (goods-in record + batch code only) because
+ *     the opening stock already included them;
+ *   • creates the four new ingredients named in the file if they don't exist;
+ *   • re-points earlier "Turkey - Diced" rows to Turkey Trim (was Turkey MDM).
+ * ==========================================================================*/
+function importDeliveries2026() {
+  let seed; try { seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'deliveries-seed-2026-09.json'), 'utf8')); } catch (e) { return; }
+  const want = +(seed.version || 1);
+  const have = +((db.prepare("SELECT value FROM meta WHERE key='delivImport2026v'").get() || {}).value || 0);
+  if (have >= want) return;
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  const qk = v => { const n = parseFloat(v); return isNaN(n) ? String(v == null ? '' : v).trim() : String(Math.round(n * 1000) / 1000); };
+  const ingByName = n => db.prepare('SELECT id FROM ingredients WHERE lower(trim(name))=?').get(norm(n));
+  const existing = new Set(db.prepare('SELECT date,descr,qty,batch FROM deliveries').all().map(d => [d.date, norm(d.descr), qk(d.qty), String(d.batch || '').trim()].join('|')));
+  const insD = db.prepare('INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+  let created = 0, remapped = 0, added = 0, skipped = 0, unlinked = 0;
+  db.exec('BEGIN');
+  try {
+    (seed.newIngredients || []).forEach(ni => {
+      if (ingByName(ni.name)) return;
+      const id = uid('i');
+      db.prepare('INSERT INTO ingredients(id,name,category,supplier,notes) VALUES(?,?,?,?,?)').run(id, ni.name, ni.category || '', '', 'Added by the Sep 2026 deliveries load');
+      db.prepare('INSERT OR IGNORE INTO stock(ing_id,opening,reorder,supplier) VALUES(?,0,0,?)').run(id, '');
+      created++;
+    });
+    (seed.remap || []).forEach(rm => {
+      const to = ingByName(rm.to); if (!to) return;
+      remapped += db.prepare('UPDATE deliveries SET ing_id=? WHERE lower(trim(descr))=? AND ing_id<>?').run(to.id, norm(rm.descr), to.id).changes;
+    });
+    (seed.rows || []).forEach(r => {
+      const key = [r.date, norm(r.descr), qk(r.qty), String(r.batch || '').trim()].join('|');
+      if (existing.has(key)) { skipped++; return; }
+      const ing = r.ing ? ingByName(r.ing) : null; if (!ing) unlinked++;
+      insD.run(uid('dh'), r.date || '', r.supplier || '', r.approval || '', ing ? ing.id : '', r.descr || '', +r.qty || 0, r.ref || '', r.approved || '', r.temp || '', r.veh || '', r.qual || '', r.type || '', r.batch || '', r.initials || '', 'import', now(), r.hist ? 1 : 0);
+      existing.add(key); added++;
+    });
+    db.prepare("INSERT INTO meta(key,value) VALUES('delivImport2026v',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(want));
+    db.exec('COMMIT');
+    console.log('Deliveries load v' + want + ': added ' + added + ' goods-in rows (' + unlinked + ' packaging/treats not linked to stock), skipped ' + skipped + ' already present, created ' + created + ' ingredients, re-pointed ' + remapped + ' Turkey - Diced rows.');
+  } catch (e) { db.exec('ROLLBACK'); console.log('deliveries load failed (nothing changed):', e.message); }
+}
+
+/* v48 — Pick & Mix against mincing runs: a mix can be tied to the exact production rows it fed. Additive columns. */
+try { db.exec("ALTER TABLE mixes ADD COLUMN run_key TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE mixes ADD COLUMN mince_date TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE mixes ADD COLUMN prod_ids TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE mixes ADD COLUMN updated TEXT DEFAULT ''"); } catch (e) {}

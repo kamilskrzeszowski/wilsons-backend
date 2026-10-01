@@ -351,7 +351,7 @@ tr.prDrag:hover{background:#faf3ee}
     </div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v46</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v48</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -2241,6 +2241,18 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v48', date:'1 Oct 2026', notes:[
+    'Pick & Mix now works per mincing run. A new “Mixing runs” tab lists every mix from Record Production — mince date, product, Julian, mix kg, pack split (e.g. 700g × 195 · 300g × 84), baskets and cook dates — with “＋ Add pick & mix” on each. It opens the batch chooser already filled in from the run, so you only pick the batch codes; saving records them against that run and its exact baskets. Recorded runs show ✓ and can be edited (who changed it and when is kept).',
+    'Mixing sheet with batch codes: the 🖨 button on a run prints the sheet in the usual format — pack split, bag counts, the tick-box ingredient table — with the Batch code column filled in from the saved pick & mix (blank for handwriting if not recorded yet).',
+    'Batch size and waste: when adding a pick & mix you set the batch that was actually minced (e.g. 200 kg) against what was filled (191 kg). The difference shows as waste on the run, in the chooser as you type, and on the printed sheet — and the ingredient quantities are worked out from the minced batch, not the filled total.',
+    'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
+    'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
+  ]},
+  {v:'v47', date:'1 Oct 2026', notes:[
+    'Goods-in history caught up: the 142 deliveries that were only in the Ayr spreadsheet (mostly 15 Jun – 30 Sep 2026) are now in HQ with their full goods-in record — temperature, vehicle, quality, FFHC/CAT 3, delivery ref, batch number, initials — so every batch code is available to pick in Pick & Mix. Nothing already in HQ was changed or duplicated.',
+    'Stock: deliveries dated after the 15 June stock snapshot now count toward stock on hand (they were the arrivals missing while production kept deducting), so levels for the meats, veg and dry goods delivered since June have gone up accordingly. Packaging and bought-in treats are kept as goods-in records only and do not touch ingredient stock. A stocktake is the right way to true-up any level that still looks off.',
+    'Four ingredients added for the cold-pressed and Naked ranges: Pea Protein, Rice Meal, Wilsons Veg Cold Pressed Premix, Naked Dog Wet Premix. “Turkey - Diced” deliveries now count as Turkey Trim (they were under Turkey MDM).'
+  ]},
   {v:'v46', date:'22 Sep 2026', notes:[
     'Production Planner can now run past Friday. Saturday and Sunday sit folded as slim “+ Sat” / “+ Sun” tabs at the right of the week — click one and it unfolds into a full day column for that week only. Mon–Fri weeks look exactly as before; a 6- or 7-day week keeps every column at full width and scrolls sideways a little rather than squashing the recipe rows. An empty weekend day can be folded away again with the ✕ next to its name. Print plan, picking & cook plan and the Filling Dashboard all follow automatically.',
     'Filling Dashboard — the “Bags per hour” graph now follows the real filling day. It always shows 07:00–14:00 and grows to the right for as long as filling actually ran, with each hour’s bags in their own hour. (Previously anything filled after 2pm was piled into the 2pm bar.) “Pace now” and “Projected finish” keep updating after 14:30 instead of freezing; the target line and the 14:30 line target stay as they are.',
@@ -2436,7 +2448,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v46';
+const APP_VERSION='v48';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -3464,16 +3476,17 @@ function exportProdsumCsv(){
 window.drawProdsum=buildProdsum;
 
 /* ===== Pick & Mix — ingredient batch traceability ===== */
-let pmSeg='new', pmMix=null;
+let pmSeg='runs', pmMix=null;
 function newPmMix(){ return {recipeId:'',batch:julianToday(),kg:0,sel:{}}; }
 function renderPickmix(){ const root=document.getElementById('rootPickmix'); if(!root) return; if(!pmMix) pmMix=newPmMix();
   root.innerHTML='<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">'+
-    '<button class="btn '+(pmSeg==='new'?'coral':'ghost')+' sm" data-ps="new">＋ New mix</button>'+
+    '<button class="btn '+(pmSeg==='runs'?'coral':'ghost')+' sm" data-ps="runs">Mixing runs</button>'+
+    '<button class="btn '+(pmSeg==='new'?'coral':'ghost')+' sm" data-ps="new">'+(pmMix&&pmMix.run?'Pick &amp; mix for this run':'＋ New mix')+'</button>'+
     '<button class="btn '+(pmSeg==='mixes'?'coral':'ghost')+' sm" data-ps="mixes">Recent mixes</button>'+
     '<button class="btn '+(pmSeg==='trace'?'coral':'ghost')+' sm" data-ps="trace">🔎 Trace / recall</button>'+
    '</div><div id="pmBody"></div>';
   root.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{ pmSeg=b.dataset.ps; renderPickmix(); });
-  if(pmSeg==='new') pmNew(); else if(pmSeg==='mixes') pmMixes(); else pmTrace();
+  if(pmSeg==='runs') pmRuns(); else if(pmSeg==='new') pmNew(); else if(pmSeg==='mixes') pmMixes(); else pmTrace();
 }
 window.renderPickmix=renderPickmix;
 function pmNeed(li){ const r=byId(pmMix.recipeId); const base=r?baseKg(r):0; return base>0?(li.kg*(+pmMix.kg||0)/base):0; }
@@ -3483,20 +3496,23 @@ function pmNew(){
     return '<tr><td>'+escapeHtml(ingName(li.ingId))+'</td><td class="num" data-need="'+li.ingId+'">'+fmt(pmNeed(li))+'</td>'+
       '<td>'+(chosen.length?('<b>'+chosen.map(escapeHtml).join(' + ')+'</b>'+(ed?' <a href="#" data-clr="'+li.ingId+'" style="color:#b4231f;text-decoration:none">✕</a>':'')):'<span style="color:#b4231f">— choose —</span>')+'</td>'+
       (ed?'<td><button class="btn ghost sm" data-pick="'+li.ingId+'">'+(chosen.length?'Change':'Choose batch')+'</button></td>':'')+'</tr>'; }).join(''):'';
-  host.innerHTML='<div class="card">'+
+  host.innerHTML=pmRunBanner()+'<div class="card">'+
     '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'+
       '<label class="fld" style="flex:2;min-width:220px">Recipe<select id="pmRec" '+(ed?'':'disabled')+'>'+prodSelectOptions(pmMix.recipeId)+'</select></label>'+
       '<label class="fld">Mix batch / Julian<input id="pmBatch" value="'+escapeHtml(pmMix.batch)+'" style="width:150px" '+(ed?'':'disabled')+'></label>'+
-      '<label class="fld">Mix size (kg)<input id="pmKg" type="number" min="0" value="'+((+pmMix.kg||'')||'')+'" style="width:130px" '+(ed?'':'disabled')+'></label>'+
+      '<label class="fld">'+(pmMix.run?'Batch minced (kg)':'Mix size (kg)')+'<input id="pmKg" type="number" min="0" value="'+((+pmMix.kg||'')||'')+'" style="width:130px" '+(ed?'':'disabled')+'></label>'+
     '</div>'+
     (r?('<h4 style="margin:14px 0 6px">Ingredients — choose a batch for each</h4>'+
       '<div style="overflow:auto"><table><thead><tr><th>Ingredient</th><th class="num">Need (kg)</th><th>Batch chosen</th>'+(ed?'<th></th>':'')+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div>'+
       (ed?'<div class="row-flex" style="margin-top:14px;gap:10px"><button class="btn coral" id="pmSave">✔ Save mix</button><button class="btn ghost" id="pmClear">Clear</button><span class="hint" id="pmMsg"></span></div>':'')
     ):'<p class="muted" style="margin-top:12px">Choose a recipe to list its ingredients.</p>')+
    '</div>';
-  const rec=document.getElementById('pmRec'); if(rec) rec.onchange=e=>{ pmMix.recipeId=e.target.value; pmMix.sel={}; const rr=byId(e.target.value); pmMix.kg=rr?baseKg(rr):0; pmNew(); };
+  const rec=document.getElementById('pmRec'); if(rec) rec.onchange=e=>{ pmMix.recipeId=e.target.value; pmMix.sel={}; const rr=byId(e.target.value);
+    if(pmMix.run){ pmMix.run.recipeId=e.target.value; if(e.target.value) pmSaveAlias(pmMix.run.product,e.target.value); }   // a run keeps its own kg; remember the recipe for this product name
+    else pmMix.kg=rr?baseKg(rr):0;
+    pmNew(); };
   const kb=document.getElementById('pmBatch'); if(kb) kb.oninput=e=>pmMix.batch=e.target.value;
-  const kk=document.getElementById('pmKg'); if(kk) kk.oninput=e=>{ pmMix.kg=+e.target.value||0; const rr=byId(pmMix.recipeId); if(!rr)return; host.querySelectorAll('[data-need]').forEach(td=>{ const li=(rr.ingredients||[]).find(x=>x.ingId===td.dataset.need); if(li) td.textContent=fmt(pmNeed(li)); }); };
+  const kk=document.getElementById('pmKg'); if(kk) kk.oninput=e=>{ pmMix.kg=+e.target.value||0; const wl=document.getElementById('pmWasteLine'); if(wl) wl.innerHTML=pmWasteText(); const rr=byId(pmMix.recipeId); if(!rr)return; host.querySelectorAll('[data-need]').forEach(td=>{ const li=(rr.ingredients||[]).find(x=>x.ingId===td.dataset.need); if(li) td.textContent=fmt(pmNeed(li)); }); };
   host.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>pmPickBatch(b.dataset.pick));
   host.querySelectorAll('[data-clr]').forEach(a=>a.onclick=e=>{ e.preventDefault(); delete pmMix.sel[a.dataset.clr]; pmNew(); });
   const sv=document.getElementById('pmSave'); if(sv) sv.onclick=pmSave;
@@ -3528,7 +3544,11 @@ function pmSave(){
   if(miss.length){ if(msg)msg.textContent='Choose a batch for: '+miss.map(li=>ingName(li.ingId)).slice(0,6).join(', ')+(miss.length>6?'…':'')+'.'; return; }
   const items=[]; (r.ingredients||[]).forEach(li=>{ const need=base>0?(li.kg*mkg/base):0; const sel=pmMix.sel[li.ingId]||[]; const each=sel.length?need/sel.length:0; sel.forEach(s=>items.push({ing_id:li.ingId,batch_code:s.batch,qty:+each.toFixed(3)})); });
   if(msg)msg.textContent='Saving…';
-  api('/api/mixes','POST',{date:todayISO(),recipe_id:r.id,batch:pmMix.batch,kg:mkg,items}).then(()=>{ pmMix=newPmMix(); pmNew(); const m=document.getElementById('pmMsg'); if(m)m.textContent='Saved ✓ mix recorded with its ingredient batches.'; }).catch(e=>{ const m=document.getElementById('pmMsg'); if(m)m.textContent='Failed: '+e.message; });
+  const run=pmMix.run; const body={date:run?run.mince:todayISO(),recipe_id:r.id,batch:pmMix.batch,kg:mkg,items};
+  if(run){ body.run_key=run.key; body.mince_date=run.mince; body.prod_ids=JSON.stringify(run.ids||[]); if(pmMix.id) body.id=pmMix.id; }
+  api('/api/mixes','POST',body).then(()=>{
+    if(run){ pmRunsCache=null; pmFlash='Saved ✓ batch codes recorded for '+run.product+' · mix '+pmMix.batch+'.'; pmMix=newPmMix(); pmSeg='runs'; renderPickmix(); return; }
+    pmMix=newPmMix(); pmNew(); const m=document.getElementById('pmMsg'); if(m)m.textContent='Saved ✓ mix recorded with its ingredient batches.'; }).catch(e=>{ const m=document.getElementById('pmMsg'); if(m)m.textContent='Failed: '+e.message; });
 }
 async function pmMixes(){
   const host=document.getElementById('pmBody'); if(!host) return; host.innerHTML='<p class="muted">Loading…</p>';
@@ -3550,6 +3570,107 @@ async function pmPrint(id){ let mix; try{ mix=await api('/api/mixes/'+encodeURIC
   const hostp=document.getElementById('view-print-picking'); hostp.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; hostp.classList.add('printing'); window.print(); setTimeout(()=>{ hostp.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
 }
 window.pmView=pmView; window.pmDel=pmDel; window.pmPrint=pmPrint;
+
+/* ===== v48 — Mixing runs: every mincing run from Record Production, with its pick & mix and a printable mixing sheet =====
+   A "run" is all the baskets from one mix: same mince date, same recipe, same Julian. The pick & mix is saved against the
+   run (and the exact production rows), so every basket and cook traces back to its ingredient batch codes. */
+let pmRunsCache=null, pmAliases=null, pmRunFilter='', pmRunMonth='', pmRunShowAll=false, pmFlash='';
+function pmProductBase(p){ return String(p||'').replace(/\s*\d+(\.\d+)?\s*(g|kg)\b.*$/i,'').trim(); }
+function pmNormName(s){ return pmProductBase(s).toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim(); }
+/* which recipe an older product name means: exact brand+name match (with "and"/"&" treated the same), else a remembered choice */
+function pmRecipeFor(product){
+  const key=pmNormName(product); if(!key) return '';
+  const hit=VREC().find(r=>pmNormName(r.brand+' '+r.name)===key); if(hit) return hit.id;
+  return (pmAliases||{})[pmProductBase(product)]||'';
+}
+async function pmSaveAlias(product,recipeId){ try{ pmAliases=await api('/api/run-aliases','PUT',{product:pmProductBase(product),recipe_id:recipeId}); pmRunsCache=null; }catch(e){} }
+function pmBuildRuns(prod,mixes){
+  const byKey={};
+  prod.filter(p=>p.mince_date).forEach(p=>{
+    const jul=p.julian_code||p.batch||''; const rid=p.recipe_id||pmRecipeFor(p.product); const base=pmProductBase(p.product);
+    const key=p.mince_date+'|'+(rid||('name:'+base.toLowerCase()))+'|'+jul;
+    const r=byKey[key]||(byKey[key]={key,mince:p.mince_date,recipeId:rid,product:base,jul,kg:0,bags:0,packs:{},ids:[],cooks:{},baskets:{},ops:0});
+    r.kg+=+p.kg||0; r.bags+=+p.qty||0; const pk=p.pack||'?'; r.packs[pk]=(r.packs[pk]||0)+(+p.qty||0); r.ids.push(p.id);
+    if(p.cook_date) r.cooks[p.cook_date+(p.retort?(' · R'+p.retort):'')]=1; if(p.basket) r.baskets[p.basket]=1; if(+p.operators) r.ops=+p.operators;
+  });
+  const mixByKey={}; (mixes||[]).forEach(m=>{ if(m.run_key) mixByKey[m.run_key]=m; });
+  return Object.values(byKey).map(r=>{ r.mix=mixByKey[r.key]||null; const rr=byId(r.recipeId); r.label=rr?(rr.brand+' — '+rr.name):r.product; return r; })
+    .sort((a,b)=>b.mince.localeCompare(a.mince)||a.label.localeCompare(b.label));
+}
+function pmPackSplit(r){ return Object.keys(r.packs).sort((a,b)=>packGrams(a)-packGrams(b)).map(p=>escapeHtml(p)+' × '+fmt(r.packs[p])).join(' · '); }
+async function pmRuns(){
+  const host=document.getElementById('pmBody'); if(!host) return; host.innerHTML='<p class="muted">Loading mincing runs…</p>';
+  try{
+    if(!pmAliases) pmAliases=await api('/api/run-aliases');
+    if(!pmRunsCache){ const [prod,mixes]=await Promise.all([api('/api/production'),api('/api/mixes')]); pmRunsCache=pmBuildRuns(prod,mixes); }
+  }catch(e){ host.innerHTML='<p class="muted">Could not load: '+escapeHtml(e.message)+'</p>'; return; }
+  const ed=canEdit('pickmix'); const all=pmRunsCache;
+  const months=[...new Set(all.map(r=>r.mince.slice(0,7)))].sort().reverse();
+  const q=pmRunFilter.toLowerCase();
+  let rows=all.filter(r=>(!pmRunMonth||r.mince.startsWith(pmRunMonth))&&(!q||r.label.toLowerCase().includes(q)||r.jul.toLowerCase().includes(q)));
+  const total=rows.length; if(!pmRunShowAll&&!pmRunMonth&&!q) rows=rows.slice(0,120);
+  const done=all.filter(r=>r.mix).length;
+  const monLabel=m=>{ const d=new Date(m+'-01T00:00:00'); return d.toLocaleDateString('en-GB',{month:'short',year:'numeric'}); };
+  host.innerHTML=(pmFlash?'<div class="card" style="background:#e6f4ec;border-color:#1f7a47;color:#1f7a47;font-weight:600;margin-bottom:10px">'+escapeHtml(pmFlash)+'</div>':'')+
+    '<div class="toolbar"><input id="pmRunQ" placeholder="Search product or Julian…" value="'+escapeHtml(pmRunFilter)+'" style="width:220px">'+
+    '<select id="pmRunM"><option value="">All months</option>'+months.map(m=>'<option value="'+m+'"'+(pmRunMonth===m?' selected':'')+'>'+monLabel(m)+'</option>').join('')+'</select>'+
+    '<span class="hint">'+fmt(all.length)+' runs · '+fmt(done)+' with batch codes recorded</span><span class="spacer"></span>'+
+    '<span class="hint">A run = one mix: same mince date, recipe and Julian. Older runs not linked to a recipe ask you to choose it once.</span></div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Minced</th><th>Product</th><th>Julian</th><th class="num">Filled kg</th><th class="num">Minced kg</th><th class="num">Waste</th><th>Packs</th><th class="num">Bags</th><th>Baskets</th><th>Cooked</th><th>Batch codes</th><th></th></tr></thead><tbody>'+
+    (rows.length?rows.map((r,i)=>{ const mx=r.mix; const n=mx?(+mx.n||0):0; const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
+      return '<tr><td>'+escapeHtml(r.mince)+'</td><td><b>'+escapeHtml(r.label)+'</b>'+(r.recipeId?'':' <span class="pill low" title="This older product name isn’t linked to a recipe yet — choose it when you add the pick & mix">recipe?</span>')+'</td><td><b>'+escapeHtml(r.jul)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+(mx?('<b>'+fmt(+mx.kg||0)+'</b>'):'<span class="muted">—</span>')+'</td><td class="num">'+pmWasteCell(r)+'</td><td style="white-space:nowrap">'+pmPackSplit(r)+'</td><td class="num">'+fmt(r.bags)+'</td><td>'+(bk.length?escapeHtml(bk.join(', ')):'—')+'</td><td style="white-space:nowrap">'+(cooks.length?escapeHtml(cooks.join(', ')):'<span class="muted">—</span>')+'</td>'+
+        '<td>'+(mx?'<span class="pill ok">✓ recorded</span>':'<span class="pill low">not recorded</span>')+'</td>'+
+        '<td class="num" style="white-space:nowrap">'+(ed?(mx?'<button class="btn ghost sm" data-pmedit="'+i+'">Edit</button> ':'<button class="btn coral sm" data-pmadd="'+i+'">＋ Add pick &amp; mix</button> '):'')+'<button class="btn ghost sm" data-pmprint="'+i+'" title="Print the mixing sheet'+(mx?' with batch codes':' (batch codes blank)')+'">🖨</button></td></tr>'; }).join('')
+      :'<tr><td colspan="12" class="muted">No mincing runs match.</td></tr>')+
+    '</tbody></table></div>'+(total>rows.length?'<p class="hint" style="margin-top:8px">Showing the latest '+rows.length+' of '+total+' runs. <a href="#" id="pmRunAll">Show all</a></p>':'');
+  pmFlash='';
+  document.getElementById('pmRunQ').oninput=e=>{ pmRunFilter=e.target.value; clearTimeout(pmRuns._t); pmRuns._t=setTimeout(pmRuns,180); };
+  document.getElementById('pmRunM').onchange=e=>{ pmRunMonth=e.target.value; pmRuns(); };
+  const sa=document.getElementById('pmRunAll'); if(sa) sa.onclick=e=>{ e.preventDefault(); pmRunShowAll=true; pmRuns(); };
+  host.querySelectorAll('[data-pmadd]').forEach(b=>b.onclick=()=>pmStartRun(rows[+b.dataset.pmadd]));
+  host.querySelectorAll('[data-pmedit]').forEach(b=>b.onclick=()=>pmEditRun(rows[+b.dataset.pmedit]));
+  host.querySelectorAll('[data-pmprint]').forEach(b=>b.onclick=()=>pmPrintRun(rows[+b.dataset.pmprint]));
+}
+function pmRunCtx(r){ return {key:r.key,mince:r.mince,ids:r.ids,product:r.product,label:r.label,packs:r.packs,bags:r.bags,kg:r.kg,ops:r.ops,recipeId:r.recipeId}; }
+/* batch minced (what you set) vs filled (from the baskets): the difference is waste */
+function pmWasteText(){ const r=pmMix&&pmMix.run; if(!r) return ''; const b=+pmMix.kg||0, f=+r.kg||0, w=b-f; if(!b) return '<span style="color:#b4231f">Enter the batch size that was minced.</span>';
+  if(w<-0.05) return '<span style="color:#b4231f">⚠ Batch '+fmt(b)+' kg is <b>less</b> than the '+fmt(f)+' kg filled — check the batch size.</span>';
+  if(w<=0.05) return 'Batch minced <b>'+fmt(b)+' kg</b> = filled '+fmt(f)+' kg · no waste recorded. <span class="muted">If more was minced than filled, set the batch size above — the difference is waste.</span>';
+  return 'Batch minced <b>'+fmt(b)+' kg</b> · filled '+fmt(f)+' kg · <b style="color:#b4231f">waste '+fmt(w)+' kg ('+(w/b*100).toFixed(1)+'%)</b>'; }
+function pmWasteCell(r){ if(!r.mix) return '<span class="muted">—</span>'; const b=+r.mix.kg||0, w=b-r.kg; if(w<-0.05) return '<span style="color:#b4231f" title="Batch size is less than what was filled">'+fmt(w)+' kg ⚠</span>'; if(w<=0.05) return '<span class="muted">0</span>'; return fmt(w)+' kg <span class="muted">('+(b?(w/b*100).toFixed(1):'0')+'%)</span>'; }
+function pmStartRun(r){ pmMix={recipeId:r.recipeId||'',batch:r.jul,kg:+(r.kg.toFixed(1)),sel:{},run:pmRunCtx(r)}; pmSeg='new'; renderPickmix(); }
+async function pmEditRun(r){
+  let mix; try{ mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); }catch(e){ alert(e.message); return; }
+  const sel={}; (mix.items||[]).forEach(it=>{ (sel[it.ing_id]=sel[it.ing_id]||[]).push({batch:it.batch_code}); });
+  pmMix={id:mix.id,recipeId:mix.recipe_id||r.recipeId||'',batch:mix.batch||r.jul,kg:+mix.kg||+(r.kg.toFixed(1)),sel,run:pmRunCtx(r)};
+  pmSeg='new'; renderPickmix();
+}
+function pmRunBanner(){
+  if(!pmMix||!pmMix.run) return ''; const r=pmMix.run; const rr=byId(pmMix.recipeId);
+  return '<div class="card" style="background:#faf3ee;border-color:var(--coral);margin-bottom:10px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>'+(pmMix.id?'Editing':'Pick &amp; mix for')+' mincing run</b> — '+escapeHtml(rr?(rr.brand+' — '+rr.name):r.label)+' · minced '+escapeHtml(r.mince)+' · Julian <b>'+escapeHtml(pmMix.batch)+'</b> · filled <b>'+fmt(r.kg)+' kg</b> as '+pmPackSplit({packs:r.packs})+' ('+fmt(r.bags)+' bags)</div>'+
+    '<button class="btn ghost sm" onclick="pmMix=newPmMix();pmSeg=\'runs\';renderPickmix()">← Back to runs</button></div>'+
+    '<div id="pmWasteLine" style="margin-top:8px">'+pmWasteText()+'</div>'+
+    (pmMix.recipeId?'':'<p style="margin:8px 0 0;color:#b4231f"><b>This older run isn’t linked to a recipe yet.</b> Choose the recipe below — HQ will remember it for “'+escapeHtml(r.product)+'” and use it for every run of that name.</p>')+
+    '</div>';
+}
+/* the mixing sheet for a run, in the same format as the planner's sheets: pack split + tick-box ingredient table, batch codes filled from the saved pick & mix */
+async function pmPrintRun(r){
+  const rr=byId(r.recipeId); if(!rr){ alert('This run isn’t linked to a recipe yet — add its pick & mix (and choose the recipe) first, then print.'); return; }
+  let mix=null; if(r.mix){ try{ mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); }catch(e){} }
+  const codes={}; ((mix&&mix.items)||[]).forEach(it=>{ (codes[it.ing_id]=codes[it.ing_id]||[]).push(it.batch_code); });
+  const base=baseKg(rr)||100, kg=mix?(+mix.kg||r.kg):r.kg; let tot=0;
+  const ingRows=(rr.ingredients||[]).map(li=>{ const need=li.kg*kg/base; tot+=need; const c=(codes[li.ingId]||[]); return '<tr><td class="checkbox-cell">☐</td><td><b>'+escapeHtml(ingName(li.ingId))+'</b></td><td class="num">'+fmt(need)+'</td><td>'+(c.length?'<b>'+c.map(escapeHtml).join(' + ')+'</b>':'')+'</td></tr>'; }).join('');
+  const split=Object.keys(r.packs).sort((a,b)=>packGrams(a)-packGrams(b)).map(p=>escapeHtml(p)+': '+fmt(r.packs[p])+' bags').join('<br>');
+  const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
+  const html='<div class="mixsheet"><div class="hd"><div><div class="t">'+escapeHtml(rr.brand+' — '+rr.name)+' · Mix '+escapeHtml(r.jul)+'</div><div class="b"><b>Wilsons Pet Food</b> · minced '+escapeHtml(r.mince)+' · batch '+fmt(kg)+' kg'+(mix?(' · filled '+fmt(r.kg)+' kg'+((kg-r.kg)>0.05?(' · waste '+fmt(kg-r.kg)+' kg ('+((kg-r.kg)/kg*100).toFixed(1)+'%)'):'')):'')+(r.ops?(' · '+r.ops+' ops'):'')+(bk.length?(' · basket'+(bk.length>1?'s':'')+' '+escapeHtml(bk.join(', '))):'')+(cooks.length?(' · cooked '+escapeHtml(cooks.join(', '))):'')+'</div></div>'+
+    '<div style="text-align:right"><div class="b"><b>Printed:</b> '+new Date().toLocaleDateString('en-GB')+'</div><div class="b">'+(mix?('Batch codes recorded by '+escapeHtml(mix.by||'')+(mix.updated?' (edited)':'')):'Batch codes: not yet recorded')+'</div></div></div>'+
+    '<table class="ms-table"><thead><tr><th>Recipe</th><th>Pack split</th><th class="num">Batch minced (kg)</th><th class="num">Filled (kg)</th><th class="num">Waste (kg)</th><th class="num">bags</th></tr></thead><tbody><tr><td><b>'+escapeHtml(rr.brand+' — '+rr.name)+'</b></td><td>'+(split||'<span class="muted">—</span>')+'</td><td class="num"><b>'+fmt(kg)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+((kg-r.kg)>0.05?fmt(kg-r.kg):(mix?'0':'—'))+'</td><td class="num">'+fmt(r.bags)+'</td></tr></tbody></table>'+
+    '<table class="ms-table" style="margin-top:10px"><thead><tr><th style="width:34px" class="checkbox-cell">✓</th><th>Ingredient</th><th class="num">Total (kg)</th><th style="width:160px">Batch code(s)</th></tr></thead><tbody>'+ingRows+'</tbody><tfoot><tr><th></th><th>TOTAL</th><th class="num">'+fmt(tot)+'</th><th></th></tr></tfoot></table>'+
+    '<p class="b" style="margin-top:14px">Mixed by: ____________________  Checked: ____________________  Date: __________</p></div>';
+  const hostp=document.getElementById('view-print-picking'); hostp.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; hostp.classList.add('printing'); window.print(); setTimeout(()=>{ hostp.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
+}
+window.pmRuns=pmRuns; window.pmStartRun=pmStartRun; window.pmEditRun=pmEditRun; window.pmPrintRun=pmPrintRun; window.pmRunBanner=pmRunBanner; window.pmSaveAlias=pmSaveAlias;
 function pmTrace(){
   const host=document.getElementById('pmBody'); if(!host) return;
   host.innerHTML='<div class="card"><h4 style="margin:0 0 8px">Recall — where did an ingredient batch go?</h4>'+
@@ -3564,12 +3685,15 @@ async function pmDoTrace(){
   out.innerHTML='<p class="muted">Searching…</p>';
   let rows, prod; try{ rows=await api('/api/trace/batch?code='+encodeURIComponent(code)); prod=await api('/api/production'); }catch(e){ out.innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; return; }
   if(!rows.length){ out.innerHTML='<p class="muted">No mixes used batch <b>'+escapeHtml(code)+'</b>.</p>'; return; }
-  const byMix={}; rows.forEach(r=>{ if(!byMix[r.id]) byMix[r.id]={date:r.date,recipe_id:r.recipe_id,batch:r.batch,kg:r.kg}; });
+  const byMix={}; rows.forEach(r=>{ if(!byMix[r.id]) byMix[r.id]={date:r.date,recipe_id:r.recipe_id,batch:r.batch,kg:r.kg,prod_ids:r.prod_ids||''}; });
   let html='<p class="hint">Batch <b>'+escapeHtml(code)+'</b> went into '+Object.keys(byMix).length+' mix(es):</p>';
   Object.keys(byMix).forEach(id=>{ const m=byMix[id]; const r=byId(m.recipe_id); const pn=r?(r.brand+' — '+r.name):(m.recipe_id||'');
-    const linked=prod.filter(p=>p.recipe_id===m.recipe_id && (p.julian_code===m.batch||p.batch===m.batch));
-    const cooks=[...new Set(linked.filter(p=>p.cook_date).map(p=>p.cook_date))];
-    html+='<div class="card" style="margin-bottom:8px"><b>'+escapeHtml(pn)+'</b> · mix '+escapeHtml(m.batch||'')+' · '+escapeHtml(m.date||'')+' · '+fmt(m.kg)+' kg<br><span class="hint">'+(linked.length?(fmt(linked.reduce((a,p)=>a+(+p.qty||0),0))+' bags filled'+(cooks.length?(' · cooked '+cooks.map(escapeHtml).join(', ')):' · not yet cooked')):'not yet linked to filling (its Julian is '+escapeHtml(m.batch||'')+')')+'</span></div>';
+    let ids=[]; try{ ids=JSON.parse(m.prod_ids||'[]'); }catch(e){ ids=[]; }
+    // v48: a mix recorded against a run knows its exact baskets; older mixes fall back to recipe + Julian
+    const linked=ids.length?prod.filter(p=>ids.includes(p.id)):prod.filter(p=>p.recipe_id===m.recipe_id && (p.julian_code===m.batch||p.batch===m.batch));
+    const cooks=[...new Set(linked.filter(p=>p.cook_date).map(p=>p.cook_date+(p.retort?(' (R'+p.retort+')'):'')))];
+    const baskets=[...new Set(linked.map(p=>p.basket).filter(Boolean))].sort((a,b)=>(+a||0)-(+b||0)||String(a).localeCompare(String(b)));
+    html+='<div class="card" style="margin-bottom:8px"><b>'+escapeHtml(pn)+'</b> · mix '+escapeHtml(m.batch||'')+' · '+escapeHtml(m.date||'')+' · '+fmt(m.kg)+' kg<br><span class="hint">'+(linked.length?(fmt(linked.reduce((a,p)=>a+(+p.qty||0),0))+' bags filled'+(baskets.length?(' · basket'+(baskets.length>1?'s':'')+' '+baskets.map(escapeHtml).join(', ')):'')+(cooks.length?(' · cooked '+cooks.map(escapeHtml).join(', ')):' · not yet cooked')):'not yet linked to filling (its Julian is '+escapeHtml(m.batch||'')+')')+'</span></div>';
   });
   out.innerHTML=html;
 }
