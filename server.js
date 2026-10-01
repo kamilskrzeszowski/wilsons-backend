@@ -1857,7 +1857,7 @@ const server = http.createServer(async (req, res) => {
         lots.sort((a, b) => String(b.last_date).localeCompare(String(a.last_date)));
         return json(res, 200, { ing_id: ing, fifo, lots });
       }
-      if (url === '/api/mixes' && m === 'GET') return json(res, 200, db.prepare('SELECT * FROM mixes ORDER BY date DESC, created DESC').all());
+      if (url === '/api/mixes' && m === 'GET') return json(res, 200, db.prepare('SELECT m.*, (SELECT count(DISTINCT ing_id) FROM mix_items WHERE mix_id=m.id) n FROM mixes m ORDER BY m.date DESC, m.created DESC').all());   // n = ingredients with a batch code (partial saves show k of M)
       if (url === '/api/mixes' && m === 'POST') {
         const b = await readBody(req);
         const ins = db.prepare('INSERT INTO mix_items(mix_id,ing_id,batch_code,qty) VALUES(?,?,?,?)');

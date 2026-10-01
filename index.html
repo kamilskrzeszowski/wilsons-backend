@@ -2245,6 +2245,9 @@ const VERSION_HISTORY=[
     'Pick & Mix now works per mincing run. A new “Mixing runs” tab lists every mix from Record Production — mince date, product, Julian, mix kg, pack split (e.g. 700g × 195 · 300g × 84), baskets and cook dates — with “＋ Add pick & mix” on each. It opens the batch chooser already filled in from the run, so you only pick the batch codes; saving records them against that run and its exact baskets. Recorded runs show ✓ and can be edited (who changed it and when is kept).',
     'Mixing sheet with batch codes: the 🖨 button on a run prints the sheet in the usual format — pack split, bag counts, the tick-box ingredient table — with the Batch code column filled in from the saved pick & mix (blank for handwriting if not recorded yet).',
     'Batch size and waste: when adding a pick & mix you set the batch that was actually minced (e.g. 200 kg) against what was filled (191 kg). The difference shows as waste on the run, in the chooser as you type, and on the printed sheet — and the ingredient quantities are worked out from the minced batch, not the filled total.',
+    'A pick & mix can be saved before every batch code is in — the run then shows “9 of 13 — finish” instead of ✓ until you complete it with Edit; the printed sheet says how many are recorded. The batch-size box now sits in the run banner next to the waste line.',
+    'Filling Dashboard: each basket row has an Edit button (for anyone who can edit production) to correct the details recorded during filling — trolley/stack number, people, trays, fill start/finish times and temperatures — applied to every product line in that basket. Stock figures are untouched.',
+    'Cooking (and the cook-date and edit screens in Record Production): the retort is now chosen from a list — Retort 1 or Retort 2 — instead of typed, so the records stay consistent.',
     'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
     'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
   ]},
@@ -3216,7 +3219,7 @@ function renderOptimings(){
 window.renderOptimings=renderOptimings;
 
 /* ===== Filling Dashboard ===== */
-let _dashTimer=null,_dashTick=null,_dashDate=null;
+let _dashTimer=null,_dashTick=null,_dashDate=null,_fdBaskets=[];
 function stopDashTimers(){ if(_dashTimer){clearInterval(_dashTimer);_dashTimer=null;} if(_dashTick){clearInterval(_dashTick);_dashTick=null;} }
 window.stopDashTimers=stopDashTimers;
 function shiftDate(iso,n){ try{ const d=parseISO(iso); d.setDate(d.getDate()+n); return isoDate(d); }catch(e){ return iso; } }
@@ -3243,6 +3246,35 @@ function hourlyChartSvg(buckets,hours,target){
 }
 function renderFilldash(){ stopDashTimers(); if(!_dashDate)_dashDate=todayISO(); drawFilldash(); }
 window.renderFilldash=renderFilldash;
+/* v48: edit a basket's details (times, temps, people, trays, numbers) straight from the dashboard — applied to every product line in that basket */
+async function fdEditBasket(i){
+  const b=_fdBaskets[i]; if(!b||!b.rows||!b.rows.length) return; const f=b.rows[0]; const day=f.filled_date||f.date||todayISO();
+  const prods=b.rows.map(p=>'<div class="dash-row"><span class="ddot" style="background:var(--sea)"></span><b>'+escapeHtml(p.product||'')+'</b><span class="dr-right">'+escapeHtml(p.pack||'')+' · '+fmt(p.qty)+' bags</span></div>').join('');
+  const ops=+f.operators||2;
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Basket '+escapeHtml(''+b.basket)+' — edit details</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+   '<p class="hint">Filled '+escapeHtml(day)+'. These details apply to every product line in the basket ('+b.rows.length+'). Bags per product are changed in Record Production.</p>'+prods+
+   '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:12px">'+
+   '<label class="fld">Trolley / stack no.<input id="fbBasket" value="'+escapeHtml(''+(f.basket||''))+'" style="width:110px"></label>'+
+   '<label class="fld">Stack ID<input id="fbStack" value="'+escapeHtml(f.stack_id||'')+'" style="width:110px"></label>'+
+   '<label class="fld">People<select id="fbOps">'+[1,2,3,4].map(k=>'<option value="'+k+'"'+(ops===k?' selected':'')+'>'+k+'</option>').join('')+'</select></label>'+
+   '<label class="fld">Trays<input id="fbTrays" type="number" min="0" value="'+(+f.trays||'')+'" style="width:90px"></label>'+
+   '<label class="fld">Fill start<input type="time" id="fbFS" value="'+hhmm(f.fill_start)+'"></label>'+
+   '<label class="fld">Fill finish<input type="time" id="fbFF" value="'+hhmm(f.fill_finish)+'"></label>'+
+   '<label class="fld">Temp start °C<input id="fbTS" value="'+escapeHtml(f.temp_start||'')+'" style="width:90px"></label>'+
+   '<label class="fld">Temp finish °C<input id="fbTF" value="'+escapeHtml(f.temp_finish||'')+'" style="width:90px"></label></div>'+
+   '<div style="margin-top:14px"><button class="btn coral" id="fbSave">Save basket</button> <span class="hint" id="fbMsg"></span></div>');
+  document.getElementById('fbSave').onclick=async()=>{
+    const g=id=>(document.getElementById(id)||{}).value||''; const mk=v=>v?new Date(day+'T'+v+':00').toISOString():'';
+    const upd={basket:g('fbBasket').trim(),stackId:g('fbStack').trim(),operators:+g('fbOps')||0,trays:+g('fbTrays')||0,fillStart:mk(g('fbFS')),fillFinish:mk(g('fbFF')),tempStart:g('fbTS').trim(),tempFinish:g('fbTF').trim()};
+    if(upd.fillStart&&upd.fillFinish&&upd.fillFinish<upd.fillStart){ document.getElementById('fbMsg').textContent='Finish time is before start time.'; return; }
+    document.getElementById('fbMsg').textContent='Saving…';
+    try{ for(const p of b.rows){ const body=Object.assign(prodLineFromRow(p),{date:p.date||''},upd,{deductions:[]});   // deductions:[] = the stored stock figures are left exactly as they are
+        await api('/api/production/'+encodeURIComponent(p.id),'PUT',body); }
+      closeModal(); drawFilldash(); }
+    catch(e){ document.getElementById('fbMsg').textContent='Failed: '+e.message; }
+  };
+}
+window.fdEditBasket=fdEditBasket;
 async function drawFilldash(){
   const root=document.getElementById('rootFilldash'); if(!root)return;
   const date=_dashDate, isToday=(date===todayISO());
@@ -3273,14 +3305,15 @@ async function drawFilldash(){
   const progPct=planBags>0?Math.min(100,Math.round(actBags/planBags*100)):0;
   // baskets
   const bMap={};
-  act.forEach(p=>{ const bk=(p.basket||'—'); if(!bMap[bk])bMap[bk]={basket:bk,ops:p.operators||0,bags:0,prods:new Set(),items:{},start:null,finish:null,open:false};
-    const o=bMap[bk]; o.bags+=(+p.qty||0); if(p.product)o.prods.add(p.product); if(p.operators)o.ops=p.operators;
+  act.forEach(p=>{ const bk=(p.basket||'—'); if(!bMap[bk])bMap[bk]={basket:bk,ops:p.operators||0,bags:0,prods:new Set(),items:{},rows:[],start:null,finish:null,open:false};
+    const o=bMap[bk]; o.rows.push(p); o.bags+=(+p.qty||0); if(p.product)o.prods.add(p.product); if(p.operators)o.ops=p.operators;
     // per-recipe breakdown within the basket (a basket can hold two or more recipes)
     const ik=(p.product||'(unknown)')+'||'+(p.pack||''); if(!o.items[ik]) o.items[ik]={product:p.product||'(unknown)',pack:p.pack||'',bags:0}; o.items[ik].bags+=(+p.qty||0);
     if(p.fill_start && (!o.start||p.fill_start<o.start))o.start=p.fill_start;
     if(p.fill_finish){ if(!o.finish||p.fill_finish>o.finish)o.finish=p.fill_finish; } });
   Object.values(bMap).forEach(o=>{ o.open=!!(o.start&&!o.finish); });
   const baskets=Object.values(bMap).sort((a,b)=>{ const na=+a.basket,nb=+b.basket; if(!isNaN(na)&&!isNaN(nb))return na-nb; return (''+a.basket).localeCompare(''+b.basket); });
+  _fdBaskets=baskets;
   const openB=baskets.filter(b=>b.open);
   const liveCards=[]; const seenLC={};
   (isToday?live:[]).forEach(l=>{ if(!l.fill_start)return; const k=(l.basket||'')+'|'+l.fill_start; if(seenLC[k])return; seenLC[k]=1; liveCards.push({basket:l.basket,start:l.fill_start,who:l.who,products:l.products}); });
@@ -3347,8 +3380,8 @@ async function drawFilldash(){
      <tfoot><tr><th>Total</th><th></th><th class="num">${planBags.toLocaleString()}</th><th class="num">${actBags.toLocaleString()}</th><th class="num">${progPct}%</th><th></th></tr></tfoot></table>
    </div>
    <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Baskets — ${date}</h3>
-     <table><thead><tr><th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th></tr></thead>
-     <tbody>${baskets.length?baskets.map(b=>{
+     <table><thead><tr><th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th>${canEdit('production')?'<th></th>':''}</tr></thead>
+     <tbody>${baskets.length?baskets.map((b,i)=>{
        const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
        const items=Object.values(b.items);
        const recipesHtml=items.length?items.map(it=>`<div style="padding:1px 0">${escapeHtml(it.product)}${it.pack?' · '+escapeHtml(it.pack):''} <span class="muted">${it.bags.toLocaleString()} bag${it.bags===1?'':'s'}</span></div>`).join(''):'<span class="muted">—</span>';
@@ -3356,7 +3389,7 @@ async function drawFilldash(){
        let ppmHtml='<span class="muted">—</span>';
        if(mins&&mins>0){ const actPpm=b.bags/mins; let tgtMin=0; items.forEach(it=>{ const g=Math.round((packSizeKg(it.pack)||0)*1000); tgtMin+=it.bags/ppmFor(g,b.ops||2); }); const tgtPpm=tgtMin>0?b.bags/tgtMin:null; const behind=tgtPpm&&actPpm<tgtPpm*0.9; ppmHtml=`<b style="color:${behind?'#b4231f':'var(--navy)'}">${actPpm.toFixed(1)}</b>${tgtPpm?` <span class="muted">/ ${tgtPpm.toFixed(0)}</span>`:''}`; }
        else if(b.open){ ppmHtml='<span style="color:var(--coral-deep)">filling…</span>'; }
-       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td></tr>`; }).join(''):'<tr><td colspan="8" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
+       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td>${canEdit('production')?'<td class="num"><button class="btn ghost sm" data-fdedit="'+i+'" title="Edit this basket’s details — times, temps, people, trays">Edit</button></td>':''}</tr>`; }).join(''):'<tr><td colspan="9" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
    </div>
   </div>`;
   document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
@@ -3365,6 +3398,7 @@ async function drawFilldash(){
   { const td=document.getElementById('fdToday'); if(td) td.addEventListener('click',()=>{ _dashDate=todayISO(); renderFilldash(); }); }
   document.getElementById('fdReload').addEventListener('click',drawFilldash);
   root.querySelectorAll('[data-clearwho]').forEach(b=>b.addEventListener('click',()=>clearLiveWho(b.getAttribute('data-clearwho'))));
+  root.querySelectorAll('[data-fdedit]').forEach(b=>b.addEventListener('click',()=>fdEditBasket(+b.dataset.fdedit)));
   if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
   if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
   if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },30000); }
@@ -3394,7 +3428,7 @@ async function drawCooking(){
   root.innerHTML=
    '<div class="card"><div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'+
       '<label class="fld">Cook date<input type="date" id="ckDate" value="'+today+'" '+(canEd?'':'disabled')+'></label>'+
-      '<label class="fld">Retort<input id="ckRetort" placeholder="e.g. Retort 1" style="width:150px" '+(canEd?'':'disabled')+'></label>'+
+      '<label class="fld">Retort<select id="ckRetort" style="width:150px" '+(canEd?'':'disabled')+'><option value="">— choose —</option><option value="1">Retort 1</option><option value="2">Retort 2</option></select></label>'+
       (canEd?'<button class="btn coral" id="ckCook">▶ Cook selected</button>':'')+
       '<span class="hint" id="ckSel">Nothing selected</span><span style="flex:1"></span>'+
       '<span class="hint">A cook = 3 trolleys. Tick what goes in — lower <b>Cook bags</b> to take only part of a stack (the rest stays in the chill).</span>'+
@@ -3500,7 +3534,7 @@ function pmNew(){
     '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'+
       '<label class="fld" style="flex:2;min-width:220px">Recipe<select id="pmRec" '+(ed?'':'disabled')+'>'+prodSelectOptions(pmMix.recipeId)+'</select></label>'+
       '<label class="fld">Mix batch / Julian<input id="pmBatch" value="'+escapeHtml(pmMix.batch)+'" style="width:150px" '+(ed?'':'disabled')+'></label>'+
-      '<label class="fld">'+(pmMix.run?'Batch minced (kg)':'Mix size (kg)')+'<input id="pmKg" type="number" min="0" value="'+((+pmMix.kg||'')||'')+'" style="width:130px" '+(ed?'':'disabled')+'></label>'+
+      (pmMix.run?'':'<label class="fld">Mix size (kg)<input id="pmKg" type="number" min="0" value="'+((+pmMix.kg||'')||'')+'" style="width:130px" '+(ed?'':'disabled')+'></label>')+
     '</div>'+
     (r?('<h4 style="margin:14px 0 6px">Ingredients — choose a batch for each</h4>'+
       '<div style="overflow:auto"><table><thead><tr><th>Ingredient</th><th class="num">Need (kg)</th><th>Batch chosen</th>'+(ed?'<th></th>':'')+'</tr></thead><tbody>'+rowsHtml+'</tbody></table></div>'+
@@ -3541,14 +3575,14 @@ function pmSave(){
   if(!pmMix.batch){ if(msg)msg.textContent='Enter a mix batch / Julian.'; return; }
   const base=baseKg(r), mkg=+pmMix.kg||0;
   const miss=(r.ingredients||[]).filter(li=>!(pmMix.sel[li.ingId]&&pmMix.sel[li.ingId].length));
-  if(miss.length){ if(msg)msg.textContent='Choose a batch for: '+miss.map(li=>ingName(li.ingId)).slice(0,6).join(', ')+(miss.length>6?'…':'')+'.'; return; }
+  const missNote=miss.length?(' — batch codes still missing for '+miss.length+' of '+(r.ingredients||[]).length+' ingredient'+(miss.length>1?'s':'')+' ('+miss.map(li=>ingName(li.ingId)).slice(0,4).join(', ')+(miss.length>4?'…':'')+'). You can finish it later with Edit.'):'';
   const items=[]; (r.ingredients||[]).forEach(li=>{ const need=base>0?(li.kg*mkg/base):0; const sel=pmMix.sel[li.ingId]||[]; const each=sel.length?need/sel.length:0; sel.forEach(s=>items.push({ing_id:li.ingId,batch_code:s.batch,qty:+each.toFixed(3)})); });
   if(msg)msg.textContent='Saving…';
   const run=pmMix.run; const body={date:run?run.mince:todayISO(),recipe_id:r.id,batch:pmMix.batch,kg:mkg,items};
   if(run){ body.run_key=run.key; body.mince_date=run.mince; body.prod_ids=JSON.stringify(run.ids||[]); if(pmMix.id) body.id=pmMix.id; }
   api('/api/mixes','POST',body).then(()=>{
-    if(run){ pmRunsCache=null; pmFlash='Saved ✓ batch codes recorded for '+run.product+' · mix '+pmMix.batch+'.'; pmMix=newPmMix(); pmSeg='runs'; renderPickmix(); return; }
-    pmMix=newPmMix(); pmNew(); const m=document.getElementById('pmMsg'); if(m)m.textContent='Saved ✓ mix recorded with its ingredient batches.'; }).catch(e=>{ const m=document.getElementById('pmMsg'); if(m)m.textContent='Failed: '+e.message; });
+    if(run){ pmRunsCache=null; pmFlash='Saved ✓ '+run.product+' · mix '+pmMix.batch+(missNote||' — all batch codes recorded.'); pmMix=newPmMix(); pmSeg='runs'; renderPickmix(); return; }
+    pmMix=newPmMix(); pmNew(); const m=document.getElementById('pmMsg'); if(m)m.textContent='Saved ✓ mix recorded'+(missNote||' with its ingredient batches.'); }).catch(e=>{ const m=document.getElementById('pmMsg'); if(m)m.textContent='Failed: '+e.message; });
 }
 async function pmMixes(){
   const host=document.getElementById('pmBody'); if(!host) return; host.innerHTML='<p class="muted">Loading…</p>';
@@ -3617,9 +3651,9 @@ async function pmRuns(){
     '<span class="hint">'+fmt(all.length)+' runs · '+fmt(done)+' with batch codes recorded</span><span class="spacer"></span>'+
     '<span class="hint">A run = one mix: same mince date, recipe and Julian. Older runs not linked to a recipe ask you to choose it once.</span></div>'+
     '<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Minced</th><th>Product</th><th>Julian</th><th class="num">Filled kg</th><th class="num">Minced kg</th><th class="num">Waste</th><th>Packs</th><th class="num">Bags</th><th>Baskets</th><th>Cooked</th><th>Batch codes</th><th></th></tr></thead><tbody>'+
-    (rows.length?rows.map((r,i)=>{ const mx=r.mix; const n=mx?(+mx.n||0):0; const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
+    (rows.length?rows.map((r,i)=>{ const mx=r.mix; const n=mx?(+mx.n||0):0; const tot=((byId(r.recipeId)||{}).ingredients||[]).length; const partial=!!(mx&&tot&&n<tot); const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
       return '<tr><td>'+escapeHtml(r.mince)+'</td><td><b>'+escapeHtml(r.label)+'</b>'+(r.recipeId?'':' <span class="pill low" title="This older product name isn’t linked to a recipe yet — choose it when you add the pick & mix">recipe?</span>')+'</td><td><b>'+escapeHtml(r.jul)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+(mx?('<b>'+fmt(+mx.kg||0)+'</b>'):'<span class="muted">—</span>')+'</td><td class="num">'+pmWasteCell(r)+'</td><td style="white-space:nowrap">'+pmPackSplit(r)+'</td><td class="num">'+fmt(r.bags)+'</td><td>'+(bk.length?escapeHtml(bk.join(', ')):'—')+'</td><td style="white-space:nowrap">'+(cooks.length?escapeHtml(cooks.join(', ')):'<span class="muted">—</span>')+'</td>'+
-        '<td>'+(mx?'<span class="pill ok">✓ recorded</span>':'<span class="pill low">not recorded</span>')+'</td>'+
+        '<td>'+(mx?(partial?'<span class="pill" style="background:#fff1d6;color:#8a5a00" title="Some ingredients still have no batch code — use Edit to finish">'+n+' of '+tot+' — finish</span>':'<span class="pill ok">✓ recorded</span>'):'<span class="pill low">not recorded</span>')+'</td>'+
         '<td class="num" style="white-space:nowrap">'+(ed?(mx?'<button class="btn ghost sm" data-pmedit="'+i+'">Edit</button> ':'<button class="btn coral sm" data-pmadd="'+i+'">＋ Add pick &amp; mix</button> '):'')+'<button class="btn ghost sm" data-pmprint="'+i+'" title="Print the mixing sheet'+(mx?' with batch codes':' (batch codes blank)')+'">🖨</button></td></tr>'; }).join('')
       :'<tr><td colspan="12" class="muted">No mincing runs match.</td></tr>')+
     '</tbody></table></div>'+(total>rows.length?'<p class="hint" style="margin-top:8px">Showing the latest '+rows.length+' of '+total+' runs. <a href="#" id="pmRunAll">Show all</a></p>':'');
@@ -3635,7 +3669,7 @@ function pmRunCtx(r){ return {key:r.key,mince:r.mince,ids:r.ids,product:r.produc
 /* batch minced (what you set) vs filled (from the baskets): the difference is waste */
 function pmWasteText(){ const r=pmMix&&pmMix.run; if(!r) return ''; const b=+pmMix.kg||0, f=+r.kg||0, w=b-f; if(!b) return '<span style="color:#b4231f">Enter the batch size that was minced.</span>';
   if(w<-0.05) return '<span style="color:#b4231f">⚠ Batch '+fmt(b)+' kg is <b>less</b> than the '+fmt(f)+' kg filled — check the batch size.</span>';
-  if(w<=0.05) return 'Batch minced <b>'+fmt(b)+' kg</b> = filled '+fmt(f)+' kg · no waste recorded. <span class="muted">If more was minced than filled, set the batch size above — the difference is waste.</span>';
+  if(w<=0.05) return 'Batch minced <b>'+fmt(b)+' kg</b> = filled '+fmt(f)+' kg · no waste recorded. <span class="muted">If more was minced than was filled, type the batch size here — the difference is waste.</span>';
   return 'Batch minced <b>'+fmt(b)+' kg</b> · filled '+fmt(f)+' kg · <b style="color:#b4231f">waste '+fmt(w)+' kg ('+(w/b*100).toFixed(1)+'%)</b>'; }
 function pmWasteCell(r){ if(!r.mix) return '<span class="muted">—</span>'; const b=+r.mix.kg||0, w=b-r.kg; if(w<-0.05) return '<span style="color:#b4231f" title="Batch size is less than what was filled">'+fmt(w)+' kg ⚠</span>'; if(w<=0.05) return '<span class="muted">0</span>'; return fmt(w)+' kg <span class="muted">('+(b?(w/b*100).toFixed(1):'0')+'%)</span>'; }
 function pmStartRun(r){ pmMix={recipeId:r.recipeId||'',batch:r.jul,kg:+(r.kg.toFixed(1)),sel:{},run:pmRunCtx(r)}; pmSeg='new'; renderPickmix(); }
@@ -3650,7 +3684,7 @@ function pmRunBanner(){
   return '<div class="card" style="background:#faf3ee;border-color:var(--coral);margin-bottom:10px">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>'+(pmMix.id?'Editing':'Pick &amp; mix for')+' mincing run</b> — '+escapeHtml(rr?(rr.brand+' — '+rr.name):r.label)+' · minced '+escapeHtml(r.mince)+' · Julian <b>'+escapeHtml(pmMix.batch)+'</b> · filled <b>'+fmt(r.kg)+' kg</b> as '+pmPackSplit({packs:r.packs})+' ('+fmt(r.bags)+' bags)</div>'+
     '<button class="btn ghost sm" onclick="pmMix=newPmMix();pmSeg=\'runs\';renderPickmix()">← Back to runs</button></div>'+
-    '<div id="pmWasteLine" style="margin-top:8px">'+pmWasteText()+'</div>'+
+    '<div class="row-flex" style="gap:14px;align-items:flex-end;margin-top:10px;flex-wrap:wrap"><label class="fld"><b>Batch minced (kg)</b><input id="pmKg" type="number" min="0" step="0.1" value="'+((+pmMix.kg||'')||'')+'" style="width:140px;font-size:17px;font-weight:700" '+(canEdit('pickmix')?'':'disabled')+'></label><div id="pmWasteLine" style="flex:1;min-width:240px;padding-bottom:8px">'+pmWasteText()+'</div></div>'+
     (pmMix.recipeId?'':'<p style="margin:8px 0 0;color:#b4231f"><b>This older run isn’t linked to a recipe yet.</b> Choose the recipe below — HQ will remember it for “'+escapeHtml(r.product)+'” and use it for every run of that name.</p>')+
     '</div>';
 }
@@ -3658,13 +3692,13 @@ function pmRunBanner(){
 async function pmPrintRun(r){
   const rr=byId(r.recipeId); if(!rr){ alert('This run isn’t linked to a recipe yet — add its pick & mix (and choose the recipe) first, then print.'); return; }
   let mix=null; if(r.mix){ try{ mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); }catch(e){} }
-  const codes={}; ((mix&&mix.items)||[]).forEach(it=>{ (codes[it.ing_id]=codes[it.ing_id]||[]).push(it.batch_code); });
+  const codes={}; ((mix&&mix.items)||[]).forEach(it=>{ (codes[it.ing_id]=codes[it.ing_id]||[]).push(it.batch_code); }); const missN=(rr.ingredients||[]).filter(li=>!(codes[li.ingId]||[]).length).length;
   const base=baseKg(rr)||100, kg=mix?(+mix.kg||r.kg):r.kg; let tot=0;
   const ingRows=(rr.ingredients||[]).map(li=>{ const need=li.kg*kg/base; tot+=need; const c=(codes[li.ingId]||[]); return '<tr><td class="checkbox-cell">☐</td><td><b>'+escapeHtml(ingName(li.ingId))+'</b></td><td class="num">'+fmt(need)+'</td><td>'+(c.length?'<b>'+c.map(escapeHtml).join(' + ')+'</b>':'')+'</td></tr>'; }).join('');
   const split=Object.keys(r.packs).sort((a,b)=>packGrams(a)-packGrams(b)).map(p=>escapeHtml(p)+': '+fmt(r.packs[p])+' bags').join('<br>');
   const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
   const html='<div class="mixsheet"><div class="hd"><div><div class="t">'+escapeHtml(rr.brand+' — '+rr.name)+' · Mix '+escapeHtml(r.jul)+'</div><div class="b"><b>Wilsons Pet Food</b> · minced '+escapeHtml(r.mince)+' · batch '+fmt(kg)+' kg'+(mix?(' · filled '+fmt(r.kg)+' kg'+((kg-r.kg)>0.05?(' · waste '+fmt(kg-r.kg)+' kg ('+((kg-r.kg)/kg*100).toFixed(1)+'%)'):'')):'')+(r.ops?(' · '+r.ops+' ops'):'')+(bk.length?(' · basket'+(bk.length>1?'s':'')+' '+escapeHtml(bk.join(', '))):'')+(cooks.length?(' · cooked '+escapeHtml(cooks.join(', '))):'')+'</div></div>'+
-    '<div style="text-align:right"><div class="b"><b>Printed:</b> '+new Date().toLocaleDateString('en-GB')+'</div><div class="b">'+(mix?('Batch codes recorded by '+escapeHtml(mix.by||'')+(mix.updated?' (edited)':'')):'Batch codes: not yet recorded')+'</div></div></div>'+
+    '<div style="text-align:right"><div class="b"><b>Printed:</b> '+new Date().toLocaleDateString('en-GB')+'</div><div class="b">'+(mix?((missN?('Batch codes: '+((rr.ingredients||[]).length-missN)+' of '+(rr.ingredients||[]).length+' recorded'):'Batch codes recorded')+' by '+escapeHtml(mix.by||'')+(mix.updated?' (edited)':'')):'Batch codes: not yet recorded')+'</div></div></div>'+
     '<table class="ms-table"><thead><tr><th>Recipe</th><th>Pack split</th><th class="num">Batch minced (kg)</th><th class="num">Filled (kg)</th><th class="num">Waste (kg)</th><th class="num">bags</th></tr></thead><tbody><tr><td><b>'+escapeHtml(rr.brand+' — '+rr.name)+'</b></td><td>'+(split||'<span class="muted">—</span>')+'</td><td class="num"><b>'+fmt(kg)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+((kg-r.kg)>0.05?fmt(kg-r.kg):(mix?'0':'—'))+'</td><td class="num">'+fmt(r.bags)+'</td></tr></tbody></table>'+
     '<table class="ms-table" style="margin-top:10px"><thead><tr><th style="width:34px" class="checkbox-cell">✓</th><th>Ingredient</th><th class="num">Total (kg)</th><th style="width:160px">Batch code(s)</th></tr></thead><tbody>'+ingRows+'</tbody><tfoot><tr><th></th><th>TOTAL</th><th class="num">'+fmt(tot)+'</th><th></th></tr></tfoot></table>'+
     '<p class="b" style="margin-top:14px">Mixed by: ____________________  Checked: ____________________  Date: __________</p></div>';
@@ -3937,7 +3971,7 @@ function assignCookModal(){
   const ids=[...prodSel]; if(!ids.length){ alert('Tick the rows (baskets) you want to assign a cook date to first.'); return; }
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Assign cook date</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
    <p class="hint">${ids.length} selected record(s) will be marked as cooked on this date.</p>
-   <div class="row-flex" style="gap:10px"><label class="fld">Cook date<input type="date" id="acDate" value="${todayISO()}"></label><label class="fld">Retort no. (optional)<input id="acRetort" style="width:90px"></label></div>
+   <div class="row-flex" style="gap:10px"><label class="fld">Cook date<input type="date" id="acDate" value="${todayISO()}"></label><label class="fld">Retort<select id="acRetort"><option value="">— leave as is —</option><option value="1">Retort 1</option><option value="2">Retort 2</option></select></label></div>
    <div style="margin-top:12px"><button class="btn coral" id="acSave">Apply to ${ids.length}</button> <span class="hint" id="acMsg"></span></div>`);
   document.getElementById('acSave').onclick=async()=>{ const body={ids,cook:document.getElementById('acDate').value}; const ret=document.getElementById('acRetort').value.trim(); if(ret)body.retort=ret;
     try{ await api('/api/production/assign-cook','POST',body); prodSel.clear(); closeModal(); loadProd(); }catch(e){ document.getElementById('acMsg').textContent=e.message; } };
@@ -3972,7 +4006,7 @@ function editProd(id){
    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
      <label class="fld">Batch<input id="epBatch" value="${escapeHtml(p.batch||'')}" style="width:90px"></label>
      <label class="fld">Basket<input id="epBasket" value="${escapeHtml(p.basket||'')}" style="width:70px"></label>
-     <label class="fld">Retort<input id="epRetort" value="${escapeHtml(p.retort||'')}" style="width:70px"></label>
+     <label class="fld">Retort<select id="epRetort"><option value="">—</option><option value="1"${p.retort==='1'?' selected':''}>Retort 1</option><option value="2"${p.retort==='2'?' selected':''}>Retort 2</option>${(p.retort&&p.retort!=='1'&&p.retort!=='2')?('<option value="'+escapeHtml(p.retort)+'" selected>'+escapeHtml(p.retort)+'</option>'):''}</select></label>
      <label class="fld">Mince date<input id="epMince" type="date" value="${escapeHtml(p.mince_date||'')}"></label>
      <label class="fld">Filled date<input id="epFilled" type="date" value="${escapeHtml(p.filled_date||'')}"></label>
      <label class="fld">Cook date<input id="epCook" type="date" value="${escapeHtml(p.cook_date||'')}"></label>
