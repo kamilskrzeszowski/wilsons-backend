@@ -368,6 +368,14 @@ tr.prDrag:hover{background:#faf3ee}
   @keyframes flpulse{0%,100%{box-shadow:0 0 0 0 rgba(216,105,79,.55)}50%{box-shadow:0 0 0 12px rgba(216,105,79,0)}}
   .flpulse{animation:flpulse 1.3s infinite}
   .flmiss{outline:2px solid #d8694f!important;outline-offset:2px;border-radius:8px}
+  .fl-mince{margin:8px 0 2px;padding:10px 12px;background:#fff;border:1.5px solid var(--line);border-radius:12px;max-width:520px}
+  .fl-mince .l{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .fl-mince .days{display:flex;gap:8px;margin-top:7px;flex-wrap:wrap}
+  .fl-mince .dayb{flex:1;min-width:120px;border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:12px 8px;font-weight:800;font-size:16px;line-height:1.15;color:var(--navy);cursor:pointer;font-family:var(--font-body)}
+  .fl-mince .dayb small{display:block;font-weight:500;font-size:12px;color:var(--muted)}
+  .fl-mince .dayb.on{background:var(--navy);color:#fff;border-color:var(--navy)}.fl-mince .dayb.on small{color:#cfd8dd}
+  .fl-mince .dayb.other{flex:0 0 auto;min-width:0;border-style:dashed;color:var(--sea);border-color:var(--sea);font-weight:600;font-size:14px}
+  .fl-mince .dayb.other.on{background:var(--sea);color:#fff;border-style:solid}
   .gtile{position:relative}
   .gtile.editing{border-style:dashed;border-color:var(--coral);cursor:grab}
   .gedit{position:absolute;top:10px;right:12px;font-size:17px;color:var(--muted);cursor:pointer;line-height:1}
@@ -2248,6 +2256,8 @@ const VERSION_HISTORY=[
     'A pick & mix can be saved before every batch code is in — the run then shows “9 of 13 — finish” instead of ✓ until you complete it with Edit; the printed sheet says how many are recorded. The batch-size box now sits in the run banner next to the waste line.',
     'Filling Dashboard: each basket row has an Edit button (for anyone who can edit production) to correct the details recorded during filling — trolley/stack number, people, trays, fill start/finish times and temperatures — applied to every product line in that basket. Stock figures are untouched.',
     'Cooking (and the cook-date and edit screens in Record Production): the retort is now chosen from a list — Retort 1 or Retort 2 — instead of typed, so the records stay consistent.',
+    'Filling Sheet: the mince date is asked on every basket and never carried over — tap Yesterday, Today or other…; the Julian code is worked out from the date so the two can’t disagree. A basket won’t submit without it. If a basket dated to an earlier day would take that day past what was minced (the Planner’s kg), the sheet asks “is this really that day’s mince?” before saving.',
+    'Mixing runs: an “Edit run” button changes the mince date, Julian or recipe for every basket in a run at once (for people who can edit production). Setting the date to match another run merges the two, and a recorded pick & mix follows.',
     'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
     'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
   ]},
@@ -2970,8 +2980,10 @@ let fillBasket=null, _fillTimer=null;
 function persistFill(){ try{ if(fillBasket && canEdit('filling')) localStorage.setItem('wpm_fillbasket', JSON.stringify(fillBasket)); }catch(e){} }
 function restoreFill(){ try{ const s=localStorage.getItem('wpm_fillbasket'); if(s){ const b=JSON.parse(s); if(b && typeof b==='object' && 'lines' in b) return b; } }catch(e){} return null; }
 function dropFill(){ try{ localStorage.removeItem('wpm_fillbasket'); }catch(e){} }
+/* Julian code for any date: day-of-year (3 digits) + 2-digit year — so it always agrees with the mince date */
+function julianFor(iso){ if(!iso) return ''; try{ const d=parseISO(iso); const s=new Date(d.getFullYear(),0,1); const day=Math.round((d-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }catch(e){ return ''; } }
 function julianToday(){ const d=new Date(); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const s=new Date(d.getFullYear(),0,1); const day=Math.round((t-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }   // Math.round absorbs the 1-hour DST offset that made the code a day out just after midnight in summer
-function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:julianToday(),mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}],_day:todayISO()}; }
+function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:'',mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}],_day:todayISO()}; }
 /* A saved basket is "stale" if it was created on a previous day AND isn't actively being filled.
    That's the leftover from yesterday (basket number, date, Julian code) we must NOT carry into today.
    A basket that's genuinely mid-fill (started, not finished — e.g. running across midnight) is kept. */
@@ -3052,8 +3064,9 @@ function drawFill(){
     <div class="row-flex" style="flex-wrap:wrap;gap:14px;align-items:flex-end">
       <label class="fld">Trolley / stack no.${kp('','Trolley / stack number',b.basket,'','data-fill="basket" style="width:120px;font-weight:700" '+dis)}</label>
       <label class="fld">People on line${ro?`<div class="flbig" style="padding:12px;border:1px solid var(--line);border-radius:10px;min-width:90px">${escapeHtml(''+(b.operators||2))} people</div>`:`<select data-fill="operators" style="font-size:17px;padding:12px;min-height:48px;font-weight:700" ${dis}><option value="2"${(+b.operators===3)?'':' selected'}>2 people</option><option value="3"${(+b.operators===3)?' selected':''}>3 people</option></select>`}</label>
+      <div class="fl-mince" id="flMinceRow"><div class="l">Minced — when was this meat minced?</div><div class="days">${[[isoDate(addDays(new Date(),-1)),'Yesterday'],[todayISO(),'Today']].map(([iso,lab])=>`<button type="button" class="dayb${b.mince===iso?' on':''}" data-mince="${iso}" ${dis}>${lab}<small>${dispDate(parseISO(iso))}</small></button>`).join('')}<button type="button" class="dayb other${(b._minceOther||(b.mince&&b.mince!==todayISO()&&b.mince!==isoDate(addDays(new Date(),-1))))?' on':''}" data-mince="other" ${dis}>other…</button></div>
+        <input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis} style="margin-top:6px;${(b._minceOther||(b.mince&&b.mince!==todayISO()&&b.mince!==isoDate(addDays(new Date(),-1))))?'':'display:none'}"></div>
       <label class="fld">Julian code${kp('','Julian code (xxx'+yy+')',b.julian,'','data-fill="julian" style="width:130px" '+dis)}</label>
-      <label class="fld">Date minced<input type="date" data-fill="mince" value="${escapeHtml(b.mince)}" ${dis}></label>
       <label class="fld">Date filled<input type="date" data-fill="filled" value="${escapeHtml(b.filled)}" ${dis}></label>
       <label class="fld">Temp start °C${kp('','Temp at start (use ± for minus)',b.tempStart,'','data-fill="tempStart" style="width:110px;font-weight:700" '+dis)}</label>
       <label class="fld">Temp finish °C${kp('','Temp at finish (use ± for minus)',b.tempFinish,'','data-fill="tempFinish" style="width:110px;font-weight:700" '+dis)}</label>
@@ -3073,7 +3086,8 @@ function drawFill(){
   </div>
   <h3>Baskets filled today</h3>
   <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Basket</th><th>Product</th><th>Pouch</th><th class="num">Bags</th><th>Julian</th><th>Best before</th><th>Fill start</th><th>Fill finish</th>${ro?'':'<th></th>'}</tr></thead><tbody id="flToday"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody></table></div>`;
-  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; persistFill(); if(k==='filled') drawFill(); if((k==='tempStart'||k==='tempFinish') && tempIsBad(el.value)) tempAlert(); }; el.addEventListener('input',()=>{ fillBasket[k]=el.value; persistFill(); }); el.addEventListener('change',h); });
+  root.querySelectorAll('[data-mince]').forEach(bt=>bt.addEventListener('click',()=>{ const v=bt.dataset.mince; if(v==='other'){ fillBasket._minceOther=true; persistFill(); drawFill(); const el=document.querySelector('#rootFilling [data-fill="mince"]'); if(el){ try{ el.showPicker(); }catch(e){ el.focus(); } } return; } fillBasket.mince=v; fillBasket.julian=julianFor(v); fillBasket._minceOther=false; persistFill(); drawFill(); }));
+  root.querySelectorAll('[data-fill]').forEach(el=>{ const k=el.dataset.fill; const h=()=>{ fillBasket[k]=el.value; persistFill(); if(k==='mince'){ fillBasket.julian=el.value?julianFor(el.value):''; persistFill(); } if(k==='filled'||k==='mince') drawFill(); if((k==='tempStart'||k==='tempFinish') && tempIsBad(el.value)) tempAlert(); }; el.addEventListener('input',()=>{ fillBasket[k]=el.value; persistFill(); }); el.addEventListener('change',h); });
   root.querySelectorAll('.flBags').forEach(el=>el.addEventListener('input',()=>{ fillBasket.lines[+el.dataset.i].bags=el.value; persistFill(); }));
   root.querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>fillDelLine(+el.dataset.del)));
   root.querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>pickProduct(+el.dataset.pick)));
@@ -3092,6 +3106,31 @@ async function loadFillToday(){
   const el=document.getElementById('flToday'); if(!el)return;
   el.innerHTML=today.slice(0,100).map(p=>`<tr><td><b>${escapeHtml(p.basket||'')}</b></td><td>${escapeHtml(p.product)}</td><td>${escapeHtml(p.pack)}</td><td class="num">${fmt(p.qty)}</td><td>${escapeHtml(p.julian_code||'')}</td><td>${escapeHtml(p.best_before||'')}</td><td>${fmtTime(p.fill_start)}</td><td>${fmtTime(p.fill_finish)}</td>${ce?`<td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFillRow('${p.id}')">Edit</button> <button class="btn danger" onclick="delFillRow('${p.id}')">✕</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${ce?9:8}" class="muted">Nothing filled today yet.</td></tr>`;
 }
+/* CAP: a basket dated to an earlier mince day can't take that day past what was minced (the Planner's kg, with 10% + 5 kg slack).
+   Asks rather than assumes: 'today' re-dates the basket to today and carries on; 'keep' saves as entered; 'cancel' stops. */
+async function fillCapCheck(b,complete){
+  let prod=[]; try{ prod=await api('/api/production'); }catch(e){ return 'ok'; }
+  const plan=planForDate(b.mince); const byRec={};
+  complete.forEach(l=>{ const r=byId(l.recipeId); if(!r) return; byRec[r.id]=byRec[r.id]||{r,kg:0}; byRec[r.id].kg+=(+l.bags)*packSizeKg(l.pack); });
+  for(const rid of Object.keys(byRec)){ const {r,kg}=byRec[rid]; const name=r.brand+' — '+r.name;
+    const planned=(plan.rows||[]).filter(x=>x.product===name).reduce((a,x)=>a+(+x.planKg||0),0); if(!(planned>0)) continue;
+    const filled=prod.filter(p=>p.recipe_id===rid&&p.mince_date===b.mince).reduce((a,p)=>a+(+p.kg||0),0);
+    if(filled+kg<=planned*1.10+5) continue;
+    const d=parseISO(b.mince); const dayLong=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'}); const dayShort=d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    const choice=await new Promise(res=>{
+      pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:#b4231f">Is this really '+escapeHtml(dayLong)+'’s mince?</h3><button class="btn ghost sm" id="capCancel">Cancel</button></div>'+
+        '<p style="font-size:15px;margin:8px 0"><b>'+escapeHtml(name)+'</b> · minced '+escapeHtml(dayShort)+'</p>'+
+        '<div style="background:#faf7f4;border-radius:10px;padding:10px 12px;font-size:15px;line-height:1.7">Minced on '+escapeHtml(dayShort)+': <b>'+fmt(planned)+' kg</b><br>Already filled against it: <b>'+fmt(filled)+' kg</b><br>This basket: <b>+ '+fmt(kg)+' kg</b> → <b style="color:#b4231f">'+fmt(filled+kg)+' kg — more than was minced</b></div>'+
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn coral" id="capToday" style="font-size:16px;padding:12px 18px">It’s today’s mince → Today</button><button class="btn" id="capKeep" style="font-size:16px;padding:12px 18px">Keep '+escapeHtml(dayShort)+'</button></div>'+
+        '<p class="hint" style="margin-top:10px">The '+fmt(planned)+' kg comes from '+escapeHtml(dayShort)+'’s plan in the Production Planner.</p>');
+      const done=v=>{ closeModal(); res(v); };
+      document.getElementById('capToday').onclick=()=>done('today'); document.getElementById('capKeep').onclick=()=>done('keep'); document.getElementById('capCancel').onclick=()=>done('cancel');
+    });
+    if(choice==='today'){ b.mince=todayISO(); b.julian=julianFor(b.mince); b._minceOther=false; persistFill(); drawFill(); return 'today'; }
+    return choice;
+  }
+  return 'ok';
+}
 async function fillSave(){
   if(!canEdit('filling')) return;
   const b=fillBasket; const msg=document.getElementById('flMsg');
@@ -3108,7 +3147,7 @@ async function fillSave(){
   const complete=b.lines.filter(l=>l.recipeId&&l.pack&&+l.bags>0);
   if(!complete.length) miss.push('A product with pouch size and bags');
   if(miss.length){
-    markKeys.forEach(k=>{ const el=document.querySelector('#rootFilling [data-fill="'+k+'"]'); if(el) el.classList.add('flmiss'); });
+    markKeys.forEach(k=>{ const el=document.querySelector('#rootFilling [data-fill="'+k+'"]'); if(el) el.classList.add('flmiss'); if(k==='mince'){ const r=document.getElementById('flMinceRow'); if(r) r.classList.add('flmiss'); } });
     if(!complete.length){ const fl=document.getElementById('flLines'); if(fl) fl.classList.add('flmiss'); }
     if(msg) msg.textContent='Missing: '+miss.join(', ')+'.';
     pop('<div style="text-align:center;padding:6px 4px"><div style="font-size:42px;line-height:1">📋</div><h3 style="margin:8px 0 4px;color:#b4231f">Can’t submit yet</h3><p style="font-size:15px;margin:4px 0 8px">Please complete these first — they’re highlighted in red on the sheet:</p><ul style="text-align:left;display:inline-block;font-size:15px;line-height:1.7;margin:0">'+miss.map(x=>'<li>'+escapeHtml(x)+'</li>').join('')+'</ul><div><button class="btn coral" onclick="closeModal()" style="margin-top:12px;font-size:16px;padding:13px 28px">OK</button></div></div>');
@@ -3116,6 +3155,7 @@ async function fillSave(){
   }
   // FAIL-SAFE: product must be frozen — any temperature above 0 °C blocks submission
   if(tempIsBad(b.tempStart)||tempIsBad(b.tempFinish)){ tempAlert(); msg.textContent='Blocked — a temperature is above 0 °C. Stop and get your manager.'; return; }
+  if(b.mince && b.mince!==todayISO()){ const cap=await fillCapCheck(b,complete); if(cap==='cancel'){ msg.textContent='Not saved.'; return; } }
   if(!b.fillFinish) b.fillFinish=new Date().toISOString();   // auto-stamp finish on submit
   if(!b.stackId) b.stackId='s'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);
   const tr=+b.trays||0; const stComplete=(tr>0&&tr<13)?0:1;   // partial (leftover) if 1–12 trays, else full
@@ -3654,7 +3694,7 @@ async function pmRuns(){
     (rows.length?rows.map((r,i)=>{ const mx=r.mix; const n=mx?(+mx.n||0):0; const tot=((byId(r.recipeId)||{}).ingredients||[]).length; const partial=!!(mx&&tot&&n<tot); const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
       return '<tr><td>'+escapeHtml(r.mince)+'</td><td><b>'+escapeHtml(r.label)+'</b>'+(r.recipeId?'':' <span class="pill low" title="This older product name isn’t linked to a recipe yet — choose it when you add the pick & mix">recipe?</span>')+'</td><td><b>'+escapeHtml(r.jul)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+(mx?('<b>'+fmt(+mx.kg||0)+'</b>'):'<span class="muted">—</span>')+'</td><td class="num">'+pmWasteCell(r)+'</td><td style="white-space:nowrap">'+pmPackSplit(r)+'</td><td class="num">'+fmt(r.bags)+'</td><td>'+(bk.length?escapeHtml(bk.join(', ')):'—')+'</td><td style="white-space:nowrap">'+(cooks.length?escapeHtml(cooks.join(', ')):'<span class="muted">—</span>')+'</td>'+
         '<td>'+(mx?(partial?'<span class="pill" style="background:#fff1d6;color:#8a5a00" title="Some ingredients still have no batch code — use Edit to finish">'+n+' of '+tot+' — finish</span>':'<span class="pill ok">✓ recorded</span>'):'<span class="pill low">not recorded</span>')+'</td>'+
-        '<td class="num" style="white-space:nowrap">'+(ed?(mx?'<button class="btn ghost sm" data-pmedit="'+i+'">Edit</button> ':'<button class="btn coral sm" data-pmadd="'+i+'">＋ Add pick &amp; mix</button> '):'')+'<button class="btn ghost sm" data-pmprint="'+i+'" title="Print the mixing sheet'+(mx?' with batch codes':' (batch codes blank)')+'">🖨</button></td></tr>'; }).join('')
+        '<td class="num" style="white-space:nowrap">'+(canEdit('production')?'<button class="btn ghost sm" data-pmrun="'+i+'" title="Change this run’s mince date, Julian or recipe — for every basket in it">Edit run</button> ':'')+(ed?(mx?'<button class="btn ghost sm" data-pmedit="'+i+'">Edit</button> ':'<button class="btn coral sm" data-pmadd="'+i+'">＋ Add pick &amp; mix</button> '):'')+'<button class="btn ghost sm" data-pmprint="'+i+'" title="Print the mixing sheet'+(mx?' with batch codes':' (batch codes blank)')+'">🖨</button></td></tr>'; }).join('')
       :'<tr><td colspan="12" class="muted">No mincing runs match.</td></tr>')+
     '</tbody></table></div>'+(total>rows.length?'<p class="hint" style="margin-top:8px">Showing the latest '+rows.length+' of '+total+' runs. <a href="#" id="pmRunAll">Show all</a></p>':'');
   pmFlash='';
@@ -3664,6 +3704,7 @@ async function pmRuns(){
   host.querySelectorAll('[data-pmadd]').forEach(b=>b.onclick=()=>pmStartRun(rows[+b.dataset.pmadd]));
   host.querySelectorAll('[data-pmedit]').forEach(b=>b.onclick=()=>pmEditRun(rows[+b.dataset.pmedit]));
   host.querySelectorAll('[data-pmprint]').forEach(b=>b.onclick=()=>pmPrintRun(rows[+b.dataset.pmprint]));
+  host.querySelectorAll('[data-pmrun]').forEach(b=>b.onclick=()=>pmEditRunMeta(rows[+b.dataset.pmrun]));
 }
 function pmRunCtx(r){ return {key:r.key,mince:r.mince,ids:r.ids,product:r.product,label:r.label,packs:r.packs,bags:r.bags,kg:r.kg,ops:r.ops,recipeId:r.recipeId}; }
 /* batch minced (what you set) vs filled (from the baskets): the difference is waste */
@@ -3704,6 +3745,31 @@ async function pmPrintRun(r){
     '<p class="b" style="margin-top:14px">Mixed by: ____________________  Checked: ____________________  Date: __________</p></div>';
   const hostp=document.getElementById('view-print-picking'); hostp.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; hostp.classList.add('printing'); window.print(); setTimeout(()=>{ hostp.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
 }
+/* Edit run: change the mince date / Julian / recipe for EVERY basket in a run. Correcting the date to match another run folds the two into one;
+   a recorded pick & mix follows the run (and widens to the merged baskets). If both runs already have batch codes, it stops and says so. */
+async function pmEditRunMeta(r){
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit run — '+escapeHtml(r.label)+' · '+escapeHtml(r.jul)+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+    '<p class="hint">Applies to every basket in this run ('+r.ids.length+'): minced '+escapeHtml(r.mince)+', '+fmt(r.kg)+' kg, '+pmPackSplit(r)+'. Bags, times, temperatures and stock figures are not changed. Changing the mince date to match another run merges them.</p>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end"><label class="fld">Mince date<input type="date" id="erMince" value="'+escapeHtml(r.mince)+'"></label><label class="fld">Julian<input id="erJul" value="'+escapeHtml(r.jul)+'" style="width:110px"></label><label class="fld" style="min-width:240px">Recipe<select id="erRec">'+prodSelectOptions(r.recipeId)+'</select></label></div>'+
+    '<div style="margin-top:14px"><button class="btn coral" id="erSave">Save run</button> <span class="hint" id="erMsg"></span></div>');
+  document.getElementById('erMince').onchange=e=>{ document.getElementById('erJul').value=julianFor(e.target.value); };
+  document.getElementById('erSave').onclick=async()=>{
+    const m=document.getElementById('erMsg'); const mince=document.getElementById('erMince').value, jul=document.getElementById('erJul').value.trim(), rid=document.getElementById('erRec').value;
+    if(!mince||!jul||!rid){ m.textContent='Mince date, Julian and recipe are all needed.'; return; }
+    const rr=byId(rid); const newKey=mince+'|'+rid+'|'+jul; const target=(pmRunsCache||[]).find(x=>x.key===newKey&&x.key!==r.key);
+    if(target&&target.mix&&r.mix){ m.textContent='Both this run and the one minced '+target.mince+' already have batch codes recorded — delete one pick & mix first, then merge.'; return; }
+    m.textContent='Saving…';
+    try{
+      const prod=await api('/api/production'); const rows=prod.filter(p=>r.ids.includes(p.id));
+      for(const p of rows){ const body=Object.assign(prodLineFromRow(p),{date:p.date||'',mince:mince,julian:jul,batch:jul,deductions:[]}); if(rid!==(p.recipe_id||'')){ body.recipe_id=rid; body.product=rr?(rr.brand+' — '+rr.name):p.product; } await api('/api/production/'+encodeURIComponent(p.id),'PUT',body); }
+      const allIds=[...new Set((target?target.ids:[]).concat(r.ids))];
+      if(r.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:rid,batch:jul,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); }
+      else if(target&&target.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(target.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:mix.recipe_id,batch:mix.batch,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); }
+      closeModal(); pmRunsCache=null; pmFlash=(target?'Merged into the run minced '+mince+' — now '+allIds.length+' baskets.':'Run updated — '+rows.length+' basket'+(rows.length>1?'s':'')+' now minced '+mince+', Julian '+jul+'.'); renderPickmix();
+    }catch(e){ m.textContent='Failed: '+e.message; }
+  };
+}
+window.pmEditRunMeta=pmEditRunMeta;
 window.pmRuns=pmRuns; window.pmStartRun=pmStartRun; window.pmEditRun=pmEditRun; window.pmPrintRun=pmPrintRun; window.pmRunBanner=pmRunBanner; window.pmSaveAlias=pmSaveAlias;
 function pmTrace(){
   const host=document.getElementById('pmBody'); if(!host) return;
