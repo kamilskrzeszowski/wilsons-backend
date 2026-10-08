@@ -2257,7 +2257,10 @@ const VERSION_HISTORY=[
     'Filling Dashboard: each basket row has an Edit button (for anyone who can edit production) to correct the details recorded during filling — trolley/stack number, people, trays, fill start/finish times and temperatures — applied to every product line in that basket. Stock figures are untouched.',
     'Cooking (and the cook-date and edit screens in Record Production): the retort is now chosen from a list — Retort 1 or Retort 2 — instead of typed, so the records stay consistent.',
     'Filling Sheet: the mince date is asked on every basket and never carried over — tap Yesterday, Today or other…; the Julian code is worked out from the date so the two can’t disagree. A basket won’t submit without it. If a basket dated to an earlier day would take that day past what was minced (the Planner’s kg), the sheet asks “is this really that day’s mince?” before saving.',
-    'Mixing runs: an “Edit run” button changes the mince date, Julian or recipe for every basket in a run at once (for people who can edit production). Setting the date to match another run merges the two, and a recorded pick & mix follows.',
+    'Mixing runs: an “Edit run” button changes the mince date, Julian or recipe for the baskets in a run (for people who can edit production). It lists the baskets with tick-boxes: leave all ticked to move the whole run; un-tick the ones that should stay and the ticked ones split off into their own run (the pick & mix stays with the baskets left behind). Setting the date to match another run merges them.',
+    'Filling Dashboard → basket Edit now also has Mince date and Julian, so a single basket recorded against the wrong mince day can be corrected from the dashboard whether or not it has been cooked yet.',
+    'Filling Dashboard: each basket row shows its minced date and Julian, has a tick-box, and a “Set minced date / Julian for ticked” button applies a new date and/or Julian to all the ticked baskets at once — so a run recorded against the wrong day (or with a mis-printed Julian) is fixed from the dashboard without leaving it.',
+    'Julian vs mince date: in Edit run and the basket edit, changing the date fills in that date’s Julian only if you haven’t typed one yourself. You can keep a different Julian — e.g. when the bags were printed with the wrong code — and a note shows the two differ, with a one-tap “use …” to go back to the date’s own code.',
     'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
     'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
   ]},
@@ -2982,6 +2985,16 @@ function restoreFill(){ try{ const s=localStorage.getItem('wpm_fillbasket'); if(
 function dropFill(){ try{ localStorage.removeItem('wpm_fillbasket'); }catch(e){} }
 /* Julian code for any date: day-of-year (3 digits) + 2-digit year — so it always agrees with the mince date */
 function julianFor(iso){ if(!iso) return ''; try{ const d=parseISO(iso); const s=new Date(d.getFullYear(),0,1); const day=Math.round((d-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }catch(e){ return ''; } }
+/* Pair a mince-date input with a Julian input: the date fills the Julian only while the Julian is blank or still the
+   previous date's own code (i.e. not hand-typed). A different Julian is allowed — that's what's printed on the bags — and
+   a note says so, with a one-tap way back to the date's code. */
+function julianPair(dateId,julId,noteId,startDate){
+  const d=document.getElementById(dateId), j=document.getElementById(julId), note=document.getElementById(noteId); if(!d||!j) return;
+  let prev=startDate||d.value;
+  const show=()=>{ if(!note) return; const auto=julianFor(d.value); if(j.value&&auto&&j.value!==auto){ note.innerHTML='Julian <b>'+escapeHtml(j.value)+'</b> isn’t '+escapeHtml(auto)+' (this date’s own code) — fine if that’s what’s on the bags. <a href="#" id="'+noteId+'Reset">use '+escapeHtml(auto)+'</a>'; const a=document.getElementById(noteId+'Reset'); if(a) a.onclick=e=>{ e.preventDefault(); j.value=auto; show(); }; } else note.textContent=''; };
+  d.addEventListener('change',()=>{ const was=julianFor(prev); if(!j.value||j.value===was) j.value=julianFor(d.value); prev=d.value; show(); });
+  j.addEventListener('input',show); show();
+}
 function julianToday(){ const d=new Date(); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const s=new Date(d.getFullYear(),0,1); const day=Math.round((t-s)/86400000)+1; return String(day).padStart(3,'0')+String(d.getFullYear()).slice(-2); }   // Math.round absorbs the 1-hour DST offset that made the code a day out just after midnight in summer
 function newFillBasket(n,ops){ return {basket:n||'',operators:ops||2,stackId:'',trays:'',julian:'',mince:'',filled:todayISO(),tempStart:'',tempFinish:'',fillStart:'',fillFinish:'',lines:[{recipeId:'',pack:'',bags:''}],_day:todayISO()}; }
 /* A saved basket is "stale" if it was created on a previous day AND isn't actively being filled.
@@ -3294,6 +3307,8 @@ async function fdEditBasket(i){
   pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Basket '+escapeHtml(''+b.basket)+' — edit details</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
    '<p class="hint">Filled '+escapeHtml(day)+'. These details apply to every product line in the basket ('+b.rows.length+'). Bags per product are changed in Record Production.</p>'+prods+
    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:12px">'+
+   '<label class="fld">Mince date<input type="date" id="fbMince" value="'+escapeHtml(f.mince_date||'')+'"></label>'+
+   '<label class="fld">Julian<input id="fbJul" value="'+escapeHtml(f.julian_code||'')+'" style="width:90px"></label><span class="hint" id="fbJulNote" style="align-self:center"></span>'+
    '<label class="fld">Trolley / stack no.<input id="fbBasket" value="'+escapeHtml(''+(f.basket||''))+'" style="width:110px"></label>'+
    '<label class="fld">Stack ID<input id="fbStack" value="'+escapeHtml(f.stack_id||'')+'" style="width:110px"></label>'+
    '<label class="fld">People<select id="fbOps">'+[1,2,3,4].map(k=>'<option value="'+k+'"'+(ops===k?' selected':'')+'>'+k+'</option>').join('')+'</select></label>'+
@@ -3303,9 +3318,10 @@ async function fdEditBasket(i){
    '<label class="fld">Temp start °C<input id="fbTS" value="'+escapeHtml(f.temp_start||'')+'" style="width:90px"></label>'+
    '<label class="fld">Temp finish °C<input id="fbTF" value="'+escapeHtml(f.temp_finish||'')+'" style="width:90px"></label></div>'+
    '<div style="margin-top:14px"><button class="btn coral" id="fbSave">Save basket</button> <span class="hint" id="fbMsg"></span></div>');
+  julianPair('fbMince','fbJul','fbJulNote',f.mince_date||'');
   document.getElementById('fbSave').onclick=async()=>{
     const g=id=>(document.getElementById(id)||{}).value||''; const mk=v=>v?new Date(day+'T'+v+':00').toISOString():'';
-    const upd={basket:g('fbBasket').trim(),stackId:g('fbStack').trim(),operators:+g('fbOps')||0,trays:+g('fbTrays')||0,fillStart:mk(g('fbFS')),fillFinish:mk(g('fbFF')),tempStart:g('fbTS').trim(),tempFinish:g('fbTF').trim()};
+    const upd={mince:g('fbMince'),julian:g('fbJul').trim(),batch:g('fbJul').trim(),basket:g('fbBasket').trim(),stackId:g('fbStack').trim(),operators:+g('fbOps')||0,trays:+g('fbTrays')||0,fillStart:mk(g('fbFS')),fillFinish:mk(g('fbFF')),tempStart:g('fbTS').trim(),tempFinish:g('fbTF').trim()};
     if(upd.fillStart&&upd.fillFinish&&upd.fillFinish<upd.fillStart){ document.getElementById('fbMsg').textContent='Finish time is before start time.'; return; }
     document.getElementById('fbMsg').textContent='Saving…';
     try{ for(const p of b.rows){ const body=Object.assign(prodLineFromRow(p),{date:p.date||''},upd,{deductions:[]});   // deductions:[] = the stored stock figures are left exactly as they are
@@ -3315,6 +3331,24 @@ async function fdEditBasket(i){
   };
 }
 window.fdEditBasket=fdEditBasket;
+/* Set the minced date and/or Julian for several baskets at once from the dashboard (every product line in each). Julian may differ from the date (bags mis-printed). */
+function fdBulkMince(idxs){
+  const bs=idxs.map(i=>_fdBaskets[i]).filter(b=>b&&b.rows&&b.rows.length); if(!bs.length) return; const f0=bs[0].rows[0]; const nRows=bs.reduce((a,b)=>a+b.rows.length,0);
+  const list=bs.map(b=>'<div class="dash-row"><span class="ddot" style="background:var(--sea)"></span><b>Basket '+escapeHtml(''+b.basket)+'</b><span class="dr-right">'+escapeHtml(Object.values(b.items).map(it=>it.product).join(', '))+' · minced '+escapeHtml(b.rows[0].mince_date||'—')+' · '+escapeHtml(b.rows[0].julian_code||'—')+'</span></div>').join('');
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Set minced date / Julian — '+bs.length+' basket'+(bs.length>1?'s':'')+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+   '<p class="hint">Applies to every product line in the ticked baskets ('+nRows+'). Bags, times, temperatures and stock figures are not changed. The Julian can differ from the date — e.g. when the bags were printed with another code.</p>'+list+
+   '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:12px;align-items:flex-end"><label class="fld">Mince date<input type="date" id="bmMince" value="'+escapeHtml(f0.mince_date||'')+'"></label><label class="fld">Julian<input id="bmJul" value="'+escapeHtml(f0.julian_code||'')+'" style="width:100px"></label><span class="hint" id="bmJulNote"></span></div>'+
+   '<div style="margin-top:14px"><button class="btn coral" id="bmSave">Apply to '+bs.length+' basket'+(bs.length>1?'s':'')+'</button> <span class="hint" id="bmMsg"></span></div>');
+  julianPair('bmMince','bmJul','bmJulNote',f0.mince_date||'');
+  document.getElementById('bmSave').onclick=async()=>{
+    const mince=document.getElementById('bmMince').value, jul=document.getElementById('bmJul').value.trim(); const m=document.getElementById('bmMsg');
+    if(!mince||!jul){ m.textContent='Mince date and Julian are both needed.'; return; } m.textContent='Saving…';
+    try{ for(const b of bs){ for(const p of b.rows){ await api('/api/production/'+encodeURIComponent(p.id),'PUT',Object.assign(prodLineFromRow(p),{date:p.date||'',mince:mince,julian:jul,batch:jul,deductions:[]})); } }
+      closeModal(); drawFilldash(); }
+    catch(e){ m.textContent='Failed: '+e.message; }
+  };
+}
+window.fdBulkMince=fdBulkMince;
 async function drawFilldash(){
   const root=document.getElementById('rootFilldash'); if(!root)return;
   const date=_dashDate, isToday=(date===todayISO());
@@ -3419,8 +3453,8 @@ async function drawFilldash(){
        return `<tr><td>${escapeHtml(r.product)}</td><td>${escapeHtml(r.pack)}</td><td class="num">${r.planBags?r.planBags.toLocaleString():'—'}</td><td class="num">${r.actBags.toLocaleString()}</td><td class="num">${r.planBags?pct+'%':'—'}</td><td style="color:${col}">${r.planBags?(ok?'on track':'behind'):'extra'}</td></tr>`; }).join(''):'<tr><td colspan="6" class="muted">Nothing planned or filled.</td></tr>'}</tbody>
      <tfoot><tr><th>Total</th><th></th><th class="num">${planBags.toLocaleString()}</th><th class="num">${actBags.toLocaleString()}</th><th class="num">${progPct}%</th><th></th></tr></tfoot></table>
    </div>
-   <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Baskets — ${date}</h3>
-     <table><thead><tr><th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th>${canEdit('production')?'<th></th>':''}</tr></thead>
+   <div class="card" style="padding:0;overflow:auto"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px 4px"><h3 style="margin:0">Baskets — ${date}</h3>${canEdit('production')?`<span style="flex:1"></span><button class="btn ghost sm" id="fdBulk" disabled title="Tick baskets first">Set minced date / Julian for ticked (<span id="fdBulkN">0</span>)</button>`:''}</div>
+     <table><thead><tr>${canEdit('production')?'<th style="width:30px"><input type="checkbox" id="fdAll" title="Tick all"></th>':''}<th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th>${canEdit('production')?'<th></th>':''}</tr></thead>
      <tbody>${baskets.length?baskets.map((b,i)=>{
        const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
        const items=Object.values(b.items);
@@ -3429,7 +3463,8 @@ async function drawFilldash(){
        let ppmHtml='<span class="muted">—</span>';
        if(mins&&mins>0){ const actPpm=b.bags/mins; let tgtMin=0; items.forEach(it=>{ const g=Math.round((packSizeKg(it.pack)||0)*1000); tgtMin+=it.bags/ppmFor(g,b.ops||2); }); const tgtPpm=tgtMin>0?b.bags/tgtMin:null; const behind=tgtPpm&&actPpm<tgtPpm*0.9; ppmHtml=`<b style="color:${behind?'#b4231f':'var(--navy)'}">${actPpm.toFixed(1)}</b>${tgtPpm?` <span class="muted">/ ${tgtPpm.toFixed(0)}</span>`:''}`; }
        else if(b.open){ ppmHtml='<span style="color:var(--coral-deep)">filling…</span>'; }
-       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td>${canEdit('production')?'<td class="num"><button class="btn ghost sm" data-fdedit="'+i+'" title="Edit this basket’s details — times, temps, people, trays">Edit</button></td>':''}</tr>`; }).join(''):'<tr><td colspan="9" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
+       const f0=(b.rows||[])[0]||{}; const mjHtml=(f0.mince_date||f0.julian_code)?`<div class="muted" style="font-size:11px;padding-top:2px">minced ${escapeHtml(f0.mince_date||'—')} · Julian ${escapeHtml(f0.julian_code||'—')}</div>`:'';
+       return `<tr>${canEdit('production')?`<td><input type="checkbox" class="fdSel" data-i="${i}"></td>`:''}<td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}${mjHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td>${canEdit('production')?'<td class="num"><button class="btn ghost sm" data-fdedit="'+i+'" title="Edit this basket’s details — times, temps, people, trays">Edit</button></td>':''}</tr>`; }).join(''):'<tr><td colspan="10" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
    </div>
   </div>`;
   document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
@@ -3439,6 +3474,9 @@ async function drawFilldash(){
   document.getElementById('fdReload').addEventListener('click',drawFilldash);
   root.querySelectorAll('[data-clearwho]').forEach(b=>b.addEventListener('click',()=>clearLiveWho(b.getAttribute('data-clearwho'))));
   root.querySelectorAll('[data-fdedit]').forEach(b=>b.addEventListener('click',()=>fdEditBasket(+b.dataset.fdedit)));
+  { const cnt=()=>{ const k=root.querySelectorAll('.fdSel:checked').length; const bn=document.getElementById('fdBulkN'), bb=document.getElementById('fdBulk'); if(bn) bn.textContent=k; if(bb){ bb.disabled=!k; bb.title=k?'':'Tick baskets first'; } };
+    root.querySelectorAll('.fdSel').forEach(c=>c.addEventListener('change',cnt)); const all=document.getElementById('fdAll'); if(all) all.addEventListener('change',()=>{ root.querySelectorAll('.fdSel').forEach(c=>c.checked=all.checked); cnt(); });
+    const bb=document.getElementById('fdBulk'); if(bb) bb.addEventListener('click',()=>fdBulkMince([...root.querySelectorAll('.fdSel:checked')].map(c=>+c.dataset.i))); }
   if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
   if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
   if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },30000); }
@@ -3748,24 +3786,34 @@ async function pmPrintRun(r){
 /* Edit run: change the mince date / Julian / recipe for EVERY basket in a run. Correcting the date to match another run folds the two into one;
    a recorded pick & mix follows the run (and widens to the merged baskets). If both runs already have batch codes, it stops and says so. */
 async function pmEditRunMeta(r){
+  let prodAll=[]; try{ prodAll=await api('/api/production'); }catch(e){ alert('Could not load baskets: '+e.message); return; }
+  const bl=r.ids.map(id=>prodAll.find(p=>p.id===id)).filter(Boolean).sort((a,b)=>String(a.fill_start||a.created||'').localeCompare(String(b.fill_start||b.created||'')));
+  const basketRows=bl.map(p=>'<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:13.5px"><input type="checkbox" class="erB" data-id="'+p.id+'" checked> <b>Basket '+escapeHtml(''+(p.basket||'?'))+'</b> · '+escapeHtml(p.pack||'')+' × '+fmt(p.qty)+' · filled '+escapeHtml(p.filled_date||p.date||'')+(p.fill_start?(' '+hhmm(p.fill_start)):'')+(p.cook_date?' · cooked '+escapeHtml(p.cook_date):' · <span style="color:var(--muted)">not cooked</span>')+'</label>').join('');
   pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Edit run — '+escapeHtml(r.label)+' · '+escapeHtml(r.jul)+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
-    '<p class="hint">Applies to every basket in this run ('+r.ids.length+'): minced '+escapeHtml(r.mince)+', '+fmt(r.kg)+' kg, '+pmPackSplit(r)+'. Bags, times, temperatures and stock figures are not changed. Changing the mince date to match another run merges them.</p>'+
-    '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end"><label class="fld">Mince date<input type="date" id="erMince" value="'+escapeHtml(r.mince)+'"></label><label class="fld">Julian<input id="erJul" value="'+escapeHtml(r.jul)+'" style="width:110px"></label><label class="fld" style="min-width:240px">Recipe<select id="erRec">'+prodSelectOptions(r.recipeId)+'</select></label></div>'+
+    '<p class="hint">Minced '+escapeHtml(r.mince)+', '+fmt(r.kg)+' kg, '+pmPackSplit(r)+'. Bags, times, temperatures and stock figures are not changed. Changing the date to match another run merges them; <b>un-ticking baskets splits them off</b> — only the ticked ones get the new date / Julian / recipe and become their own run.</p>'+
+    '<div class="card" style="padding:6px 10px;max-height:220px;overflow:auto;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);margin-bottom:4px"><b>Apply to</b><button type="button" class="btn ghost sm" id="erAll">All</button><button type="button" class="btn ghost sm" id="erNone">None</button><span id="erCount" style="margin-left:auto">'+bl.length+' of '+bl.length+' baskets</span></div>'+basketRows+'</div>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:12px;align-items:flex-end"><label class="fld">Mince date<input type="date" id="erMince" value="'+escapeHtml(r.mince)+'"></label><label class="fld">Julian<input id="erJul" value="'+escapeHtml(r.jul)+'" style="width:110px"></label><span class="hint" id="erJulNote" style="align-self:center"></span><label class="fld" style="min-width:240px">Recipe<select id="erRec">'+prodSelectOptions(r.recipeId)+'</select></label></div>'+
     '<div style="margin-top:14px"><button class="btn coral" id="erSave">Save run</button> <span class="hint" id="erMsg"></span></div>');
-  document.getElementById('erMince').onchange=e=>{ document.getElementById('erJul').value=julianFor(e.target.value); };
+  julianPair('erMince','erJul','erJulNote',r.mince);
+  const erSel=()=>[...document.querySelectorAll('.erB:checked')].map(c=>c.dataset.id); const erCnt=()=>{ document.getElementById('erCount').textContent=erSel().length+' of '+bl.length+' baskets'; };
+  document.querySelectorAll('.erB').forEach(c=>c.onchange=erCnt); document.getElementById('erAll').onclick=()=>{ document.querySelectorAll('.erB').forEach(c=>c.checked=true); erCnt(); }; document.getElementById('erNone').onclick=()=>{ document.querySelectorAll('.erB').forEach(c=>c.checked=false); erCnt(); };
   document.getElementById('erSave').onclick=async()=>{
     const m=document.getElementById('erMsg'); const mince=document.getElementById('erMince').value, jul=document.getElementById('erJul').value.trim(), rid=document.getElementById('erRec').value;
     if(!mince||!jul||!rid){ m.textContent='Mince date, Julian and recipe are all needed.'; return; }
+    const sel=erSel(); if(!sel.length){ m.textContent='Tick at least one basket.'; return; }
+    const splitting=sel.length<bl.length;   // some baskets stay behind → the moved ones become their own run; the pick & mix stays with the ones left
     const rr=byId(rid); const newKey=mince+'|'+rid+'|'+jul; const target=(pmRunsCache||[]).find(x=>x.key===newKey&&x.key!==r.key);
-    if(target&&target.mix&&r.mix){ m.textContent='Both this run and the one minced '+target.mince+' already have batch codes recorded — delete one pick & mix first, then merge.'; return; }
+    if(target&&target.mix&&r.mix&&!splitting){ m.textContent='Both this run and the one minced '+target.mince+' already have batch codes recorded — delete one pick & mix first, then merge.'; return; }
     m.textContent='Saving…';
     try{
-      const prod=await api('/api/production'); const rows=prod.filter(p=>r.ids.includes(p.id));
+      const rows=prodAll.filter(p=>sel.includes(p.id));
       for(const p of rows){ const body=Object.assign(prodLineFromRow(p),{date:p.date||'',mince:mince,julian:jul,batch:jul,deductions:[]}); if(rid!==(p.recipe_id||'')){ body.recipe_id=rid; body.product=rr?(rr.brand+' — '+rr.name):p.product; } await api('/api/production/'+encodeURIComponent(p.id),'PUT',body); }
-      const allIds=[...new Set((target?target.ids:[]).concat(r.ids))];
-      if(r.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:rid,batch:jul,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); }
+      const allIds=[...new Set((target?target.ids:[]).concat(sel))];
+      if(splitting){ if(r.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); const keep=r.ids.filter(id=>!sel.includes(id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:mix.recipe_id,batch:mix.batch,kg:mix.kg,items:mix.items,run_key:r.key,mince_date:r.mince,prod_ids:JSON.stringify(keep)}); }
+        if(target&&target.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(target.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:mix.recipe_id,batch:mix.batch,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); } }
+      else if(r.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(r.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:rid,batch:jul,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); }
       else if(target&&target.mix){ const mix=await api('/api/mixes/'+encodeURIComponent(target.mix.id)); await api('/api/mixes','POST',{id:mix.id,date:mix.date,recipe_id:mix.recipe_id,batch:mix.batch,kg:mix.kg,items:mix.items,run_key:newKey,mince_date:mince,prod_ids:JSON.stringify(allIds)}); }
-      closeModal(); pmRunsCache=null; pmFlash=(target?'Merged into the run minced '+mince+' — now '+allIds.length+' baskets.':'Run updated — '+rows.length+' basket'+(rows.length>1?'s':'')+' now minced '+mince+', Julian '+jul+'.'); renderPickmix();
+      closeModal(); pmRunsCache=null; pmFlash=(splitting?('Split: '+rows.length+' basket'+(rows.length>1?'s':'')+' moved to '+(target?'the run minced '+mince:'their own run — minced '+mince+', Julian '+jul)+'; '+(bl.length-rows.length)+' stay'+(r.mix?' with the pick & mix':'')+'.'):(target?'Merged into the run minced '+mince+' — now '+allIds.length+' baskets.':'Run updated — '+rows.length+' basket'+(rows.length>1?'s':'')+' now minced '+mince+', Julian '+jul+'.')); renderPickmix();
     }catch(e){ m.textContent='Failed: '+e.message; }
   };
 }
