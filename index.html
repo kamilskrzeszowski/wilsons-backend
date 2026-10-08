@@ -2259,7 +2259,7 @@ const VERSION_HISTORY=[
     'Filling Sheet: the mince date is asked on every basket and never carried over — tap Yesterday, Today or other…; the Julian code is worked out from the date so the two can’t disagree. A basket won’t submit without it. If a basket dated to an earlier day would take that day past what was minced (the Planner’s kg), the sheet asks “is this really that day’s mince?” before saving.',
     'Mixing runs: an “Edit run” button changes the mince date, Julian or recipe for the baskets in a run (for people who can edit production). It lists the baskets with tick-boxes: leave all ticked to move the whole run; un-tick the ones that should stay and the ticked ones split off into their own run (the pick & mix stays with the baskets left behind). Setting the date to match another run merges them.',
     'Filling Dashboard → basket Edit now also has Mince date and Julian, so a single basket recorded against the wrong mince day can be corrected from the dashboard whether or not it has been cooked yet.',
-    'Filling Dashboard: each basket row shows its minced date and Julian, has a tick-box, and a “Set minced date / Julian for ticked” button applies a new date and/or Julian to all the ticked baskets at once — so a run recorded against the wrong day (or with a mis-printed Julian) is fixed from the dashboard without leaving it.',
+    'Filling Dashboard: each basket row shows its minced date and Julian. In a basket’s Edit box every product in the basket has its own mince date and Julian (a basket holding two recipes can carry two different batches), and a short list lets you tick the other baskets of the day whose matching products should get the same — so a run recorded against the wrong day, or with a mis-printed Julian, is fixed in one Edit from the dashboard.',
     'Julian vs mince date: in Edit run and the basket edit, changing the date fills in that date’s Julian only if you haven’t typed one yourself. You can keep a different Julian — e.g. when the bags were printed with the wrong code — and a note shows the two differ, with a one-tap “use …” to go back to the date’s own code.',
     'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
     'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
@@ -3302,13 +3302,11 @@ window.renderFilldash=renderFilldash;
 /* v48: edit a basket's details (times, temps, people, trays, numbers) straight from the dashboard — applied to every product line in that basket */
 async function fdEditBasket(i){
   const b=_fdBaskets[i]; if(!b||!b.rows||!b.rows.length) return; const f=b.rows[0]; const day=f.filled_date||f.date||todayISO();
-  const prods=b.rows.map(p=>'<div class="dash-row"><span class="ddot" style="background:var(--sea)"></span><b>'+escapeHtml(p.product||'')+'</b><span class="dr-right">'+escapeHtml(p.pack||'')+' · '+fmt(p.qty)+' bags</span></div>').join('');
+  const prods=b.rows.map((p,i)=>'<div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line)"><div style="flex:1;min-width:200px"><b>'+escapeHtml(p.product||'')+'</b><div class="muted" style="font-size:12px">'+escapeHtml(p.pack||'')+' · '+fmt(p.qty)+' bags</div></div><label class="fld">Mince date<input type="date" id="fbMince_'+i+'" value="'+escapeHtml(p.mince_date||'')+'"></label><label class="fld">Julian<input id="fbJul_'+i+'" value="'+escapeHtml(p.julian_code||'')+'" style="width:90px"></label><span class="hint" id="fbJulNote_'+i+'" style="flex-basis:100%"></span></div>').join('');
   const ops=+f.operators||2;
   pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Basket '+escapeHtml(''+b.basket)+' — edit details</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
-   '<p class="hint">Filled '+escapeHtml(day)+'. These details apply to every product line in the basket ('+b.rows.length+'). Bags per product are changed in Record Production.</p>'+prods+
+   '<p class="hint">Filled '+escapeHtml(day)+'. Each product in the basket has its own mince date and Julian (a Julian may differ from the date — e.g. what’s printed on the bags). The details below the products apply to the whole basket. Bags per product are changed in Record Production.</p>'+prods+
    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:12px">'+
-   '<label class="fld">Mince date<input type="date" id="fbMince" value="'+escapeHtml(f.mince_date||'')+'"></label>'+
-   '<label class="fld">Julian<input id="fbJul" value="'+escapeHtml(f.julian_code||'')+'" style="width:90px"></label><span class="hint" id="fbJulNote" style="align-self:center"></span>'+
    '<label class="fld">Trolley / stack no.<input id="fbBasket" value="'+escapeHtml(''+(f.basket||''))+'" style="width:110px"></label>'+
    '<label class="fld">Stack ID<input id="fbStack" value="'+escapeHtml(f.stack_id||'')+'" style="width:110px"></label>'+
    '<label class="fld">People<select id="fbOps">'+[1,2,3,4].map(k=>'<option value="'+k+'"'+(ops===k?' selected':'')+'>'+k+'</option>').join('')+'</select></label>'+
@@ -3317,38 +3315,26 @@ async function fdEditBasket(i){
    '<label class="fld">Fill finish<input type="time" id="fbFF" value="'+hhmm(f.fill_finish)+'"></label>'+
    '<label class="fld">Temp start °C<input id="fbTS" value="'+escapeHtml(f.temp_start||'')+'" style="width:90px"></label>'+
    '<label class="fld">Temp finish °C<input id="fbTF" value="'+escapeHtml(f.temp_finish||'')+'" style="width:90px"></label></div>'+
+   (()=>{ const others=_fdBaskets.filter(o=>o!==b&&o.rows&&o.rows.length); return others.length?('<div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--line)"><div class="hint" style="margin-bottom:6px"><b>Also set these mince dates &amp; Julians on:</b> <a href="#" id="fbOthAll">all</a> · <a href="#" id="fbOthNone">none</a> <span class="muted">(each basket’s matching product gets that product’s date and Julian; other lines, times, temps and bags stay as they are)</span></div><div style="display:flex;flex-wrap:wrap;gap:6px 14px;max-height:150px;overflow:auto">'+others.map((o,k)=>'<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" class="fbOth" data-k="'+_fdBaskets.indexOf(o)+'"> Basket '+escapeHtml(''+o.basket)+' <span class="muted">· minced '+escapeHtml(o.rows[0].mince_date||'—')+' · '+escapeHtml(o.rows[0].julian_code||'—')+'</span></label>').join('')+'</div></div>'):''; })()+
    '<div style="margin-top:14px"><button class="btn coral" id="fbSave">Save basket</button> <span class="hint" id="fbMsg"></span></div>');
-  julianPair('fbMince','fbJul','fbJulNote',f.mince_date||'');
+  { const oa=document.getElementById('fbOthAll'), on=document.getElementById('fbOthNone'); if(oa) oa.onclick=e=>{ e.preventDefault(); document.querySelectorAll('.fbOth').forEach(c=>c.checked=true); }; if(on) on.onclick=e=>{ e.preventDefault(); document.querySelectorAll('.fbOth').forEach(c=>c.checked=false); }; }
+  b.rows.forEach((p,i)=>julianPair('fbMince_'+i,'fbJul_'+i,'fbJulNote_'+i,p.mince_date||''));
   document.getElementById('fbSave').onclick=async()=>{
     const g=id=>(document.getElementById(id)||{}).value||''; const mk=v=>v?new Date(day+'T'+v+':00').toISOString():'';
-    const upd={mince:g('fbMince'),julian:g('fbJul').trim(),batch:g('fbJul').trim(),basket:g('fbBasket').trim(),stackId:g('fbStack').trim(),operators:+g('fbOps')||0,trays:+g('fbTrays')||0,fillStart:mk(g('fbFS')),fillFinish:mk(g('fbFF')),tempStart:g('fbTS').trim(),tempFinish:g('fbTF').trim()};
+    const upd={basket:g('fbBasket').trim(),stackId:g('fbStack').trim(),operators:+g('fbOps')||0,trays:+g('fbTrays')||0,fillStart:mk(g('fbFS')),fillFinish:mk(g('fbFF')),tempStart:g('fbTS').trim(),tempFinish:g('fbTF').trim()};
     if(upd.fillStart&&upd.fillFinish&&upd.fillFinish<upd.fillStart){ document.getElementById('fbMsg').textContent='Finish time is before start time.'; return; }
     document.getElementById('fbMsg').textContent='Saving…';
-    try{ for(const p of b.rows){ const body=Object.assign(prodLineFromRow(p),{date:p.date||''},upd,{deductions:[]});   // deductions:[] = the stored stock figures are left exactly as they are
+    const lineMJ=b.rows.map((p,i)=>({recipe_id:p.recipe_id,product:p.product,mince:g('fbMince_'+i),julian:g('fbJul_'+i).trim()}));
+    if(lineMJ.some(l=>!l.mince||!l.julian)){ document.getElementById('fbMsg').textContent='Each product needs a mince date and a Julian.'; return; }
+    try{ for(let i=0;i<b.rows.length;i++){ const p=b.rows[i]; const body=Object.assign(prodLineFromRow(p),{date:p.date||''},upd,{mince:lineMJ[i].mince,julian:lineMJ[i].julian,batch:lineMJ[i].julian,deductions:[]});   // deductions:[] = the stored stock figures are left exactly as they are
         await api('/api/production/'+encodeURIComponent(p.id),'PUT',body); }
+      const oth=[...document.querySelectorAll('.fbOth:checked')].map(c=>_fdBaskets[+c.dataset.k]).filter(Boolean);
+      for(const o of oth){ for(const p of o.rows){ const l=lineMJ.find(x=>(x.recipe_id&&x.recipe_id===p.recipe_id)||(!x.recipe_id&&x.product===p.product))||(lineMJ.length===1?lineMJ[0]:null); if(!l) continue; await api('/api/production/'+encodeURIComponent(p.id),'PUT',Object.assign(prodLineFromRow(p),{date:p.date||'',mince:l.mince,julian:l.julian,batch:l.julian,deductions:[]})); } }
       closeModal(); drawFilldash(); }
     catch(e){ document.getElementById('fbMsg').textContent='Failed: '+e.message; }
   };
 }
 window.fdEditBasket=fdEditBasket;
-/* Set the minced date and/or Julian for several baskets at once from the dashboard (every product line in each). Julian may differ from the date (bags mis-printed). */
-function fdBulkMince(idxs){
-  const bs=idxs.map(i=>_fdBaskets[i]).filter(b=>b&&b.rows&&b.rows.length); if(!bs.length) return; const f0=bs[0].rows[0]; const nRows=bs.reduce((a,b)=>a+b.rows.length,0);
-  const list=bs.map(b=>'<div class="dash-row"><span class="ddot" style="background:var(--sea)"></span><b>Basket '+escapeHtml(''+b.basket)+'</b><span class="dr-right">'+escapeHtml(Object.values(b.items).map(it=>it.product).join(', '))+' · minced '+escapeHtml(b.rows[0].mince_date||'—')+' · '+escapeHtml(b.rows[0].julian_code||'—')+'</span></div>').join('');
-  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Set minced date / Julian — '+bs.length+' basket'+(bs.length>1?'s':'')+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
-   '<p class="hint">Applies to every product line in the ticked baskets ('+nRows+'). Bags, times, temperatures and stock figures are not changed. The Julian can differ from the date — e.g. when the bags were printed with another code.</p>'+list+
-   '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:12px;align-items:flex-end"><label class="fld">Mince date<input type="date" id="bmMince" value="'+escapeHtml(f0.mince_date||'')+'"></label><label class="fld">Julian<input id="bmJul" value="'+escapeHtml(f0.julian_code||'')+'" style="width:100px"></label><span class="hint" id="bmJulNote"></span></div>'+
-   '<div style="margin-top:14px"><button class="btn coral" id="bmSave">Apply to '+bs.length+' basket'+(bs.length>1?'s':'')+'</button> <span class="hint" id="bmMsg"></span></div>');
-  julianPair('bmMince','bmJul','bmJulNote',f0.mince_date||'');
-  document.getElementById('bmSave').onclick=async()=>{
-    const mince=document.getElementById('bmMince').value, jul=document.getElementById('bmJul').value.trim(); const m=document.getElementById('bmMsg');
-    if(!mince||!jul){ m.textContent='Mince date and Julian are both needed.'; return; } m.textContent='Saving…';
-    try{ for(const b of bs){ for(const p of b.rows){ await api('/api/production/'+encodeURIComponent(p.id),'PUT',Object.assign(prodLineFromRow(p),{date:p.date||'',mince:mince,julian:jul,batch:jul,deductions:[]})); } }
-      closeModal(); drawFilldash(); }
-    catch(e){ m.textContent='Failed: '+e.message; }
-  };
-}
-window.fdBulkMince=fdBulkMince;
 async function drawFilldash(){
   const root=document.getElementById('rootFilldash'); if(!root)return;
   const date=_dashDate, isToday=(date===todayISO());
@@ -3453,8 +3439,8 @@ async function drawFilldash(){
        return `<tr><td>${escapeHtml(r.product)}</td><td>${escapeHtml(r.pack)}</td><td class="num">${r.planBags?r.planBags.toLocaleString():'—'}</td><td class="num">${r.actBags.toLocaleString()}</td><td class="num">${r.planBags?pct+'%':'—'}</td><td style="color:${col}">${r.planBags?(ok?'on track':'behind'):'extra'}</td></tr>`; }).join(''):'<tr><td colspan="6" class="muted">Nothing planned or filled.</td></tr>'}</tbody>
      <tfoot><tr><th>Total</th><th></th><th class="num">${planBags.toLocaleString()}</th><th class="num">${actBags.toLocaleString()}</th><th class="num">${progPct}%</th><th></th></tr></tfoot></table>
    </div>
-   <div class="card" style="padding:0;overflow:auto"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px 4px"><h3 style="margin:0">Baskets — ${date}</h3>${canEdit('production')?`<span style="flex:1"></span><button class="btn ghost sm" id="fdBulk" disabled title="Tick baskets first">Set minced date / Julian for ticked (<span id="fdBulkN">0</span>)</button>`:''}</div>
-     <table><thead><tr>${canEdit('production')?'<th style="width:30px"><input type="checkbox" id="fdAll" title="Tick all"></th>':''}<th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th>${canEdit('production')?'<th></th>':''}</tr></thead>
+   <div class="card" style="padding:0;overflow:auto"><h3 style="margin:0;padding:12px 14px 4px">Baskets — ${date}</h3>
+     <table><thead><tr><th>Basket</th><th class="num">People</th><th>Recipe(s)</th><th class="num">Bags</th><th class="num" title="Bags ÷ fill time for the whole basket, shown against the line target">Packs/min</th><th>Start</th><th>Finish</th><th class="num">Time</th>${canEdit('production')?'<th></th>':''}</tr></thead>
      <tbody>${baskets.length?baskets.map((b,i)=>{
        const dur=b.start?(b.finish?fmtDur(new Date(b.finish)-new Date(b.start)):'<span class="dashlive" data-start="'+b.start+'">…</span>'):'—';
        const items=Object.values(b.items);
@@ -3463,8 +3449,8 @@ async function drawFilldash(){
        let ppmHtml='<span class="muted">—</span>';
        if(mins&&mins>0){ const actPpm=b.bags/mins; let tgtMin=0; items.forEach(it=>{ const g=Math.round((packSizeKg(it.pack)||0)*1000); tgtMin+=it.bags/ppmFor(g,b.ops||2); }); const tgtPpm=tgtMin>0?b.bags/tgtMin:null; const behind=tgtPpm&&actPpm<tgtPpm*0.9; ppmHtml=`<b style="color:${behind?'#b4231f':'var(--navy)'}">${actPpm.toFixed(1)}</b>${tgtPpm?` <span class="muted">/ ${tgtPpm.toFixed(0)}</span>`:''}`; }
        else if(b.open){ ppmHtml='<span style="color:var(--coral-deep)">filling…</span>'; }
-       const f0=(b.rows||[])[0]||{}; const mjHtml=(f0.mince_date||f0.julian_code)?`<div class="muted" style="font-size:11px;padding-top:2px">minced ${escapeHtml(f0.mince_date||'—')} · Julian ${escapeHtml(f0.julian_code||'—')}</div>`:'';
-       return `<tr>${canEdit('production')?`<td><input type="checkbox" class="fdSel" data-i="${i}"></td>`:''}<td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}${mjHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td>${canEdit('production')?'<td class="num"><button class="btn ghost sm" data-fdedit="'+i+'" title="Edit this basket’s details — times, temps, people, trays">Edit</button></td>':''}</tr>`; }).join(''):'<tr><td colspan="10" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
+       const mjSet=[...new Set((b.rows||[]).map(p=>(p.mince_date||'—')+' · Julian '+(p.julian_code||'—')))]; const mjHtml=mjSet.length?(mjSet.length===1?`<div class="muted" style="font-size:11px;padding-top:2px">minced ${escapeHtml(mjSet[0])}</div>`:(b.rows||[]).map(p=>`<div class="muted" style="font-size:11px;padding-top:2px">${escapeHtml(p.product||'')}: minced ${escapeHtml(p.mince_date||'—')} · Julian ${escapeHtml(p.julian_code||'—')}</div>`).join('')):'';
+       return `<tr><td><b>${escapeHtml(''+b.basket)}</b></td><td class="num">${b.ops||'—'}</td><td>${recipesHtml}${mjHtml}</td><td class="num">${b.bags.toLocaleString()}</td><td class="num">${ppmHtml}</td><td>${fmtTime(b.start)}</td><td>${b.finish?fmtTime(b.finish):(b.open?'<span style="color:var(--coral-deep)">filling…</span>':'—')}</td><td class="num">${dur}</td>${canEdit('production')?'<td class="num"><button class="btn ghost sm" data-fdedit="'+i+'" title="Edit this basket’s details — times, temps, people, trays">Edit</button></td>':''}</tr>`; }).join(''):'<tr><td colspan="9" class="muted">No baskets filled yet.</td></tr>'}</tbody></table>
    </div>
   </div>`;
   document.getElementById('fdDate').addEventListener('change',e=>{ _dashDate=e.target.value||todayISO(); renderFilldash(); });
@@ -3474,9 +3460,6 @@ async function drawFilldash(){
   document.getElementById('fdReload').addEventListener('click',drawFilldash);
   root.querySelectorAll('[data-clearwho]').forEach(b=>b.addEventListener('click',()=>clearLiveWho(b.getAttribute('data-clearwho'))));
   root.querySelectorAll('[data-fdedit]').forEach(b=>b.addEventListener('click',()=>fdEditBasket(+b.dataset.fdedit)));
-  { const cnt=()=>{ const k=root.querySelectorAll('.fdSel:checked').length; const bn=document.getElementById('fdBulkN'), bb=document.getElementById('fdBulk'); if(bn) bn.textContent=k; if(bb){ bb.disabled=!k; bb.title=k?'':'Tick baskets first'; } };
-    root.querySelectorAll('.fdSel').forEach(c=>c.addEventListener('change',cnt)); const all=document.getElementById('fdAll'); if(all) all.addEventListener('change',()=>{ root.querySelectorAll('.fdSel').forEach(c=>c.checked=all.checked); cnt(); });
-    const bb=document.getElementById('fdBulk'); if(bb) bb.addEventListener('click',()=>fdBulkMince([...root.querySelectorAll('.fdSel:checked')].map(c=>+c.dataset.i))); }
   if(_dashTick){clearInterval(_dashTick);_dashTick=null;}
   if(document.querySelector('#rootFilldash .dashlive')){ _dashTick=setInterval(tickDash,1000); tickDash(); }
   if(isToday && !_dashTimer){ _dashTimer=setInterval(()=>{ const v=document.getElementById('view-filldash'); if(v&&v.classList.contains('active')) drawFilldash(); },30000); }
