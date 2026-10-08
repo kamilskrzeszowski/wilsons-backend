@@ -2259,7 +2259,7 @@ const VERSION_HISTORY=[
     'Filling Sheet: the mince date is asked on every basket and never carried over — tap Yesterday, Today or other…; the Julian code is worked out from the date so the two can’t disagree. A basket won’t submit without it. If a basket dated to an earlier day would take that day past what was minced (the Planner’s kg), the sheet asks “is this really that day’s mince?” before saving.',
     'Mixing runs: an “Edit run” button changes the mince date, Julian or recipe for the baskets in a run (for people who can edit production). It lists the baskets with tick-boxes: leave all ticked to move the whole run; un-tick the ones that should stay and the ticked ones split off into their own run (the pick & mix stays with the baskets left behind). Setting the date to match another run merges them.',
     'Filling Dashboard → basket Edit now also has Mince date and Julian, so a single basket recorded against the wrong mince day can be corrected from the dashboard whether or not it has been cooked yet.',
-    'Filling Dashboard: a basket’s Edit box now shows the full set of details for each product in the basket — mince date, Julian, trolley number, stack ID, people, trays, fill times and temperatures — so a basket holding two recipes can be split and every detail kept.',
+    'Filling Dashboard: a basket’s Edit box shows the full set of details for each product in the basket — mince date, Julian, best before, fill date, trolley number, stack ID, people, trays, fill times and temperatures. The four dates/codes are independent (nothing fills in another). Changing a product’s fill date moves it to that day’s dashboard, keeping its times; mince date and Julian decide its run in Pick & Mix.',
     'Julian vs mince date: in Edit run and the basket edit, changing the date fills in that date’s Julian only if you haven’t typed one yourself. You can keep a different Julian — e.g. when the bags were printed with the wrong code — and a note shows the two differ, with a one-tap “use …” to go back to the date’s own code.',
     'Trace / recall now follows an ingredient batch all the way to the baskets and cook dates (with retort) it went into, not just the mix.',
     'Older runs from the imported history aren’t linked to a recipe by name (e.g. the earlier “Beef and Chia” products, “Tuggs - Cod”): the run shows a “recipe?” marker and asks you to choose the recipe once when you add its pick & mix — HQ remembers the choice for every run of that product name.'
@@ -3305,7 +3305,7 @@ async function fdEditBasket(i){
   const blocks=b.rows.map((p,k)=>{ const ops=+p.operators||2; const id=s=>s+'_'+k;
     return '<div style="padding:10px 0;border-bottom:1px dashed var(--line)">'+
       '<div class="row-flex" style="flex-wrap:wrap;gap:10px;align-items:flex-end"><div style="flex:1;min-width:200px"><b style="font-size:16px">'+escapeHtml(p.product||'')+'</b><div class="muted" style="font-size:12px">'+escapeHtml(p.pack||'')+' · '+fmt(p.qty)+' bags</div></div>'+
-      '<label class="fld">Mince date<input type="date" id="'+id('fbMince')+'" value="'+escapeHtml(p.mince_date||'')+'"></label><label class="fld">Julian<input id="'+id('fbJul')+'" value="'+escapeHtml(p.julian_code||'')+'" style="width:90px"></label></div>'+
+      '<label class="fld">Mince date<input type="date" id="'+id('fbMince')+'" value="'+escapeHtml(p.mince_date||'')+'"></label><label class="fld">Julian<input id="'+id('fbJul')+'" value="'+escapeHtml(p.julian_code||'')+'" style="width:90px"></label><label class="fld">Best before<input type="date" id="'+id('fbBB')+'" value="'+escapeHtml(p.best_before||'')+'"></label><label class="fld">Fill date<input type="date" id="'+id('fbFilled')+'" value="'+escapeHtml(p.filled_date||p.date||'')+'"></label></div>'+
       '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">'+
       '<label class="fld">Trolley / stack no.<input id="'+id('fbBasket')+'" value="'+escapeHtml(''+(p.basket||''))+'" style="width:110px"></label>'+
       '<label class="fld">Stack ID<input id="'+id('fbStack')+'" value="'+escapeHtml(p.stack_id||'')+'" style="width:110px"></label>'+
@@ -3317,14 +3317,13 @@ async function fdEditBasket(i){
       '<label class="fld">Temp finish °C<input id="'+id('fbTF')+'" value="'+escapeHtml(p.temp_finish||'')+'" style="width:90px"></label></div></div>'; }).join('');
   pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Basket '+escapeHtml(''+b.basket)+' — edit details</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+blocks+
    '<div style="margin-top:14px"><button class="btn coral" id="fbSave">Save basket</button> <span class="hint" id="fbMsg"></span></div>');
-  b.rows.forEach((p,k)=>julianPair('fbMince_'+k,'fbJul_'+k,null,p.mince_date||''));
   document.getElementById('fbSave').onclick=async()=>{
-    const g=id=>(document.getElementById(id)||{}).value||''; const mk=v=>v?new Date(day+'T'+v+':00').toISOString():''; const msg=document.getElementById('fbMsg');
-    const upds=b.rows.map((p,k)=>({mince:g('fbMince_'+k),julian:g('fbJul_'+k).trim(),batch:g('fbJul_'+k).trim(),basket:g('fbBasket_'+k).trim(),stackId:g('fbStack_'+k).trim(),operators:+g('fbOps_'+k)||0,trays:+g('fbTrays_'+k)||0,fillStart:mk(g('fbFS_'+k)),fillFinish:mk(g('fbFF_'+k)),tempStart:g('fbTS_'+k).trim(),tempFinish:g('fbTF_'+k).trim()}));
-    if(upds.some(u=>!u.mince||!u.julian)){ msg.textContent='Each product needs a mince date and a Julian.'; return; }
+    const g=id=>(document.getElementById(id)||{}).value||''; const msg=document.getElementById('fbMsg');
+    const upds=b.rows.map((p,k)=>{ const fd=g('fbFilled_'+k)||day; const mk=v=>v?new Date(fd+'T'+v+':00').toISOString():''; return {filled:fd,date:fd,bestBefore:g('fbBB_'+k),mince:g('fbMince_'+k),julian:g('fbJul_'+k).trim(),batch:g('fbJul_'+k).trim(),basket:g('fbBasket_'+k).trim(),stackId:g('fbStack_'+k).trim(),operators:+g('fbOps_'+k)||0,trays:+g('fbTrays_'+k)||0,fillStart:mk(g('fbFS_'+k)),fillFinish:mk(g('fbFF_'+k)),tempStart:g('fbTS_'+k).trim(),tempFinish:g('fbTF_'+k).trim()}; });
+    if(upds.some(u=>!u.mince||!u.julian||!u.filled)){ msg.textContent='Each product needs a mince date, a Julian and a fill date.'; return; }
     if(upds.some(u=>u.fillStart&&u.fillFinish&&u.fillFinish<u.fillStart)){ msg.textContent='A finish time is before its start time.'; return; }
     msg.textContent='Saving…';
-    try{ for(let k=0;k<b.rows.length;k++){ const p=b.rows[k]; await api('/api/production/'+encodeURIComponent(p.id),'PUT',Object.assign(prodLineFromRow(p),{date:p.date||''},upds[k],{deductions:[]})); }   // deductions:[] = stock figures untouched
+    try{ for(let k=0;k<b.rows.length;k++){ const p=b.rows[k]; await api('/api/production/'+encodeURIComponent(p.id),'PUT',Object.assign(prodLineFromRow(p),upds[k],{deductions:[]})); }   // deductions:[] = stock figures untouched
       closeModal(); drawFilldash(); }
     catch(e){ msg.textContent='Failed: '+e.message; }
   };
