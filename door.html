@@ -15,21 +15,22 @@
 html,body{height:100%;margin:0;background:var(--navy);color:var(--txt);font-family:var(--fb);font-size:18px;overflow:hidden;user-select:none}
 #app{height:100%;display:flex;flex-direction:column;padding:max(16px,env(safe-area-inset-top)) 22px max(16px,env(safe-area-inset-bottom))}
 header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
-header img{height:46px}
+header img{height:84px}
 header .door{display:none}
 header .clock{margin-left:auto;text-align:right;font-size:20px;color:#dbe4e8;font-weight:500}header .clock b{display:block;font-size:64px;color:#fff;font-family:var(--fd);font-weight:400;letter-spacing:.02em;line-height:1;margin-bottom:4px}header .clock span{display:block}header .clock .n{font-size:14px;color:var(--mut)}
 main{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px}
 h1{font-family:var(--fd);font-weight:400;font-size:34px;margin:0;letter-spacing:.01em}h1 small{display:block;font-family:var(--fb);font-size:16px;color:var(--mut);margin-top:4px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1}
-button{font:inherit;border:0;cursor:pointer;color:#fff;background:rgba(255,255,255,.1);border-radius:22px;padding:18px;min-height:88px;font-weight:700;font-size:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;transition:transform .08s}
+button{font:inherit;border:0;cursor:pointer;color:#fff;background:rgba(255,255,255,.1);border-radius:22px;padding:18px;min-height:88px;font-weight:700;font-size:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;transition:transform .08s}
 button:active{transform:scale(.98)}
-button small{font-weight:400;font-size:14px;color:var(--mut)}
+button small{font-weight:400;font-size:19px;color:var(--mut)}
 button.primary{background:var(--coral);color:var(--navy)}button.primary small{color:#5a2a30}
 button.in{background:var(--ok)}button.out{background:var(--coral2)}
 button.fire{background:var(--coral2);color:var(--navy);flex-direction:row;min-height:64px;font-size:20px}
 button.ghost{background:transparent;border:2px solid var(--line);min-height:60px;font-size:18px;font-weight:500}
 button.sm{min-height:52px;font-size:17px;padding:10px 16px;border-radius:14px}
 .ico{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.grid>button .ico{width:52px;height:52px;stroke-width:1.8}
 .row{display:flex;gap:12px;align-items:center}
 .spacer{flex:1}
 /* pin */
@@ -97,8 +98,8 @@ document.addEventListener('touchstart',()=>idle(),{passive:true}); document.addE
 async function refresh(){ try{ STATE=await api('/api/door/state'); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(view==='home') draw(); if(view==='onsite') draw(); }catch(e){} }
 setInterval(refresh,20000);
 /* camera: asked for once; if refused we carry on without photos */
-async function cam(){ if(camStream) return true; try{ camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false}); $('cam').srcObject=camStream; camOk=true; }catch(e){ camOk=false; } return camOk; }
-function photo(){ if(!camOk) return ''; try{ const v=$('cam'),c=$('snap'),x=c.getContext('2d'); const vw=v.videoWidth||640,vh=v.videoHeight||480; const s=Math.min(vw/240,vh/180); const sw=240*s,sh=180*s; x.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,240,180); return c.toDataURL('image/jpeg',.6); }catch(e){ return ''; } }
+async function cam(){ return false; }   // photos switched off for now (Kamil, 17 Oct 2026) — the server still accepts them if this is turned back on
+function photo(){ return ''; if(!camOk) return ''; try{ const v=$('cam'),c=$('snap'),x=c.getContext('2d'); const vw=v.videoWidth||640,vh=v.videoHeight||480; const s=Math.min(vw/240,vh/180); const sw=240*s,sh=180*s; x.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,240,180); return c.toDataURL('image/jpeg',.6); }catch(e){ return ''; } }
 const ICON={flame:'<svg class="ico" viewBox="0 0 24 24"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-1.5.5-2.5 1-3.5.5 1 1.2 1.5 2 1.5 0-2.5-.5-4.5 1-6.5z"/><path d="M5 20h14"/></svg>',user:'<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',users:'<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 4.5"/></svg>',tool:'<svg class="ico" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3l9.4-9.4z"/><path d="M15 4l5 5"/></svg>',back:'<svg class="ico" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>'};
 function go(v,arg){ view=v; pin=''; if(v!=='greet') cur=cur&&v==='pin'?cur:null; draw(arg); idle(); }
 function draw(arg){
@@ -110,13 +111,13 @@ function draw(arg){
   }
   if(view==='pin'){
     m.innerHTML='<div class="row"><button class="ghost sm" onclick="go(\'home\')">'+ICON.back+'Back</button><h1 style="margin-left:8px">'+(pinMode==='setup'?'Choose a 4-digit PIN':(pinMode==='setup2'?'Type it again':'Your PIN'))+(pinMode!=='sign'&&cur?'<small>'+esc(cur.name)+'</small>':'')+'</h1></div>'+
-      '<div class="pinwrap"><div><div class="dots" id="dots"></div><div class="msg" id="pinMsg"></div><div class="pad">'+[1,2,3,4,5,6,7,8,9].map(n=>'<button onclick="key('+n+')">'+n+'</button>').join('')+'<button onclick="go(\'home\')" style="font-size:16px;font-weight:400;color:var(--mut)">Cancel</button><button onclick="key(0)">0</button><button onclick="key(-1)">⌫</button></div></div><div class="hello" style="align-self:center;justify-self:center"><div class="ph" id="phBox">'+(camOk?'':'')+'</div><div><div class="s">'+(pinMode==='sign'?'Forgotten your PIN? Ask a manager to reset it in HQ.':'Nobody else must know it. It identifies you at this door.')+'</div></div></div></div>';
-    dots(); cam().then(()=>{ if(camOk&&$('phBox')){ $('phBox').innerHTML=''; $('phBox').appendChild($('cam')); $('cam').classList.remove('hide'); } });
+      '<div class="pinwrap"><div><div class="dots" id="dots"></div><div class="msg" id="pinMsg"></div><div class="pad">'+[1,2,3,4,5,6,7,8,9].map(n=>'<button onclick="key('+n+')">'+n+'</button>').join('')+'<button onclick="go(\'home\')" style="font-size:16px;font-weight:400;color:var(--mut)">Cancel</button><button onclick="key(0)">0</button><button onclick="key(-1)">⌫</button></div></div><div class="hello" style="align-self:center;justify-self:center"><div><div class="s">'+(pinMode==='sign'?'Forgotten your PIN? Ask a manager to reset it in HQ.':'Nobody else must know it. It identifies you at this door.')+'</div></div></div></div>';
+    dots();
     return;
   }
   if(view==='greet'){
     const e=cur; const inNow=e.in;
-    m.innerHTML='<div class="hello"><div class="ph">'+(e.photo?'<img src="'+e.photo+'">':'')+'</div><div><div class="t">'+esc(greeting())+', '+esc(e.first||e.name)+'</div><div class="s">'+(inNow?'On site since '+esc(e.since||''):'Last: '+esc(e.last||'—'))+' · this week so far '+esc(e.week||'0 h')+'</div></div></div>'+
+    m.innerHTML='<div class="hello"><div><div class="t">'+esc(greeting())+', '+esc(e.first||e.name)+'</div><div class="s">'+(inNow?'On site since '+esc(e.since||''):'Last: '+esc(e.last||'—'))+' · this week so far '+esc(e.week||'0 h')+'</div></div></div>'+
       '<div class="grid" style="flex:1">'+(inNow?'<button class="out" onclick="punch(\'out\')">Sign OUT<small style="color:#fde">leaving site: break, lunch or end of day</small></button>':'<button class="in" onclick="punch(\'in\')">Sign IN</button>')+'<button class="ghost" onclick="go(\'home\')">Cancel</button></div>';
     return;
   }
@@ -175,7 +176,7 @@ async function startRoll(){ try{ roll=await api('/api/door/rollcall/start','POST
 async function rollTick(i){ roll.people[i].ticked=!roll.people[i].ticked; draw(); try{ await api('/api/door/rollcall/'+roll.id+'/tick','POST',{i,ticked:roll.people[i].ticked}); }catch(e){} }
 async function rollClose(kind){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind}); document.body.classList.remove('rollcall'); roll=null; toast(kind==='drill'?'Drill recorded.':'Roll call saved.',3000); go('home'); }catch(e){ toast(e.message); } }
 async function rollAbandon(){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind:'cancelled'}); }catch(e){} document.body.classList.remove('rollcall'); roll=null; go('home'); }
-(async function boot(){ if(!TOKEN){ fatal('This tablet is not signed in. Open Wilsons HQ, sign in with the tablet login, and it will come back here.'); return; } try{ STATE=await api('/api/door/state'); }catch(e){ return; } $('onsiteN').textContent=STATE.onsite.length+' on site'; if(STATE.rollcall){ roll=STATE.rollcall; view='rollcall'; } draw(); cam(); fsWatch(); })();
+(async function boot(){ if(!TOKEN){ fatal('This tablet is not signed in. Open Wilsons HQ, sign in with the tablet login, and it will come back here.'); return; } try{ STATE=await api('/api/door/state'); }catch(e){ return; } $('onsiteN').textContent=STATE.onsite.length+' on site'; if(STATE.rollcall){ roll=STATE.rollcall; view='rollcall'; } draw(); fsWatch(); })();
 /* full screen: browsers only allow it from a tap, so every tap asks until we are, and a button shows while we're not */
 function isFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
 function goFull(){ try{ const el=document.documentElement; const p=el.requestFullscreen?el.requestFullscreen({navigationUI:'hide'}):(el.webkitRequestFullscreen?el.webkitRequestFullscreen():null); if(p&&p.catch) p.catch(()=>{}); }catch(e){} setTimeout(fsWatch,400); }

@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v54';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v55';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -2696,4 +2696,74 @@ hrRoutes = async function (ctx) {
     if (url === '/api/hr/eo-summary' && m === 'GET') { const rows = db.prepare('SELECT hr FROM employees').all(); const tally = {}; rows.forEach(r => { let h = {}; try { h = JSON.parse(r.hr || '{}'); } catch (x) {} const eo = h.eo; if (!eo) return; ['gender', 'ethnic', 'disability'].forEach(k => { tally[k] = tally[k] || {}; const v = eo[k] || 'not answered'; tally[k][v] = (tally[k][v] || 0) + 1; }); }); json(res, 200, { answered: rows.filter(r => { try { return !!JSON.parse(r.hr || '{}').eo; } catch (x) { return false; } }).length, total: rows.length, tally }); return true; }
   }
   return hrRoutesPhase1(ctx);
+};
+
+
+/* ============================================================================
+ * v55 — HR phase 3a: weekly hours. Pay group on the record (HR only), absences
+ * (sick / holiday / training / unpaid) per day, the week view with the same columns as the
+ * WEEKLY SUMMARY sheet, and a CSV in that layout. Weeks run Sunday–Saturday with the
+ * financial week number (week 1 holds 1 April), as in the sheet.
+ * ==========================================================================*/
+db.exec("CREATE TABLE IF NOT EXISTS absences(id TEXT PRIMARY KEY, emp_id TEXT, day TEXT, kind TEXT, hours REAL DEFAULT 8, note TEXT DEFAULT '', by TEXT, created TEXT)");
+try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_abs_emp_day ON absences(emp_id, day)'); } catch (e) {}
+if (!HR_SCHEMA.some(g => g.key === 'pay')) HR_SCHEMA.splice(HR_SCHEMA.findIndex(g => g.key === 'contract'), 0, { key: 'pay', title: 'Pay (HR only)', pack: false, private: true, intro: 'Set by HR, never part of a pack.', fields: [
+  { k: 'pay_type', label: 'Paid', type: 'options', options: ['Hourly', 'Monthly'] }, { k: 'hourly_rate', label: 'Hourly rate £', inputmode: 'decimal' }, { k: 'holiday_rate', label: 'Holiday rate £ (blank = same as hourly)', inputmode: 'decimal' }, { k: 'monthly_salary', label: 'Monthly salary £ (monthly paid)', inputmode: 'decimal' }, { k: 'payroll_no', label: 'Payroll number' } ] });
+function hrAddDays(day, n) { const d = new Date(day + 'T00:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }   // local-date arithmetic (never via toISOString, which slips a day in British Summer Time)
+function hrSunday(day) { const d = new Date(day + 'T00:00:00'); return hrAddDays(day, -d.getDay()); }
+function hrFyWeek(day) { const d = new Date(day + 'T00:00:00'); let y = d.getFullYear(); if (d < new Date(y + '-04-01T00:00:00')) y--; const apr = new Date(y + '-04-01T00:00:00'); const start = new Date(apr); start.setDate(apr.getDate() - apr.getDay()); return { week: Math.floor((d - start) / (7 * 86400e3)) + 1, fy: y + '-' + String(y + 1).slice(2) }; }
+// minutes per day from the in/out pairs, credited to the day of the IN (so a night shift stays whole); nearest 15 minutes
+function hrWeekMinutes(empId, days, L) {
+  const from = hrAddDays(days[0], -1), to = hrAddDays(days[6], 1);
+  const ev = db.prepare("SELECT dir, at, day, auto FROM attendance WHERE emp_id=? AND day>=? AND day<=? ORDER BY at, created").all(empId, from, to);
+  const abs = ms => Math.floor(ms / 60000); const tm = a => abs(new Date(a + ':00').getTime());
+  const out = {}; days.forEach(d => out[d] = { mins: 0, flags: [], events: 0 });
+  let open = null;
+  ev.forEach(e => { const slot = out[e.day]; if (slot) slot.events++;
+    if (e.dir === 'in') { if (open && out[open.day]) out[open.day].flags.push('no sign-out'); open = e; }
+    else { if (!open) { if (slot) slot.flags.push('OUT without IN'); } else { const t = out[open.day]; if (t) { t.mins += Math.max(0, tm(e.at) - tm(open.at)); if (e.auto) t.flags.push('auto-closed'); } open = null; } } });
+  if (open && out[open.day]) { if (open.day === L.day) { out[open.day].mins += Math.max(0, tm(L.at) - tm(open.at)); out[open.day].flags.push('still in'); } else out[open.day].flags.push('no sign-out'); }
+  days.forEach(d => { const o = out[d]; o.hours = Math.round(o.mins / 15) * 15 / 60; o.flags = [...new Set(o.flags)]; });
+  return out;
+}
+function hrWeek(startDay) {
+  const L = hrLondon(); const start = hrSunday(startDay || L.day); const days = [0, 1, 2, 3, 4, 5, 6].map(i => hrAddDays(start, i)); const fy = hrFyWeek(days[3]);
+  const emps = db.prepare("SELECT * FROM employees ORDER BY name").all();
+  const absRows = db.prepare('SELECT * FROM absences WHERE day>=? AND day<=?').all(days[0], days[6]); const absBy = {}; absRows.forEach(a => absBy[a.emp_id + '|' + a.day] = a);
+  const rows = [], agency = [];
+  emps.forEach(e => {
+    const mins = hrWeekMinutes(e.id, days, L); const priv = hrUnseal(e.hr_private); const pay = priv.pay || {};
+    const dayRows = days.map(d => { const a = absBy[e.id + '|' + d]; return { day: d, hours: mins[d].hours, flags: mins[d].flags, events: mins[d].events, absence: a ? { kind: a.kind, hours: +a.hours || 0 } : null }; });
+    const any = dayRows.some(d => d.hours > 0 || d.events || d.absence); if (e.status === 'leaver' && !any) return;
+    let worked = 0, sick = 0, holiday = 0, training = 0, unpaid = 0;
+    dayRows.forEach(d => { worked += d.hours; if (d.absence) { const h = d.absence.hours; if (d.absence.kind === 'sick') sick += h; else if (d.absence.kind === 'holiday') holiday += h; else if (d.absence.kind === 'training') training += h; else unpaid += h; } });
+    const paidWorked = worked + training; const contracted = +e.hours_week || 40; const regular = Math.min(paidWorked, contracted), overtime = Math.max(0, paidWorked - contracted); const total = paidWorked + sick + holiday;
+    const rate = +pay.hourly_rate || 0, hrate = +pay.holiday_rate || rate; const monthly = String(pay.pay_type || '').toLowerCase() === 'monthly';
+    const cost = monthly ? null : +((regular + overtime + sick) * rate + holiday * hrate).toFixed(2);
+    const row = { id: e.id, name: e.name, status: e.status, agency: e.agency || '', contracted, pay_type: monthly ? 'Monthly' : 'Hourly', hourly_rate: rate, holiday_rate: hrate, days: dayRows, worked: +worked.toFixed(2), regular: +regular.toFixed(2), overtime: +overtime.toFixed(2), sick, holiday, training, unpaid, total: +total.toFixed(2), cost, flags: dayRows.some(d => d.flags.length) };
+    (e.agency ? agency : rows).push(row);
+  });
+  return { start: days[0], end: days[6], days, fyweek: fy.week, fy: fy.fy, today: L.day, rows, agency };
+}
+function hrWeekCsv(w) {
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [['WEEKLY SUMMARY'], ['Financial week', w.fyweek, 'FY ' + w.fy, 'Sun ' + w.start + ' – Sat ' + w.end, '(Paid hours only)'], ['Employee Name', 'Holiday Rate', 'Hourly Rate', 'Regular Hours', 'Overtime', 'Sick', 'Holiday', 'Total hours', 'Total Cost', 'Note']];
+  w.rows.forEach(r => lines.push([r.name, r.pay_type === 'Monthly' ? '' : r.holiday_rate, r.pay_type === 'Monthly' ? '' : r.hourly_rate, r.regular, r.overtime, r.sick, r.holiday, r.total, r.cost == null ? '' : r.cost, (r.pay_type === 'Monthly' ? 'monthly paid' : '') + (r.flags ? ' CHECK: missing sign-in/out' : '')]));
+  lines.push(['', '', '', '', '', '', '', w.rows.reduce((a, r) => a + r.total, 0).toFixed(2), w.rows.reduce((a, r) => a + (r.cost || 0), 0).toFixed(2), '']);
+  if (w.agency.length) { lines.push([]); lines.push(['AGENCY', 'Agency', '', 'Hours', '', '', '', 'Total hours', '', 'Note']); w.agency.forEach(r => lines.push([r.name, r.agency, '', r.worked, '', '', '', r.total, '', r.flags ? 'CHECK: missing sign-in/out' : ''])); }
+  return lines.map(l => l.map(q).join(',')).join('\r\n');
+}
+const hrRoutesPhase2 = hrRoutes;
+hrRoutes = async function (ctx) {
+  const { url, m, req, res, user } = ctx;
+  if (url.startsWith('/api/hr/')) {
+    if (!hrCan(user)) { json(res, 403, { error: 'You don’t have HR access.' }); return true; }
+    const qs = new URLSearchParams(req.url.split('?')[1] || '');
+    if (url === '/api/hr/week' && m === 'GET') { json(res, 200, hrWeek(qs.get('start') || '')); return true; }
+    if (url === '/api/hr/week.csv' && m === 'GET') { const w = hrWeek(qs.get('start') || ''); const body = '\uFEFF' + hrWeekCsv(w); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="weekly-summary-week' + w.fyweek + '-' + w.start + '.csv"', 'Cache-Control': 'no-store' }); res.end(body); return true; }
+    if (url === '/api/hr/absence' && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const emp = db.prepare('SELECT id FROM employees WHERE id=?').get(String(b.emp_id || '')); if (!emp || !/^\d{4}-\d{2}-\d{2}$/.test(String(b.day || ''))) { json(res, 400, { error: 'bad request' }); return true; }
+      const kind = String(b.kind || ''); if (!kind) { db.prepare('DELETE FROM absences WHERE emp_id=? AND day=?').run(emp.id, b.day); } else { if (!['sick', 'holiday', 'training', 'unpaid', 'other'].includes(kind)) { json(res, 400, { error: 'unknown kind' }); return true; } db.prepare("INSERT INTO absences(id,emp_id,day,kind,hours,note,by,created) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(emp_id,day) DO UPDATE SET kind=excluded.kind, hours=excluded.hours, note=excluded.note, by=excluded.by").run(uid('ab'), emp.id, b.day, kind, +b.hours > 0 ? +b.hours : 8, String(b.note || ''), user.username, now()); }
+      db.prepare('INSERT INTO hr_log(emp_id,what,by,at,detail) VALUES(?,?,?,?,?)').run(emp.id, (kind ? kind : 'absence cleared') + ' ' + b.day, user.username, now(), ''); json(res, 200, { ok: true }); return true; }
+  }
+  return hrRoutesPhase2(ctx);
 };

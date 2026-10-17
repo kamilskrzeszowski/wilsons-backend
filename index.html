@@ -317,6 +317,7 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="girecords">Goods-in records</button>
     <button data-view="people">People</button>
     <button data-view="attendance">Attendance</button>
+    <button data-view="timesheets">Timesheets</button>
     <button data-view="purchasing">Purchase orders</button>
     <button data-view="adjustments">Stocktake</button>
     <button data-view="packaging">Packaging</button>
@@ -351,7 +352,7 @@ tr.prDrag:hover{background:#faf3ee}
     <div class="sb-tabs" id="sbToggle"></div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v54</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v55</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -454,6 +455,7 @@ tr.prDrag:hover{background:#faf3ee}
   .rc-grp{border:1px solid var(--line);border-radius:12px;margin:8px 0;background:var(--card)}.rc-grp summary{padding:10px 14px;cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center}.rc-grp summary::-webkit-details-marker{display:none}.rc-grp summary::before{content:'▸';color:var(--muted)}.rc-grp[open] summary::before{content:'▾'}
   .rc-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 12px;padding:4px 14px 12px}.rc-fields .fld{margin:0}.rc-fields input,.rc-fields select,.rc-fields textarea{width:100%;box-sizing:border-box}
   .rc-pack{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .ts-cell{font-size:12.5px;white-space:nowrap}.ts-flag{background:#fff4d6}
   /* ABP consignment document print */
   .cdoc{color:#111;font-size:12.5px;line-height:1.45}.cdoc .cd-t{font-weight:800;font-size:17px;text-align:center}.cdoc .cd-t2{text-align:center;font-weight:700;font-size:12px;margin-top:2px}.cdoc .cd-t3{text-align:center;font-size:11px;color:#333;margin-bottom:10px}
   .cdoc h4{background:#eee;border:1px solid #999;padding:4px 8px;margin:10px 0 0;font-size:12.5px}
@@ -730,6 +732,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-deliveries"><h2 class="viewtitle">Goods in</h2><p class="sub">Every delivery, with or without an order. Ingredient and kilos are enough to save; anything left blank is flagged until it’s finished.</p><div id="rootDeliveries"></div></section>
   <section class="view" id="view-people"><h2 class="viewtitle">People</h2><p class="sub">Everyone who signs in at the door: site, shift, hours and whether their PIN is set.</p><div id="rootPeople"></div></section>
   <section class="view" id="view-attendance"><h2 class="viewtitle">Attendance</h2><p class="sub">Who is on site, the day’s sign-ins with photos, visitors and contractors, roll calls. Fix a missing sign-out here; every change is logged.</p><div id="rootAttendance"></div></section>
+  <section class="view" id="view-timesheets"><h2 class="viewtitle">Timesheets</h2><p class="sub">Hours from the door, week by week, in the weekly-summary layout. Mark absent days as sick, holiday, training or unpaid. Rates live on each person’s record under Pay.</p><div id="rootTimesheets"></div></section>
   <section class="view" id="view-girecords"><h2 class="viewtitle">Goods-in records</h2><p class="sub">The T001 goods-in register as recorded, with the ABP commercial document for each meat delivery.</p><div id="rootGirecords"></div></section>
   <section class="view" id="view-adjustments"><h2 class="viewtitle">Stocktake &amp; Adjustments</h2><p class="sub">Corrections to stock (waste, recount, write-off).</p><div id="rootAdjustments"></div></section>
   <section class="view" id="view-packaging"><h2 class="viewtitle">Packaging &amp; Finished Goods</h2><p class="sub">Bags, pouches, labels, treats and finished goods.</p><div id="rootPackaging"></div></section>
@@ -2315,6 +2318,11 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v55', date:'17 Oct 2026', notes:[
+    'Timesheets (HR workspace). The week from the door sign-ins, Sunday to Saturday with the financial week number, in the weekly-summary layout: each day’s hours, Regular, Overtime (above contracted hours), Sick, Holiday, Total and Cost. Tap a day to mark sick, holiday, training or unpaid (8 hours by default, changeable). Missing sign-ins/outs are flagged with an amber ! and a one-tap jump to Attendance to fix them. Agency workers sit in their own block, hours only. “Weekly summary (CSV)” downloads the week in the accounts team’s layout, with monthly-paid staff shown as hours only.',
+    'Pay on the record (People → Open → Pay, HR only, sealed): paid hourly or monthly, hourly rate, holiday rate, monthly salary, payroll number.',
+    'Fix: Planning can now be unticked per workspace in Customise menu (it was being forced back in).'
+  ]},
   {v:'v54', date:'17 Oct 2026', notes:['People: “Employed by” — Wilsons or Agency (with the agency’s name). Agency workers still sign in and out at the door (fire register, hours for the agency invoice) and show an agency tag in People; their pack leaves out bank details, NI number and right to work, and they never get a contract. Timesheets will put their hours on an agency report rather than the wages run.']},
   {v:'v53', date:'17 Oct 2026', notes:[
     'The employee record (HR · People → Open). Every group from the paper forms: personal details, date of birth & NI number (sealed), contact, emergency contacts, right to work & declarations, the food-handler health questionnaire, bank details & starter statement (sealed), site rules & handbook, equal opportunities (stored anonymously — never shown by name, counted in totals only). Sealed groups are encrypted in the database (set HR_SECRET in Railway so a copy of the database alone cannot read them).',
@@ -2561,7 +2569,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v54';
+const APP_VERSION='v55';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -2655,7 +2663,7 @@ function startVersionWatch(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,girecords:renderGiRecords,people:renderPeople,attendance:renderAttendance,purchasing:renderPurchasing,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,girecords:renderGiRecords,people:renderPeople,attendance:renderAttendance,timesheets:renderTimesheets,purchasing:renderPurchasing,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
 /* KPI dashboard module (same pattern as costing: served by the app, shown in a frame) */
 function renderKpi(){ const f=document.getElementById('kpiFrame'); if(!f) return; const want='/kpi?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
 function renderSpecs(){ const f=document.getElementById('specsFrame'); if(!f) return; const want='/specs?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
@@ -2765,6 +2773,7 @@ const SB_SECTIONS={
     ['planning','Planning','planning'],
     ['people','People','people'],
     ['attendance','Attendance','clipboardCheck'],
+    ['timesheets','Timesheets','clipboardText'],
     ['users','Users','user']
   ]
 };
@@ -2785,7 +2794,7 @@ const SB_ITEMS={}; Object.values(SB_SECTIONS).flat().forEach(it=>{ if(!SB_ITEMS[
 let MENU_LAYOUT=null;
 async function loadMenuLayout(){ try{ const d=await api('/api/menu-layout'); MENU_LAYOUT=(d.layout&&(d.layout.v===1||d.layout.v===2))?d.layout:null; }catch(e){ MENU_LAYOUT=null; } }
 function sbSection(mode){
-  if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])) return [SB_ITEMS.home, SB_ITEMS.planning, ...MENU_LAYOUT[mode].filter(k=>k!=='home'&&k!=='planning').map(k=>SB_ITEMS[k]).filter(Boolean)];
+  if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])){ const keys=MENU_LAYOUT[mode].filter(k=>k!=='home'); const legacy=MENU_LAYOUT.v===1; return [SB_ITEMS.home, ...(legacy&&!keys.includes('planning')?[SB_ITEMS.planning]:[]), ...keys.map(k=>SB_ITEMS[k]).filter(Boolean)]; }
   return SB_SECTIONS[mode]||[];
 }
 function sbAllowed(list){ return list.filter(it=>it[0]==='home'||canView(it[0])); }
@@ -2932,8 +2941,8 @@ function inFactory(r){ const f=currentFactory(); return f==='all' || factoryOf(r
 let SHOW_ALL_STAGES=false; try{ SHOW_ALL_STAGES=localStorage.getItem('wpm_allstages')==='1'; }catch(e){}
 function stageOk(r){ return SHOW_ALL_STAGES || !r.stage || r.stage==='production'; }
 function VREC(){ return state.recipes.filter(r=>inFactory(r)&&stageOk(r)); }
-function canView(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
-function canEdit(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
+function canView(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance'||a==='timesheets') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
+function canEdit(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance'||a==='timesheets') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 
 /* ===== Filling-line targets & shift timing ===== */
 const FILL_SIZES=[250,300,380,400,500,700];                 // pack sizes (grams) shown in Operations timings
@@ -4483,7 +4492,7 @@ let AT_DAY='';
 async function renderAttendance(){
   const root=document.getElementById('rootAttendance'); if(!root) return; const ed=canEdit('hr'); if(!AT_DAY) AT_DAY=todayISO();
   root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><button class="btn ghost sm" id="atPrev">◀</button><label class="fld">Day<input type="date" id="atDay" value="'+AT_DAY+'"></label><button class="btn ghost sm" id="atNext">▶</button><div class="spacer"></div>'+(ed?'<button class="btn ghost sm" id="atAdd">＋ Add a missing sign-in / out</button>':'')+'<button class="btn ghost sm" id="atPrint">🖨 Fire register</button></div><div id="atBody"><p class="muted">Loading…</p></div>';
-  const shift=(n)=>{ const d=new Date(AT_DAY+'T00:00:00'); d.setDate(d.getDate()+n); AT_DAY=d.toISOString().slice(0,10); renderAttendance(); };
+  const shift=(n)=>{ const d=new Date(AT_DAY+'T00:00:00'); d.setDate(d.getDate()+n); AT_DAY=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); renderAttendance(); };
   document.getElementById('atPrev').onclick=()=>shift(-1); document.getElementById('atNext').onclick=()=>shift(1); document.getElementById('atDay').onchange=e=>{ AT_DAY=e.target.value; renderAttendance(); };
   let d; try{ d=await api('/api/hr/attendance?day='+AT_DAY); }catch(e){ document.getElementById('atBody').innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; return; }
   const isToday=d.day===d.today; const hm=a=>String(a||'').slice(11,16);
@@ -4509,6 +4518,33 @@ async function renderAttendance(){
     document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400); };
 }
 window.renderPeople=renderPeople; window.renderAttendance=renderAttendance;
+/* ===== Timesheets (v55): the week as the WEEKLY SUMMARY sheet ===== */
+let TS_START='';
+const ABS_KINDS=[['sick','Sick'],['holiday','Holiday'],['training','Training (paid)'],['unpaid','Unpaid'],['other','Other']];
+async function renderTimesheets(){
+  const root=document.getElementById('rootTimesheets'); if(!root) return; const ed=canEdit('hr');
+  root.innerHTML='<p class="muted">Loading…</p>';
+  let w; try{ w=await api('/api/hr/week'+(TS_START?'?start='+TS_START:'')); }catch(e){ root.innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; return; }
+  TS_START=w.start; const dLab=d=>{ const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('en-GB',{weekday:'short'})+'<br><span class="muted" style="font-weight:400">'+x.getDate()+'/'+(x.getMonth()+1)+'</span>'; };
+  const fmtH=h=>h?(Math.round(h*100)/100).toString():'—';
+  const cell=(r,d,agency)=>{ const a=d.absence; const fl=d.flags.length; const t=(a?'<span class="pill '+(a.kind==='holiday'?'gi-am':(a.kind==='sick'?'gi-rd':''))+'" style="font-size:10px">'+escapeHtml((ABS_KINDS.find(k=>k[0]===a.kind)||[a.kind,a.kind])[1].replace(' (paid)',''))+(a.hours!==8?' '+a.hours:'')+'</span>':'')+(d.hours?(a?'<br>':'')+fmtH(d.hours):(a?'':'<span class="muted">—</span>'))+(fl?' <span title="'+escapeHtml(d.flags.join(', '))+'" style="color:#8a6600;font-weight:700;cursor:help">!</span>':'');
+    return '<td class="num ts-cell'+(fl?' ts-flag':'')+'" data-emp="'+r.id+'" data-day="'+d.day+'" data-kind="'+(a?a.kind:'')+'" data-hours="'+(a?a.hours:8)+'" style="cursor:'+(ed?'pointer':'default')+'">'+t+'</td>'; };
+  const head='<tr><th>Employee</th>'+w.days.map(d=>'<th class="num">'+dLab(d)+'</th>').join('')+'<th class="num">Regular</th><th class="num">Overtime</th><th class="num">Sick</th><th class="num">Holiday</th><th class="num">Total</th><th class="num">Cost £</th></tr>';
+  const rows=w.rows.map(r=>'<tr'+(r.flags?' class="gi-row-am"':'')+'><td><b>'+escapeHtml(r.name)+'</b><div class="muted" style="font-size:11px">'+(r.pay_type==='Monthly'?'monthly paid':(r.hourly_rate?'£'+r.hourly_rate.toFixed(2)+'/h':'<span style="color:#b4231f">no rate set</span>'))+' · '+r.contracted+' h/wk</div></td>'+r.days.map(d=>cell(r,d)).join('')+'<td class="num">'+fmtH(r.regular)+'</td><td class="num">'+fmtH(r.overtime)+'</td><td class="num">'+fmtH(r.sick)+'</td><td class="num">'+fmtH(r.holiday)+'</td><td class="num"><b>'+fmtH(r.total)+'</b></td><td class="num">'+(r.cost==null?'<span class="muted">monthly</span>':r.cost.toFixed(2))+'</td></tr>').join('');
+  const tot=w.rows.reduce((a,r)=>({h:a.h+r.total,c:a.c+(r.cost||0)}),{h:0,c:0});
+  const ag=w.agency.length?'<h3>Agency · '+w.agency.length+'</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Employee</th>'+w.days.map(d=>'<th class="num">'+dLab(d)+'</th>').join('')+'<th class="num">Hours</th><th>Agency</th></tr></thead><tbody>'+w.agency.map(r=>'<tr'+(r.flags?' class="gi-row-am"':'')+'><td><b>'+escapeHtml(r.name)+'</b></td>'+r.days.map(d=>cell(r,d,true)).join('')+'<td class="num"><b>'+fmtH(r.worked)+'</b></td><td>'+escapeHtml(r.agency)+'</td></tr>').join('')+'</tbody></table></div>':'';
+  root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><button class="btn ghost sm" id="tsPrev">◀</button><b>Week '+w.fyweek+' <span class="muted" style="font-weight:400">· FY '+escapeHtml(w.fy)+' · Sun '+escapeHtml(w.start)+' – Sat '+escapeHtml(w.end)+'</span></b><button class="btn ghost sm" id="tsNext">▶</button><button class="btn ghost sm" id="tsNow">This week</button><div class="spacer"></div><button class="btn ghost sm" id="tsCsv">⤓ Weekly summary (CSV)</button></div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table class="gi-list"><thead>'+head+'</thead><tbody>'+(rows||'<tr><td colspan="14" class="muted">No hours this week.</td></tr>')+'</tbody><tfoot><tr><th>Total</th>'+w.days.map(()=>'<th></th>').join('')+'<th></th><th></th><th></th><th></th><th class="num">'+fmtH(tot.h)+'</th><th class="num">'+tot.c.toFixed(2)+'</th></tr></tfoot></table></div>'+ag+
+    '<p class="hint" style="margin-top:8px">Hours come from the door sign-ins, paired IN→OUT and rounded to the nearest 15 minutes. Regular = up to the person’s contracted hours, the rest is Overtime. Sick and holiday days count 8 hours (change it when you mark the day). Cost = hours × hourly rate, holiday at the holiday rate; monthly-paid staff show hours only. An amber <b>!</b> means a missing sign-in or sign-out — fix it in Attendance for that day. Tap a day to mark sick, holiday, training or unpaid.</p>';
+  const go=n=>{ const d=new Date(TS_START+'T00:00:00'); d.setDate(d.getDate()+n*7); TS_START=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); renderTimesheets(); };
+  document.getElementById('tsPrev').onclick=()=>go(-1); document.getElementById('tsNext').onclick=()=>go(1); document.getElementById('tsNow').onclick=()=>{ TS_START=''; renderTimesheets(); };
+  document.getElementById('tsCsv').onclick=async()=>{ try{ const r=await fetch('/api/hr/week.csv?start='+TS_START,{headers:{Authorization:'Bearer '+TOKEN}}); const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='weekly-summary-week'+w.fyweek+'-'+w.start+'.csv'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500); }catch(e){ alert(e.message); } };
+  if(ed) root.querySelectorAll('.ts-cell').forEach(td=>td.onclick=()=>{ const emp=td.dataset.emp, day=td.dataset.day, cur=td.dataset.kind, hrs=td.dataset.hours; const name=(w.rows.concat(w.agency).find(r=>r.id===emp)||{}).name||'';
+    pop('<h3 style="margin:0 0 4px">'+escapeHtml(name)+' · '+escapeHtml(new Date(day+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}))+'</h3><p class="hint" style="margin:0 0 10px">Mark the day. Hours default to 8.</p><div style="display:flex;gap:6px;flex-wrap:wrap">'+ABS_KINDS.map(k=>'<button class="btn '+(cur===k[0]?'coral':'ghost')+' sm" data-k="'+k[0]+'">'+k[1]+'</button>').join('')+'</div><div class="row-flex" style="gap:10px;margin-top:10px;align-items:flex-end"><label class="fld">Hours<input id="abH" type="number" step="0.25" value="'+hrs+'" style="width:90px"></label><span class="spacer"></span>'+(cur?'<button class="btn ghost sm" data-k="">Clear</button>':'')+'<button class="btn ghost sm" onclick="closeModal()">Cancel</button><button class="btn ghost sm" id="abFix">Fix sign-in/out…</button></div>');
+    document.querySelectorAll('#modalInner [data-k]').forEach(b=>b.onclick=async()=>{ try{ await api('/api/hr/absence','POST',{emp_id:emp,day,kind:b.dataset.k,hours:+(document.getElementById('abH')||{}).value||8}); closeModal(); renderTimesheets(); }catch(e){ alert(e.message); } });
+    document.getElementById('abFix').onclick=()=>{ closeModal(); AT_DAY=day; navTo('attendance'); }; });
+}
+window.renderTimesheets=renderTimesheets;
 /* ===== Goods in (v50): one sheet for every delivery, with or without an order; tablet-friendly;
    saves with just ingredient + kilos, flags what's missing; approval numbers looked up in the official registers ===== */
 let GI_LIST=[], GI_FILTER='attention', GI_ATTN=0, _giHauliers=null;
