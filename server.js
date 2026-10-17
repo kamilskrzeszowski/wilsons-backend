@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v48';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v50';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -845,7 +845,7 @@ function authUser(req) {
   const tok = h.startsWith('Bearer ') ? h.slice(7) : null; if (!tok) return null;
   const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
   if (!s || s.expires < Date.now()) return null;
-  const u = db.prepare('SELECT id,username,role,perms,factory,email,digest_opt_in,digest_time FROM users WHERE id=?').get(s.user_id);
+  const u = db.prepare('SELECT id,username,role,perms,factory,email,digest_opt_in,digest_time,workspace FROM users WHERE id=?').get(s.user_id);
   if (u) { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } }
   return u;
 }
@@ -973,13 +973,14 @@ function stockSnapshot() {
   const used = ingUsedCooked();
   const del = {}; db.prepare('SELECT ing_id, SUM(qty) q FROM deliveries WHERE hist IS NULL OR hist=0 GROUP BY ing_id').all().forEach(r => del[r.ing_id] = r.q);
   const adj = {}; db.prepare('SELECT ing_id, SUM(delta) d FROM adjustments GROUP BY ing_id').all().forEach(r => adj[r.ing_id] = r.d);
+  const onOrder = {}; try { db.prepare("SELECT l.ing_id, SUM(MAX(l.kg - l.received, 0)) q FROM po_lines l JOIN purchase_orders p ON p.id=l.po_id WHERE p.status IN ('sent','part') GROUP BY l.ing_id").all().forEach(r => onOrder[r.ing_id] = r.q); } catch (e) {}
   return ings.map(i => {
     const s = st[i.id] || { opening: 0, reorder: 0, supplier: '' };
     const opening = s.opening || 0, deliveries = del[i.id] || 0, adjustments = adj[i.id] || 0, u = used[i.id] || 0;
     const remaining = opening + deliveries + adjustments - u;
     const reorder = s.reorder || 0;
     const status = reorder > 0 ? (remaining <= 0 ? 'out' : (remaining <= reorder ? 'low' : 'ok')) : (remaining < 0 ? 'out' : 'ok');
-    return { id: i.id, name: i.name, category: i.category, opening, deliveries, adjustments, used: u, remaining, reorder, supplier: s.supplier || '', status };
+    return { id: i.id, name: i.name, category: i.category, opening, deliveries, adjustments, used: u, remaining, reorder, supplier: s.supplier || '', status, on_order: onOrder[i.id] || 0 };
   });
 }
 
@@ -1173,7 +1174,7 @@ const server = http.createServer(async (req, res) => {
       const token = crypto.randomBytes(32).toString('hex'); const expires = Date.now() + (isDisplay ? 365 : 30) * 24 * 3600 * 1000;
       db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, expires);
       let perms = null; try { perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) {}
-      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '' } });
+      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '', workspace: u.workspace || '' } });
     }
     // --- invite links: the invited person checks the invite and creates their own account (no sign-in yet) ---
     if (url === '/api/invite-info' && m === 'GET') {
@@ -1202,7 +1203,7 @@ const server = http.createServer(async (req, res) => {
       db.prepare('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)').run(token, u.id, expires);
       let perms = null; try { perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) {}
       console.log('Invite accepted: ' + uname + ' (' + (inv.label || 'no label') + ')');
-      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '' } });
+      return json(res, 200, { token, user: { id: u.id, username: u.username, role: u.role, perms, factory: u.factory || '', workspace: u.workspace || '' } });
     }
     // FULL backup (zip: Excel + exact database) — admins, or ?key=BACKUP_KEY for the automated daily download
     if (url === '/api/backup.zip' && m === 'GET') {
@@ -1850,9 +1851,9 @@ const server = http.createServer(async (req, res) => {
       // batch lots for an ingredient, from deliveries, with remaining after mix consumption + FIFO suggestion
       if (url === '/api/ingredient-batches' && m === 'GET') {
         const q = new URLSearchParams((req.url.split('?')[1] || '')); const ing = q.get('ing_id') || '';
-        const del = db.prepare("SELECT batch, MIN(date) first_date, MAX(date) last_date, SUM(qty) delivered, GROUP_CONCAT(DISTINCT supplier) supplier FROM deliveries WHERE ing_id=? AND batch IS NOT NULL AND batch<>'' GROUP BY batch").all(ing);
+        const del = db.prepare("SELECT batch, MIN(date) first_date, MAX(date) last_date, SUM(qty) delivered, GROUP_CONCAT(DISTINCT supplier) supplier, GROUP_CONCAT(DISTINCT use_for) use_for FROM deliveries WHERE ing_id=? AND batch IS NOT NULL AND batch<>'' GROUP BY batch").all(ing);
         const used = {}; db.prepare("SELECT batch_code, SUM(qty) u FROM mix_items WHERE ing_id=? GROUP BY batch_code").all(ing).forEach(r => { used[r.batch_code] = r.u || 0; });
-        const lots = del.map(d => ({ batch: d.batch, first_date: d.first_date, last_date: d.last_date, supplier: d.supplier || '', delivered: d.delivered || 0, used: used[d.batch] || 0, remaining: (d.delivered || 0) - (used[d.batch] || 0) }));
+        const lots = del.map(d => ({ batch: d.batch, first_date: d.first_date, last_date: d.last_date, supplier: d.supplier || '', use_for: String(d.use_for || '').split(',').filter(Boolean).join(', '), delivered: d.delivered || 0, used: used[d.batch] || 0, remaining: (d.delivered || 0) - (used[d.batch] || 0) }));
         let fifo = null; lots.slice().sort((a, b) => String(a.first_date).localeCompare(String(b.first_date))).forEach(l => { if (!fifo && l.remaining > 0.0001) fifo = l.batch; });
         lots.sort((a, b) => String(b.last_date).localeCompare(String(a.last_date)));
         return json(res, 200, { ing_id: ing, fifo, lots });
@@ -1962,11 +1963,13 @@ const server = http.createServer(async (req, res) => {
       if (url.startsWith('/api/recipes/') && m === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(decodeURIComponent(url.split('/').pop())); bumpDataRev(); return json(res, 200, { ok: true }); }
 
       // user admin (admins only)
-      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory,email,last_seen,last_version FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
-      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory,email) VALUES(?,?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || '', (b.email || '').trim()); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
-      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.email !== undefined) db.prepare('UPDATE users SET email=? WHERE id=?').run((b.email || '').trim(), id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
+      if (url === '/api/users' && m === 'GET') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); return json(res, 200, db.prepare('SELECT id,username,role,created,perms,factory,email,last_seen,last_version,workspace FROM users').all().map(u => { try { u.perms = u.perms ? JSON.parse(u.perms) : null; } catch (e) { u.perms = null; } return u; })); }
+      if (url === '/api/users' && m === 'POST') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const b = await readBody(req); if (!b.username || !b.password) return json(res, 400, { error: 'username & password required' }); const { salt, hash } = hashPw(b.password); const perms = b.perms ? JSON.stringify(b.perms) : ''; try { db.prepare('INSERT INTO users(username,salt,hash,role,created,perms,factory,email,workspace) VALUES(?,?,?,?,?,?,?,?,?)').run(b.username.trim(), salt, hash, b.role || 'staff', now(), perms, b.factory || '', (b.email || '').trim(), String(b.workspace || '')); } catch (e) { return json(res, 400, { error: 'username already exists' }); } return json(res, 200, { ok: true }); }
+      if (url.startsWith('/api/users/') && m === 'PUT') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); const b = await readBody(req); const ex = db.prepare('SELECT id FROM users WHERE id=?').get(id); if (!ex) return json(res, 404, { error: 'not found' }); if (b.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(b.role, id); if (b.perms !== undefined) db.prepare('UPDATE users SET perms=? WHERE id=?').run(b.perms ? JSON.stringify(b.perms) : '', id); if (b.factory !== undefined) db.prepare('UPDATE users SET factory=? WHERE id=?').run(b.factory || '', id); if (b.email !== undefined) db.prepare('UPDATE users SET email=? WHERE id=?').run((b.email || '').trim(), id); if (b.workspace !== undefined) db.prepare('UPDATE users SET workspace=? WHERE id=?').run(String(b.workspace || ''), id); if (b.password) { const { salt, hash } = hashPw(b.password); db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt, hash, id); } return json(res, 200, { ok: true }); }
       if (url.startsWith('/api/users/') && m === 'DELETE') { if (user.role !== 'admin') return json(res, 403, { error: 'admins only' }); const id = decodeURIComponent(url.split('/').pop()); if (+id === user.id) return json(res, 400, { error: 'cannot delete yourself' }); db.prepare('DELETE FROM users WHERE id=?').run(id); return json(res, 200, { ok: true }); }
 
+      if (await poRoutes({ url, m, req, res, user })) return;
+      if (await giRoutes({ url, m, req, res, user })) return;
       // ---- Microsoft 365 email: status, test-send, pause switch (admins only) ----
       if (url === '/api/mail/status' && m === 'GET') {
         if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
@@ -2013,7 +2016,7 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: 'server error: ' + e.message }); }
 });
 
-seedIfEmpty(); ensureAdmin(); importHistory(); importDeliveries2026(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
+seedIfEmpty(); ensureAdmin(); importHistory(); importDeliveries2026(); grantPurchasing(); backfillHistoryCooked(); importComplaintsSeed(); importKpiSeed(); backfillKpiFromHistory(); reconcileKpiFromSummary(); importPahRecipes(); importPahRanges(); importPahIngredientPrices(); importPahPackCosting(); amendPahCatWeight(); fixPahRanges(); importSpecsSeed(); ensureRecipeSpecs();
 seedRecipeVersions(); freezeStockUsage();   // v26: recipe version history + frozen per-batch stock usage
 try { planning = require('./planning.js'); planning.init(db, { now, uid, notifyAssign, notifyAssignBatch, sendMail, emailShell, mailOn, graphFetch, mailFrom: MAIL.from, mailTaskCategory: MAIL.taskCategory, emailImportEnabled }); console.log('Planning module loaded.'); } catch (e) { console.log('planning module failed to load:', e.message); }
 // v28: Planning routines (recurring/routine tasks) — generate today's due instances, then recheck
@@ -2098,3 +2101,294 @@ try { db.exec("ALTER TABLE mixes ADD COLUMN run_key TEXT DEFAULT ''"); } catch (
 try { db.exec("ALTER TABLE mixes ADD COLUMN mince_date TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE mixes ADD COLUMN prod_ids TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE mixes ADD COLUMN updated TEXT DEFAULT ''"); } catch (e) {}
+
+/* ============================================================================
+ * v49 — Purchase orders. Additive: two new tables, five new columns on deliveries,
+ * one on suppliers. Orders are raised per supplier; booking a delivery in against an
+ * order creates ordinary deliveries rows (so stock, batches and traceability work as
+ * before), records the producer (establishment + approval no.) separately from the
+ * supplier (trader), carries the line's "use for" tag onto the batch, and logs the
+ * price into Recipe Costing's purchases.
+ * ==========================================================================*/
+db.exec("CREATE TABLE IF NOT EXISTS purchase_orders(id TEXT PRIMARY KEY, number TEXT, supplier TEXT, supplier_email TEXT DEFAULT '', status TEXT DEFAULT 'draft', expected TEXT DEFAULT '', notes TEXT DEFAULT '', created TEXT, created_by TEXT, sent_at TEXT DEFAULT '', updated TEXT DEFAULT '')");
+db.exec("CREATE TABLE IF NOT EXISTS po_lines(id TEXT PRIMARY KEY, po_id TEXT, ing_id TEXT, descr TEXT, kg REAL DEFAULT 0, per_kg REAL DEFAULT 0, use_for TEXT DEFAULT '', received REAL DEFAULT 0, seq INTEGER DEFAULT 0)");
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_po_lines_po ON po_lines(po_id)'); } catch (e) {}
+['po_line_id TEXT DEFAULT \'\'', 'use_for TEXT DEFAULT \'\'', 'producer TEXT DEFAULT \'\'', 'producer_approval TEXT DEFAULT \'\'', 'del_note TEXT DEFAULT \'\''].forEach(c => { try { db.exec('ALTER TABLE deliveries ADD COLUMN ' + c); } catch (e) {} });
+try { db.exec("ALTER TABLE suppliers ADD COLUMN email TEXT DEFAULT ''"); } catch (e) {}
+function grantPurchasing() {   // one-time: everyone with a login can raise orders and book deliveries in (Kamil's call)
+  if ((db.prepare("SELECT value FROM meta WHERE key='purchasingGrantV'").get() || {}).value === '1') return;
+  db.prepare("SELECT id, perms FROM users WHERE role<>'admin'").all().forEach(u => {
+    let p; try { p = u.perms ? JSON.parse(u.perms) : null; } catch (e) { p = null; } if (!p) p = { view: {}, edit: {} };
+    p.view = p.view || {}; p.edit = p.edit || {}; p.view.purchasing = 1; p.edit.purchasing = 1;
+    db.prepare('UPDATE users SET perms=? WHERE id=?').run(JSON.stringify(p), u.id);
+  });
+  db.prepare("INSERT INTO meta(key,value) VALUES('purchasingGrantV','1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
+  console.log('Purchasing permission granted to all existing users.');
+}
+function poCan(user) { return user.role === 'admin' || !!(user.perms && user.perms.view && user.perms.view.purchasing); }
+function poNumber() { const y = new Date().getFullYear(); const n = db.prepare("SELECT count(*) c FROM purchase_orders WHERE number LIKE ?").get('PO-' + y + '-%').c + 1; return 'PO-' + y + '-' + String(n).padStart(3, '0'); }
+function poWithLines(po) { po.lines = db.prepare('SELECT * FROM po_lines WHERE po_id=? ORDER BY seq, rowid').all(po.id); po.value = po.lines.reduce((a, l) => a + (+l.kg || 0) * (+l.per_kg || 0), 0); po.kg = po.lines.reduce((a, l) => a + (+l.kg || 0), 0); po.received_kg = po.lines.reduce((a, l) => a + (+l.received || 0), 0); return po; }
+function poRecomputeStatus(id) {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id); if (!po || po.status === 'draft') return;
+  const lines = db.prepare('SELECT kg, received FROM po_lines WHERE po_id=?').all(id);
+  const allIn = lines.length && lines.every(l => (+l.received || 0) >= (+l.kg || 0) - 0.001), anyIn = lines.some(l => (+l.received || 0) > 0);
+  db.prepare('UPDATE purchase_orders SET status=?, updated=? WHERE id=?').run(allIn ? 'received' : (anyIn ? 'part' : 'sent'), now(), id);
+}
+// default £/kg for an ingredient from Recipe Costing: the supplier's quote if there is one, else the standard price
+function poDefaultPrice(ingName, supplier) {
+  const kv = k => { try { return JSON.parse((db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k) || {}).value || 'null'); } catch (e) { return null; } };
+  const n = String(ingName || '').trim().toLowerCase(), s = String(supplier || '').trim().toLowerCase();
+  const sdb = kv('wpf_supdb'); if (Array.isArray(sdb)) { const q = sdb.find(e => String(e.ing || '').toLowerCase() === n && String(e.supplier || '').toLowerCase() === s) || sdb.find(e => String(e.ing || '').toLowerCase() === n); if (q && +q.perKg > 0) return +(+q.perKg + (+q.del || 0)).toFixed(3); }
+  const pr = kv('wpf_prices'); if (pr && typeof pr === 'object') { const k = Object.keys(pr).find(x => x.toLowerCase() === n); if (k && pr[k] && +pr[k].perKg > 0) return +pr[k].perKg; if (k && +pr[k] > 0) return +pr[k]; }
+  return 0;
+}
+function poLogPurchase(ingName, date, supplier, kg, perKg, note) {
+  try { let list = []; try { list = JSON.parse((db.prepare("SELECT value FROM costing_kv WHERE key='wpf_purchases'").get() || {}).value || '[]'); } catch (e) { list = []; } if (!Array.isArray(list)) list = [];
+    list.push({ id: Date.now() + Math.floor(Math.random() * 1000), ing: ingName, date, supplier, kg: +kg || 0, perKg: +perKg || 0, delPerKg: 0, note: note || '' });
+    db.prepare("INSERT INTO costing_kv(key,value,updated) VALUES('wpf_purchases',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated=excluded.updated").run(JSON.stringify(list), now());
+  } catch (e) { console.log('purchase log failed:', e.message); }
+}
+function poHtml(po) {
+  const rows = po.lines.map(l => '<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">' + esc(l.descr) + (l.use_for ? ' <span style="color:#6f7b82;font-size:12px">(' + esc(l.use_for) + ')</span>' : '') + '</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">' + (+l.kg).toLocaleString() + ' kg</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">' + (l.per_kg ? '£' + (+l.per_kg).toFixed(2) + '/kg' : '') + '</td></tr>').join('');
+  return '<p style="margin:0 0 10px"><b>' + esc(po.number) + '</b> · ' + esc(po.supplier) + (po.expected ? ' · delivery expected <b>' + esc(po.expected) + '</b>' : '') + '</p><table style="border-collapse:collapse;width:100%;font-size:14px"><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid #143644">Ingredient</th><th style="text-align:right;padding:6px 8px;border-bottom:2px solid #143644">Quantity</th><th style="text-align:right;padding:6px 8px;border-bottom:2px solid #143644">Price</th></tr>' + rows + '</table>' + (po.notes ? '<p style="margin:10px 0 0;white-space:pre-wrap">' + esc(po.notes) + '</p>' : '') + '<p style="margin:12px 0 0;color:#6f7b82;font-size:13px">Please quote ' + esc(po.number) + ' on the delivery note and invoice.</p>';
+}
+async function poRoutes(ctx) {
+  const { url, m, req, res, user } = ctx; if (!url.startsWith('/api/po')) return false;
+  if (!poCan(user)) { json(res, 403, { error: 'You don’t have access to purchase orders.' }); return true; }
+  if (url === '/api/po' && m === 'GET') { const list = db.prepare('SELECT * FROM purchase_orders ORDER BY created DESC').all().map(poWithLines); json(res, 200, list); return true; }
+  if (url === '/api/po/price' && m === 'GET') { const q = new URLSearchParams((req.url.split('?')[1] || '')); json(res, 200, { per_kg: poDefaultPrice(q.get('ing') || '', q.get('sup') || '') }); return true; }
+  if (url === '/api/po/pricing' && m === 'GET') {
+    const q = new URLSearchParams((req.url.split('?')[1] || '')); const name = String(q.get('ing') || '').trim(), nm = name.toLowerCase();
+    const kv = k => { try { return JSON.parse((db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k) || {}).value || 'null'); } catch (e) { return null; } };
+    const pr = kv('wpf_prices') || {}; const pk = Object.keys(pr).find(x => x.toLowerCase() === nm); const standard = pk != null ? (typeof pr[pk] === 'object' ? +pr[pk].perKg : +pr[pk]) : null;
+    const quotes = (kv('wpf_supdb') || []).filter(e => String(e.ing || '').toLowerCase() === nm && +e.perKg > 0).map(e => ({ supplier: e.supplier, perKg: +e.perKg, del: +e.del || 0, total: +(+e.perKg + (+e.del || 0)).toFixed(3) })).sort((a, b) => a.total - b.total);
+    const recipes = []; (kv('wpf_custom') || []).forEach(r => (r.ingredients || []).forEach(li => { if (String(li.name || '').toLowerCase() === nm && +li.perKg > 0 && (standard == null || Math.abs(+li.perKg - standard) > 0.0005)) recipes.push({ recipe: (r.brand ? r.brand + ' — ' : '') + r.name, perKg: +li.perKg }); }));
+    const recent = (kv('wpf_purchases') || []).filter(p => String(p.ing || '').toLowerCase() === nm).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 5).map(p => ({ date: p.date, supplier: p.supplier, perKg: +p.perKg, kg: +p.kg }));
+    json(res, 200, { standard, quotes, recipes, recent }); return true;
+  }
+  if (url === '/api/po/producers' && m === 'GET') { json(res, 200, db.prepare("SELECT producer, producer_approval, count(*) n FROM deliveries WHERE producer<>'' GROUP BY producer, producer_approval ORDER BY n DESC LIMIT 200").all()); return true; }
+  if (url === '/api/po' && m === 'POST') {
+    const b = await readBody(req); if (!b.supplier) { json(res, 400, { error: 'Choose a supplier.' }); return true; }
+    const lines = (b.lines || []).filter(l => l.ing_id && +l.kg > 0); if (!lines.length) { json(res, 400, { error: 'Add at least one ingredient line with a quantity.' }); return true; }
+    let id = b.id; const ex = id ? db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id) : null;
+    if (ex && ex.status !== 'draft') { json(res, 400, { error: 'Only a draft can be edited. Received quantities stay as booked in.' }); return true; }
+    db.exec('BEGIN');
+    try {
+      if (!ex) { id = uid('po'); db.prepare('INSERT INTO purchase_orders(id,number,supplier,supplier_email,status,expected,notes,created,created_by,updated) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, poNumber(), b.supplier, b.supplier_email || '', 'draft', b.expected || '', b.notes || '', now(), user.username, now()); }
+      else { db.prepare('UPDATE purchase_orders SET supplier=?,supplier_email=?,expected=?,notes=?,updated=? WHERE id=?').run(b.supplier, b.supplier_email || '', b.expected || '', b.notes || '', now(), id); db.prepare('DELETE FROM po_lines WHERE po_id=?').run(id); }
+      const ins = db.prepare('INSERT INTO po_lines(id,po_id,ing_id,descr,kg,per_kg,use_for,received,seq) VALUES(?,?,?,?,?,?,?,0,?)');
+      lines.forEach((l, i) => { const ing = db.prepare('SELECT name FROM ingredients WHERE id=?').get(l.ing_id); ins.run(uid('pl'), id, l.ing_id, (ing && ing.name) || l.descr || '', +l.kg, +l.per_kg || 0, l.use_for || '', i); });
+      if (b.supplier_email) { let em = {}; try { em = JSON.parse((db.prepare("SELECT value FROM meta WHERE key='supplierEmails'").get() || {}).value || '{}'); } catch (e) {} em[b.supplier] = b.supplier_email; db.prepare("INSERT INTO meta(key,value) VALUES('supplierEmails',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(em)); }
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); json(res, 500, { error: e.message }); return true; }
+    json(res, 200, poWithLines(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id))); return true;
+  }
+  if (url === '/api/po/supplier-emails' && m === 'GET') { let em = {}; try { em = JSON.parse((db.prepare("SELECT value FROM meta WHERE key='supplierEmails'").get() || {}).value || '{}'); } catch (e) {} json(res, 200, em); return true; }
+  const mm = url.match(/^\/api\/po\/([^/]+)\/(send|receive|delete)$/);
+  if (mm && m === 'POST') {
+    const id = decodeURIComponent(mm[1]), act = mm[2]; const po = db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id); if (!po) { json(res, 404, { error: 'not found' }); return true; }
+    const b = await readBody(req);
+    if (act === 'delete') { if (po.status !== 'draft') { json(res, 400, { error: 'Only a draft can be deleted.' }); return true; } db.prepare('DELETE FROM po_lines WHERE po_id=?').run(id); db.prepare('DELETE FROM purchase_orders WHERE id=?').run(id); json(res, 200, { ok: true }); return true; }
+    if (act === 'send') {
+      const full = poWithLines(po); let emailed = false, warn = '';
+      if (b.email) { if (!mailOn()) warn = 'Email isn’t connected yet — marked as sent; send the PDF yourself.'; else { try { await sendMail(b.email, 'Purchase order ' + po.number + ' — Wilsons Pet Food', emailShell('Purchase order ' + po.number, poHtml(full), null, null)); emailed = true; } catch (e) { warn = 'Email failed (' + e.message + ') — marked as sent; send the PDF yourself.'; } } }
+      if (po.status === 'draft') db.prepare("UPDATE purchase_orders SET status='sent', sent_at=?, updated=? WHERE id=?").run(now(), now(), id);
+      json(res, 200, { ok: true, emailed, warn }); return true;
+    }
+    if (act === 'receive') {
+      const items = (b.lines || []).filter(l => l.line_id && +l.qty > 0); if (!items.length) { json(res, 400, { error: 'Enter a quantity for at least one line.' }); return true; }
+      const date = b.date || now().slice(0, 10); let added = 0;
+      db.exec('BEGIN');
+      try {
+        const insD = db.prepare('INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist,po_line_id,use_for,producer,producer_approval,del_note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)');
+        for (const it of items) {
+          const l = db.prepare('SELECT * FROM po_lines WHERE id=? AND po_id=?').get(it.line_id, id); if (!l) continue;
+          const refused = !!b.refused;   // a refused delivery is RECORDED (T001 needs the row) but nothing enters stock and the order stays open
+          insD.run(uid('d'), date, po.supplier, b.approval || '', refused ? '' : l.ing_id, l.descr + (refused ? ' — REFUSED (' + (b.reason || 'checks failed') + '): ' + (+it.qty) + ' kg offered' : ''), refused ? 0 : +it.qty, po.number, b.approved || 'Yes', it.temp != null ? it.temp : (b.temp || ''), b.veh || '', refused ? ('REFUSED — ' + (b.reason || '')) : (b.qual || ''), it.type || b.type || '', it.batch || '', b.initials || '', user.username, now(), l.id, l.use_for || '', b.producer || '', b.producer_approval || '', b.del_note || '');
+          if (refused) { added++; continue; }
+          db.prepare('UPDATE po_lines SET received=received+? WHERE id=?').run(+it.qty, l.id);
+          const price = (it.per_kg != null && it.per_kg !== '') ? +it.per_kg : +l.per_kg; if (price > 0) poLogPurchase(l.descr, date, po.supplier, +it.qty, price, po.number + (b.del_note ? ' · DN ' + b.del_note : ''));
+          added++;
+        }
+        poRecomputeStatus(id); db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); json(res, 500, { error: e.message }); return true; }
+      json(res, 200, { ok: true, added, po: poWithLines(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id)) }); return true;
+    }
+  }
+  return false;
+}
+
+
+/* ============================================================================
+ * v50 — Goods in on the tablet, official registers, ABP commercial document.
+ * Additive: new columns on deliveries (a delivery is now a GROUP of rows sharing grp),
+ * users.workspace, tables establishments / register_sources (registers.js),
+ * commercial_docs, hauliers. Old rows keep working: a row without grp is its own group,
+ * and rows without a status are never flagged (history is not "incomplete").
+ * ==========================================================================*/
+const registers = require('./registers.js');
+registers.ensureTables(db);
+["grp TEXT DEFAULT ''", "po_id TEXT DEFAULT ''", "status TEXT DEFAULT ''", "missing TEXT DEFAULT ''", "producer_addr TEXT DEFAULT ''", "producer_src TEXT DEFAULT ''", "supplier_src TEXT DEFAULT ''", "haulier TEXT DEFAULT ''", "lorry_reg TEXT DEFAULT ''", "operator_no TEXT DEFAULT ''", "origin TEXT DEFAULT ''", "per_kg REAL DEFAULT 0", "priced INTEGER DEFAULT 0", "reason TEXT DEFAULT ''"].forEach(c => { try { db.exec('ALTER TABLE deliveries ADD COLUMN ' + c); } catch (e) {} });
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliv_grp ON deliveries(grp)'); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN workspace TEXT DEFAULT ''"); } catch (e) {}
+db.exec("CREATE TABLE IF NOT EXISTS commercial_docs(id TEXT PRIMARY KEY, number TEXT, grp TEXT, po_id TEXT DEFAULT '', created TEXT, updated TEXT, data TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS hauliers(id TEXT PRIMARY KEY, name TEXT, address TEXT DEFAULT '', approval TEXT DEFAULT '')");
+const metaGet = k => (db.prepare('SELECT value FROM meta WHERE key=?').get(k) || {}).value;
+const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
+// the transport list from the Production - Ayr spreadsheet (Transport List sheet), once
+(function seedHauliers() {
+  if (metaGet('hauliersV') === '1') return;
+  const L = [['A K Stoddart Ltd', 'A K Stoddart Ltd, Heathfield Abattoir, Old Farm Road, Ayr, KA8 9ST', ''], ['LLD/ Langdons', 'Long Lane Deliveries, Belgowan St, Bellshill, ML4 3LB', ''], ['Town & Country Meats', 'Town & Country Meats, 13-17 Landport Ind Est, Landport Rd, Wolverhampton, WV2 2QJ', ''], ['ERL', 'ERL, Unit 5, Smokehall Lane, Winsford, CW7 3BE', ''], ['CS2 Transport', 'CS2 Transport, Park Rd, Holmewood, Chesterfield, S42 5UY', ''], ['Constellation Logistics', 'Constellation Logistics, Birchin Way, Grimsby, DN31 2SG', ''], ['Swerdna Transport Ltd', '9 Chapel Street, Mumbles, Swansea, West Glamorgan, SA3 4NH', ''], ['H Z Logistics UK Ltd', 'Washway Road, Holbeach, Spalding, Lincolnshire, PE12 8LT', ''], ['McCulla (Ireland) Ltd', 'Blaris Industrial Estate, Old Hillsborough Road, Lisburn, BT27 5QB', ''], ['Boom Transport', 'Vennootstraat 5, 5804 CN Venray, Netherlands', ''], ['Dachser Food Logistics', 'Keizersweg 79, 7451 PH Holten, Netherlands', ''], ['Wilsons Pet Food (Ayr)', 'Littlemill Rd, Drongan, KA6 7BP', ''], ['Mailing And Marketing Solutions Ltd', 'Cleethorpes, LS11 5BX', 'U1630722/TRANS'], ['MGS Transport Services', 'Cheyne Avenue, South Woodford, London, E18 2DR', ''], ['Homeland By-Products Ltd', 'Tynparc Llandre, Bow Street, Aberystwyth, Ceredigion, SY24 5BU', '55/276/8563/ABP/PTF'], ['Lineage', 'Marsden Rd, Grimsby, DN31 3FS', ''], ['YorMax Logistic Services B.V.', 'Groenestraat 294, 6531 JC Nijmegen, Netherlands', 'APP220891'], ['Koel- en Vrieshuis Arctic B.V.', 'Kruisweg 2, 2631 PE Nootdorp, Netherlands', '']];
+  const ins = db.prepare('INSERT INTO hauliers(id,name,address,approval) VALUES(?,?,?,?)'); L.forEach(h => ins.run(uid('h'), h[0], h[1], h[2])); metaSet('hauliersV', '1'); console.log('Hauliers seeded: ' + L.length);
+})();
+// the shipped copy of the four registers (estab-seed.json), loaded once per build; a monthly refresh keeps it current
+(function loadEstabSeed() {
+  let seed; try { seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'estab-seed.json'), 'utf8')); } catch (e) { console.log('estab-seed.json not read: ' + e.message); return; }
+  if (metaGet('estabSeedV') === seed.built) return;
+  try { const n = registers.loadSeed(db, seed); metaSet('estabSeedV', seed.built); console.log('Approved-establishment registers loaded from seed: ' + n + ' rows (built ' + seed.built.slice(0, 10) + ').'); } catch (e) { console.log('estab seed load failed: ' + e.message); }
+})();
+async function registersRefreshTick() {
+  const last = metaGet('registersRefreshed'); if (last && Date.now() - Date.parse(last) < 30 * 24 * 3600 * 1000) return;
+  try { const r = await registers.refresh(db, m => console.log('registers: ' + m)); if (r.some(x => !x.error)) metaSet('registersRefreshed', now()); } catch (e) { console.log('registers refresh failed: ' + e.message); }
+}
+setTimeout(() => registersRefreshTick().catch(() => {}), 90 * 1000);
+setInterval(() => registersRefreshTick().catch(() => {}), 24 * 3600 * 1000);
+
+/* ---- goods in ---- */
+function giCan(user) { return user.role === 'admin' || !!(user.perms && user.perms.view && (user.perms.view.deliveries || user.perms.view.purchasing)); }
+function giCanEdit(user) { return user.role === 'admin' || !!(user.perms && user.perms.edit && (user.perms.edit.deliveries || user.perms.edit.purchasing)); }
+const MEAT_CATS = ['Meat', 'Offal'];
+function giIsMeat(ingId, type) { if (String(type || '').toUpperCase() === 'CAT 3') return true; const i = ingId ? db.prepare('SELECT category FROM ingredients WHERE id=?').get(ingId) : null; return !!(i && MEAT_CATS.includes(i.category)); }
+function giMissing(g, lines) {
+  const miss = [];
+  if (!g.supplier) miss.push('supplier'); if (!g.po_id) miss.push('order'); if (!g.del_note) miss.push('delivery note');
+  lines.forEach(l => { const d = l.descr || 'line'; if (!l.batch) miss.push('batch (' + d + ')'); if (!l.temp && String(l.type).toUpperCase() !== 'PACKAGING') miss.push('temp (' + d + ')'); if (!l.type) miss.push('type (' + d + ')'); });
+  if (!g.approval) miss.push('approval no.'); if (!g.approved) miss.push('supplier approved?');
+  if (!g.veh) miss.push('vehicle check'); if (!g.qual) miss.push('quality check'); if (!g.initials) miss.push('initials');
+  if (lines.some(l => giIsMeat(l.ing_id, l.type)) && !g.haulier) miss.push('haulier');
+  return miss;
+}
+function giPoSync(poId, lineIds) {   // received = what the deliveries rows say (edits and deletions included)
+  const ids = new Set(lineIds.filter(Boolean)); if (poId) db.prepare('SELECT id FROM po_lines WHERE po_id=?').all(poId).forEach(l => ids.add(l.id));
+  const q = db.prepare("SELECT COALESCE(SUM(qty),0) q FROM deliveries WHERE po_line_id=? AND status<>'refused'");
+  ids.forEach(id => db.prepare('UPDATE po_lines SET received=? WHERE id=?').run(q.get(id).q, id));
+  const pos = new Set([poId].filter(Boolean)); ids.forEach(id => { const l = db.prepare('SELECT po_id FROM po_lines WHERE id=?').get(id); if (l) pos.add(l.po_id); });
+  pos.forEach(p => poRecomputeStatus(p));
+}
+function cdocNumber() { const y = new Date().getFullYear(); const n = db.prepare('SELECT count(*) c FROM commercial_docs WHERE number LIKE ?').get('CD-' + y + '-%').c + 1; return 'CD-' + y + '-' + String(n).padStart(3, '0'); }
+function giGroupRows(grp) { return db.prepare('SELECT * FROM deliveries WHERE grp=? ORDER BY created, rowid').all(grp); }
+function originFor(g, sup) {
+  if (g.origin) return g.origin;
+  const src = g.producer ? g.producer_src : g.supplier_src; if (['ew', 'ni', 'sc', 'abp'].includes(src)) return 'UK';
+  const no = String(g.producer ? g.producer_approval : (g.approval || (sup && sup.approval) || '')).toUpperCase().trim();
+  if (/^(IE|IRL)\b/.test(no)) return 'IE (EU)'; if (/^(PL|FR|DE|NL|ES|IT|BE|DK|AT|PT)\b/.test(no)) return no.slice(0, 2) + ' (EU)'; return 'UK';
+}
+// the ABP Consignment Document (T002) for one delivery, built from what was recorded
+function cdocBuild(grp) {
+  const rows = giGroupRows(grp).filter(r => r.status !== 'refused' && +r.qty > 0); if (!rows.length) return null;
+  const meat = rows.filter(r => giIsMeat(r.ing_id, r.type)); if (!meat.length) return null;
+  const g = rows[0]; const sup = db.prepare('SELECT * FROM suppliers WHERE name=?').get(g.supplier || '') || null;
+  const consignor = g.producer ? { name: g.producer, no: g.producer_approval || '', addr: g.producer_addr || '' } : { name: g.supplier || '', no: g.approval || (sup && sup.approval) || '', addr: sup ? [sup.address, sup.postcode].filter(Boolean).join(', ') : '' };
+  const h = g.haulier ? db.prepare('SELECT * FROM hauliers WHERE name=?').get(g.haulier) : null;
+  const po = g.po_id ? db.prepare('SELECT number FROM purchase_orders WHERE id=?').get(g.po_id) : null;
+  const ex = db.prepare('SELECT * FROM commercial_docs WHERE grp=?').get(grp);
+  const data = { number: ex ? ex.number : cdocNumber(), grp, date: g.date, consignor, unique: g.del_note || (po && po.number) || '', origin: originFor(g, sup),
+    lines: meat.map(r => ({ descr: r.descr, qty: +r.qty, type: r.type || '' })), qty: meat.reduce((a, r) => a + (+r.qty || 0), 0),
+    description: meat.map(r => r.descr + ' ' + (+r.qty).toLocaleString() + ' kg').join(' · ') + ' — downgraded to cat 3 – not for human consumption',
+    haulier: { name: g.haulier || '', addr: h ? h.address : '', operator: g.operator_no || (h && h.approval) || '', reg: g.lorry_reg || '' },
+    receiver: { name: 'Wilsons Pet Food Ayr', no: 'U1541110/PETP', addr: 'Littlemill Road, Drongan, Ayr, KA6 7BP' }, initials: g.initials || '',
+    po: po ? po.number : '', dn: g.del_note || '', footer: { doc: 'T002', issue: '3', date: '09/01/2026', by: 'Kamil Skrzeszowski', name: 'ABP Consignment Document' } };
+  if (ex) db.prepare('UPDATE commercial_docs SET data=?, updated=?, po_id=? WHERE grp=?').run(JSON.stringify(data), now(), g.po_id || '', grp);
+  else db.prepare('INSERT INTO commercial_docs(id,number,grp,po_id,created,updated,data) VALUES(?,?,?,?,?,?,?)').run(uid('cd'), data.number, grp, g.po_id || '', now(), now(), JSON.stringify(data));
+  return data;
+}
+function giGroup(rows) {
+  const g = rows[0]; const po = g.po_id ? db.prepare('SELECT number FROM purchase_orders WHERE id=?').get(g.po_id) : null; const doc = db.prepare('SELECT number FROM commercial_docs WHERE grp=?').get(g.grp || g.id);
+  let missing = []; try { missing = g.missing ? JSON.parse(g.missing) : []; } catch (e) {}
+  return { grp: g.grp || g.id, date: g.date, supplier: g.supplier, po_id: g.po_id || '', po_number: po ? po.number : (g.ref || ''), status: g.status || '', missing, by: g.by, created: g.created, del_note: g.del_note || '', approval: g.approval || '', approved: g.approved || '', producer: g.producer || '', producer_approval: g.producer_approval || '', producer_addr: g.producer_addr || '', producer_src: g.producer_src || '', supplier_src: g.supplier_src || '', veh: g.veh || '', qual: g.qual || '', initials: g.initials || '', haulier: g.haulier || '', lorry_reg: g.lorry_reg || '', operator_no: g.operator_no || '', origin: g.origin || '', reason: g.reason || '', doc: doc ? doc.number : '',
+    kg: rows.reduce((a, r) => a + (+r.qty || 0), 0), lines: rows.map(r => ({ id: r.id, ing_id: r.ing_id, descr: r.descr, qty: +r.qty || 0, batch: r.batch || '', temp: r.temp || '', type: r.type || '', per_kg: +r.per_kg || 0, po_line_id: r.po_line_id || '', use_for: r.use_for || '' })) };
+}
+async function giRoutes(ctx) {
+  const { url, m, req, res, user } = ctx;
+  if (!(url.startsWith('/api/goodsin') || url.startsWith('/api/estab') || url.startsWith('/api/hauliers') || url.startsWith('/api/cdoc/'))) return false;
+  if (!giCan(user)) { json(res, 403, { error: 'You don’t have access to goods in.' }); return true; }
+  const qs = new URLSearchParams(req.url.split('?')[1] || '');
+  if (url === '/api/estab' && m === 'GET') {
+    const q = String(qs.get('q') || '').trim(); const out = registers.search(db, q, 12);
+    if (q) { const k = registers.normKey(q); const own = db.prepare('SELECT * FROM suppliers').all().filter(x => (k && registers.normKey(x.approval).startsWith(k) && k.length >= 2) || (q.replace(/[^a-z]/gi, '').length >= 3 && String(x.name || '').toLowerCase().includes(q.toLowerCase()))).slice(0, 6)
+      .map(x => ({ src: 'own', label: 'Your approved list', no: x.approval || '', name: x.name, addr: [x.address, x.postcode].filter(Boolean).join(', '), pc: x.postcode || '', act: x.product || '', cat: x.activity || '' })); json(res, 200, own.concat(out).slice(0, 14)); } else json(res, 200, []); return true;
+  }
+  if (url === '/api/estab/status' && m === 'GET') { json(res, 200, { sources: registers.status(db), refreshed: metaGet('registersRefreshed') || '', total: db.prepare('SELECT count(*) c FROM establishments').get().c }); return true; }
+  if (url === '/api/estab/refresh' && m === 'POST') { if (user.role !== 'admin') { json(res, 403, { error: 'admins only' }); return true; } metaSet('registersRefreshed', ''); await registersRefreshTick(); json(res, 200, { sources: registers.status(db) }); return true; }
+  if (url === '/api/hauliers' && m === 'GET') {
+    const list = db.prepare('SELECT * FROM hauliers ORDER BY name').all();
+    list.forEach(h => { const last = db.prepare("SELECT lorry_reg, operator_no FROM deliveries WHERE haulier=? AND (lorry_reg<>'' OR operator_no<>'') ORDER BY created DESC LIMIT 1").get(h.name); h.last_reg = last ? last.lorry_reg : ''; h.last_operator = last ? last.operator_no : (h.approval || ''); });
+    json(res, 200, list); return true;
+  }
+  if (url === '/api/hauliers' && m === 'POST') { if (!giCanEdit(user)) { json(res, 403, { error: 'no edit access' }); return true; } const b = await readBody(req); const name = String(b.name || '').trim(); if (!name) { json(res, 400, { error: 'name required' }); return true; } if (!db.prepare('SELECT id FROM hauliers WHERE name=?').get(name)) db.prepare('INSERT INTO hauliers(id,name,address,approval) VALUES(?,?,?,?)').run(uid('h'), name, b.address || '', b.approval || ''); json(res, 200, { ok: true }); return true; }
+  if (url === '/api/goodsin/attention' && m === 'GET') { json(res, 200, { n: db.prepare("SELECT count(DISTINCT CASE WHEN grp<>'' THEN grp ELSE id END) c FROM deliveries WHERE status='incomplete' AND (hist IS NULL OR hist=0)").get().c }); return true; }
+  if (url === '/api/goodsin/open-orders' && m === 'GET') { const sup = qs.get('supplier') || ''; json(res, 200, db.prepare("SELECT * FROM purchase_orders WHERE status IN ('sent','part','draft') " + (sup ? 'AND supplier=? ' : '') + 'ORDER BY created DESC').all(...(sup ? [sup] : [])).map(poWithLines)); return true; }
+  if (url === '/api/goodsin' && m === 'GET') {
+    const rows = db.prepare("SELECT * FROM deliveries WHERE (hist IS NULL OR hist=0) ORDER BY date DESC, created DESC LIMIT 3000").all();
+    const groups = new Map(); rows.forEach(r => { const k = r.grp || r.id; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+    json(res, 200, [...groups.values()].slice(0, 400).map(giGroup)); return true;
+  }
+  if (url === '/api/goodsin' && m === 'POST') {
+    if (!giCanEdit(user)) { json(res, 403, { error: 'no edit access' }); return true; }
+    const b = await readBody(req); if (!b) { json(res, 400, { error: 'bad request' }); return true; }
+    const lines = (b.lines || []).filter(l => l && l.ing_id && +l.qty > 0).map(l => { const ing = db.prepare('SELECT name FROM ingredients WHERE id=?').get(l.ing_id); return { id: l.id || '', ing_id: l.ing_id, descr: (ing && ing.name) || l.descr || '', qty: +l.qty, batch: String(l.batch || '').trim(), temp: String(l.temp || '').trim(), type: String(l.type || '').trim(), per_kg: +l.per_kg || 0, po_line_id: l.po_line_id || '', use_for: l.use_for || '' }; });
+    if (!lines.length) { json(res, 400, { error: 'Enter an ingredient and the kilos for at least one line.' }); return true; }
+    const grp = String(b.grp || '') || uid('g'); const existing = giGroupRows(grp); const refused = !!b.refused; const reason = String(b.reason || '').trim();
+    const po = b.po_id ? db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(b.po_id) : null;
+    const g = { date: b.date || now().slice(0, 10), supplier: String(b.supplier || '').trim(), po_id: po ? po.id : '', del_note: String(b.del_note || '').trim(), approval: String(b.approval || '').trim(), approved: String(b.approved || '').trim(), producer: String(b.producer || '').trim(), producer_approval: String(b.producer_approval || '').trim(), producer_addr: String(b.producer_addr || '').trim(), producer_src: String(b.producer_src || '').trim(), supplier_src: String(b.supplier_src || '').trim(), veh: String(b.veh || '').trim(), qual: String(b.qual || '').trim(), initials: String(b.initials || '').trim(), haulier: String(b.haulier || '').trim(), lorry_reg: String(b.lorry_reg || '').trim().toUpperCase(), operator_no: String(b.operator_no || '').trim(), origin: String(b.origin || '').trim() };
+    const missing = refused ? [] : giMissing(g, lines); const status = refused ? 'refused' : (missing.length ? 'incomplete' : 'ok');
+    const oldLineIds = existing.map(r => r.po_line_id);
+    // use_for comes from the order line when booking in against one
+    lines.forEach(l => { if (l.po_line_id && !l.use_for) { const pl = db.prepare('SELECT use_for FROM po_lines WHERE id=?').get(l.po_line_id); if (pl) l.use_for = pl.use_for || ''; } });
+    db.exec('BEGIN');
+    try {
+      const keep = new Set(lines.map(l => l.id).filter(Boolean)); existing.forEach(r => { if (!keep.has(r.id)) db.prepare('DELETE FROM deliveries WHERE id=?').run(r.id); });
+      const upd = db.prepare("UPDATE deliveries SET date=?,supplier=?,approval=?,ing_id=?,descr=?,qty=?,ref=?,approved=?,temp=?,veh=?,qual=?,type=?,batch=?,initials=?,po_line_id=?,use_for=?,producer=?,producer_approval=?,del_note=?,grp=?,po_id=?,status=?,missing=?,producer_addr=?,producer_src=?,supplier_src=?,haulier=?,lorry_reg=?,operator_no=?,origin=?,per_kg=?,reason=? WHERE id=?");
+      const ins = db.prepare("INSERT INTO deliveries(id,date,supplier,approval,ing_id,descr,qty,ref,approved,temp,veh,qual,type,batch,initials,by,created,hist,po_line_id,use_for,producer,producer_approval,del_note,grp,po_id,status,missing,producer_addr,producer_src,supplier_src,haulier,lorry_reg,operator_no,origin,per_kg,priced,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)");
+      const ref = po ? po.number : String(b.ref || ''); const mj = JSON.stringify(missing);
+      for (const l of lines) {
+        const descr = refused ? (l.descr + ' — REFUSED (' + (reason || 'checks failed') + '): ' + l.qty + ' kg offered') : l.descr; const qty = refused ? 0 : l.qty; const ingId = refused ? '' : l.ing_id; const qual = refused ? ('REFUSED — ' + reason) : g.qual;
+        const ex = l.id ? existing.find(r => r.id === l.id) : null;
+        if (ex) { upd.run(g.date, g.supplier, g.approval, ingId, descr, qty, ref, g.approved, l.temp, g.veh, qual, l.type, l.batch, g.initials, l.po_line_id, l.use_for, g.producer, g.producer_approval, g.del_note, grp, g.po_id, status, mj, g.producer_addr, g.producer_src, g.supplier_src, g.haulier, g.lorry_reg, g.operator_no, g.origin, l.per_kg, reason, l.id); l._row = Object.assign({}, ex, { per_kg: l.per_kg }); }
+        else { const id = uid('d'); ins.run(id, g.date, g.supplier, g.approval, ingId, descr, qty, ref, g.approved, l.temp, g.veh, qual, l.type, l.batch, g.initials, user.username, now(), l.po_line_id, l.use_for, g.producer, g.producer_approval, g.del_note, grp, g.po_id, status, mj, g.producer_addr, g.producer_src, g.supplier_src, g.haulier, g.lorry_reg, g.operator_no, g.origin, l.per_kg, reason); l.id = id; l._row = { id, priced: 0 }; }
+        if (!refused && l.per_kg > 0 && !(+l._row.priced)) { poLogPurchase(l.descr, g.date, g.supplier, l.qty, l.per_kg, (ref ? ref : 'no order') + (g.del_note ? ' · DN ' + g.del_note : '')); db.prepare('UPDATE deliveries SET priced=1 WHERE id=?').run(l.id); }
+      }
+      giPoSync(g.po_id, oldLineIds.concat(lines.map(l => l.po_line_id)));
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); json(res, 500, { error: e.message }); return true; }
+    let doc = null; try { doc = refused ? null : cdocBuild(grp); } catch (e) { console.log('cdoc build failed: ' + e.message); }
+    json(res, 200, { ok: true, grp, status, missing, doc: doc ? doc.number : '', group: giGroup(giGroupRows(grp)) }); return true;
+  }
+  let mm = url.match(/^\/api\/goodsin\/([^/]+)$/);
+  if (mm && m === 'GET') { const grp = decodeURIComponent(mm[1]); let rows = giGroupRows(grp); if (!rows.length) { const r = db.prepare('SELECT * FROM deliveries WHERE id=?').get(grp); if (r) rows = [r]; } if (!rows.length) { json(res, 404, { error: 'not found' }); return true; } json(res, 200, giGroup(rows)); return true; }
+  mm = url.match(/^\/api\/goodsin\/([^/]+)\/(raise-po|delete)$/);
+  if (mm && m === 'POST') {
+    if (!giCanEdit(user)) { json(res, 403, { error: 'no edit access' }); return true; }
+    const grp = decodeURIComponent(mm[1]); let rows = giGroupRows(grp); if (!rows.length) { const r = db.prepare('SELECT * FROM deliveries WHERE id=?').get(grp); if (r) rows = [r]; } if (!rows.length) { json(res, 404, { error: 'not found' }); return true; }
+    if (mm[2] === 'delete') { db.exec('BEGIN'); try { const lids = rows.map(r => r.po_line_id); rows.forEach(r => db.prepare('DELETE FROM deliveries WHERE id=?').run(r.id)); db.prepare('DELETE FROM commercial_docs WHERE grp=?').run(grp); giPoSync(rows[0].po_id, lids); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); json(res, 500, { error: e.message }); return true; } json(res, 200, { ok: true }); return true; }
+    // raise an order from what was delivered: the order is created already received, and the delivery is linked to it
+    const g = rows[0]; if (g.po_id) { json(res, 400, { error: 'This delivery already has an order.' }); return true; } if (!g.supplier) { json(res, 400, { error: 'Set the supplier first.' }); return true; }
+    const live = rows.filter(r => r.status !== 'refused' && r.ing_id && +r.qty > 0); if (!live.length) { json(res, 400, { error: 'Nothing delivered to raise an order for.' }); return true; }
+    db.exec('BEGIN');
+    try {
+      const id = uid('po'), number = poNumber(); const em = db.prepare('SELECT email FROM suppliers WHERE name=?').get(g.supplier);
+      db.prepare('INSERT INTO purchase_orders(id,number,supplier,supplier_email,status,expected,notes,created,created_by,sent_at,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id, number, g.supplier, (em && em.email) || '', 'received', g.date, 'Raised from delivery ' + (g.del_note ? 'DN ' + g.del_note : g.date), now(), user.username, now(), now());
+      const insL = db.prepare('INSERT INTO po_lines(id,po_id,ing_id,descr,kg,per_kg,use_for,received,seq) VALUES(?,?,?,?,?,?,?,?,?)');
+      live.forEach((r, i) => { const lid = uid('pl'); insL.run(lid, id, r.ing_id, r.descr, +r.qty, +r.per_kg || 0, r.use_for || '', +r.qty, i); db.prepare('UPDATE deliveries SET po_id=?, po_line_id=?, ref=? WHERE id=?').run(id, lid, number, r.id); });
+      rows.filter(r => !live.includes(r)).forEach(r => db.prepare('UPDATE deliveries SET po_id=?, ref=? WHERE id=?').run(id, number, r.id));
+      const fresh = giGroupRows(grp); const gg = giGroup(fresh); const miss = gg.status === 'refused' ? [] : giMissing(Object.assign(gg, { po_id: id }), gg.lines); const st = gg.status === 'refused' ? 'refused' : (miss.length ? 'incomplete' : 'ok');
+      db.prepare('UPDATE deliveries SET status=?, missing=? WHERE grp=?').run(st, JSON.stringify(miss), grp);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); json(res, 500, { error: e.message }); return true; }
+    try { cdocBuild(grp); } catch (e) {}
+    json(res, 200, { ok: true, group: giGroup(giGroupRows(grp)) }); return true;
+  }
+  mm = url.match(/^\/api\/cdoc\/([^/]+)$/);
+  if (mm && m === 'GET') { const grp = decodeURIComponent(mm[1]); let data = null; try { data = cdocBuild(grp); } catch (e) { json(res, 500, { error: e.message }); return true; } if (!data) { json(res, 404, { error: 'No ABP document for this delivery (no meat lines, or refused).' }); return true; } json(res, 200, data); return true; }
+  return false;
+}

@@ -313,7 +313,9 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="prodsum">Production Summary</button>
     <button data-view="pickmix">Pick &amp; Mix</button>
     <button data-view="stock">Stock</button>
-    <button data-view="deliveries">Deliveries</button>
+    <button data-view="deliveries">Goods in</button>
+    <button data-view="girecords">Goods-in records</button>
+    <button data-view="purchasing">Purchase orders</button>
     <button data-view="adjustments">Stocktake</button>
     <button data-view="packaging">Packaging</button>
     <button data-view="suppliers">Suppliers</button>
@@ -344,14 +346,10 @@ tr.prDrag:hover{background:#faf3ee}
   <div class="sb-top">
     <a href="https://www.wilsonspetfood.co.uk" target="_blank" rel="noopener" title="Open the Wilsons website"><img class="sb-logo" src="/assets/logo-grapefruit.svg" alt="Wilsons" style="cursor:pointer"></a>
     <div id="sbFactory"></div>
-    <div class="sb-toggle" id="sbToggle">
-      <button type="button" data-mode="production">Production</button>
-      <button type="button" data-mode="technical">Technical</button>
-      <button type="button" data-mode="office">Office</button>
-    </div>
+    <div class="sb-tabs" id="sbToggle"></div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v48</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v50</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -405,6 +403,59 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-toggle{display:flex;background:rgba(255,255,255,.08);border-radius:20px;padding:3px;margin-bottom:18px}
   .sb-toggle button{flex:1;text-align:center;background:transparent;border:0;color:#c8d2d8;border-radius:17px;padding:7px 0;font-weight:500;font-size:12.5px;cursor:pointer;font-family:var(--font-body)}
   .sb-toggle button.on{background:var(--coral);color:var(--navy);font-weight:700}
+  /* v50 — workspace tabs: icons that grow into their name (hover on a mouse, the chosen one on a tablet) */
+  .sb-tabs{display:flex;gap:3px;margin:0 -8px 16px;background:rgba(255,255,255,.06);border-radius:14px;padding:3px}
+  .sb-tabs button{flex:0 0 30px;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 2px;border:0;border-radius:11px;background:transparent;color:#8fa2ad;font-family:var(--font-body);font-size:13px;font-weight:700;cursor:pointer;overflow:hidden;white-space:nowrap;transition:flex .28s cubic-bezier(.4,0,.2,1),background .2s,color .2s,padding .28s}
+  .sb-tabs button .ico{width:22px;height:22px;flex:none;opacity:1}
+  .sb-tabs button span{max-width:0;opacity:0;overflow:hidden;flex:0 1 auto;min-width:0;transition:max-width .28s cubic-bezier(.4,0,.2,1),opacity .2s}
+  .sb-tabs button span em{display:inline-block;font-style:normal;white-space:nowrap}
+  .sb-tabs button span.run em{animation:sbrun var(--dur,3s) ease-in-out infinite alternate}
+  @keyframes sbrun{0%,15%{transform:translateX(0)}85%,100%{transform:translateX(calc(-1 * var(--ov,0px)))}}
+  .sb-tabs button.on{flex:1 1 auto;padding:0 6px 0 8px;background:var(--coral);color:var(--navy)}
+  .sb-tabs button.on span{max-width:120px;opacity:1}
+  @media (hover:hover){
+    .sb-tabs:hover button.on:not(:hover){flex:0 0 30px;padding:0 2px}
+    .sb-tabs:hover button.on:not(:hover) span{max-width:0;opacity:0}
+    .sb-tabs button:hover{flex:1 1 auto;padding:0 6px 0 8px;color:#fff;background:rgba(255,255,255,.1)}
+    .sb-tabs button:hover span{max-width:120px;opacity:1}
+    .sb-tabs button.on:hover{background:var(--coral);color:var(--navy)}
+  }
+  @media (prefers-reduced-motion:reduce){.sb-tabs button,.sb-tabs button span,.sb-tabs button span.run em{transition:none;animation:none}}
+  /* v50 — goods in: list chips/pills and the tablet sheet */
+  .gi-chips{display:flex;gap:6px;flex-wrap:wrap}
+  .gi-chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;min-height:40px;font-family:var(--font-body)}
+  .gi-chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .pill.gi-am{background:#fff4d6;color:#8a6600}.pill.gi-rd{background:#fae3df;color:#b4231f}
+  .gi-list tr[data-grp]{cursor:pointer}.gi-list tr.gi-row-am td:first-child{box-shadow:inset 4px 0 0 #d9a400}.gi-list tr.gi-row-rd td:first-child{box-shadow:inset 4px 0 0 #e2606c}
+  .gi-open .modal{max-width:980px}
+  .gi-sheet .gi-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .gi-sheet .fld{margin:0;min-width:0}
+  .gi-sheet input,.gi-sheet select{min-height:44px;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:0 12px;width:100%;box-sizing:border-box;background:var(--card);color:var(--text,#143644)}
+  .gi-sheet input[type=date]{padding:0 8px}
+  .gi-line{border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:10px;background:var(--bg,#f6f4ee)}
+  .gi-line-t{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.gi-line-t b{font-size:17px}.gi-line-t .muted{font-size:12px}
+  .gi-line-t select.gi-ing{flex:1;font-weight:700}
+  .gi-x{border:0;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;min-width:44px;min-height:44px}
+  .gi-add{width:100%;min-height:44px;border:1px dashed var(--line);border-radius:14px;background:transparent;color:#007985;font-weight:600;font-size:14px;margin-top:10px;cursor:pointer;font-family:var(--font-body)}
+  .gi-bar{position:sticky;bottom:-16px;margin:14px -16px -16px;padding:12px 16px;background:var(--card);border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-radius:0 0 12px 12px}
+  .gi-save{min-height:52px;padding:0 22px;font-size:17px;border-radius:12px}
+  .gi-miss{font-size:13px;color:#8a6600;font-weight:600;line-height:1.4;max-width:560px}
+  .gi-mark{font-size:12px;font-weight:600;min-height:16px;display:block;margin-top:2px}.gi-ok{color:#1f8a4c}.gi-bad{color:#b4231f}
+  .gi-refuse{background:#fae3df;color:#b4231f;border-radius:10px;padding:10px 12px;font-weight:600}
+  .gi-dd{position:fixed;z-index:400;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px -14px rgba(0,0,0,.5);max-height:50vh;overflow:auto}
+  .gi-dd-row{padding:10px 12px;border-top:1px solid var(--line);cursor:pointer}.gi-dd-row:first-child{border-top:0}.gi-dd-row:hover{background:#eef6ff}
+  .gi-dd-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.gi-dd-top .n{font-weight:700;font-size:14px}
+  .gi-dd-sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .gi-tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .gi-tag-ew{border-color:#5b6ee1;color:#4a5bc4}.gi-tag-ni{border-color:#b98a00;color:#8a6600}.gi-tag-sc{border-color:#007985;color:#007985}.gi-tag-abp{border-color:#a0522d;color:#a0522d}.gi-tag-own{border-color:var(--accent);color:var(--accent)}
+  @media (max-width:900px){ .gi-open .modal-bg{padding:0} .gi-open .modal{max-width:100%;min-height:100dvh;border-radius:0;padding:14px} .gi-bar{bottom:-14px;margin:14px -14px -14px;border-radius:0} }
+  /* ABP consignment document print */
+  .cdoc{color:#111;font-size:12.5px;line-height:1.45}.cdoc .cd-t{font-weight:800;font-size:17px;text-align:center}.cdoc .cd-t2{text-align:center;font-weight:700;font-size:12px;margin-top:2px}.cdoc .cd-t3{text-align:center;font-size:11px;color:#333;margin-bottom:10px}
+  .cdoc h4{background:#eee;border:1px solid #999;padding:4px 8px;margin:10px 0 0;font-size:12.5px}
+  .cdoc table.cd{width:100%;border-collapse:collapse}.cdoc td{border:1px solid #999;padding:5px 8px;vertical-align:top}.cdoc td.cd-l{width:34%;color:#333}.cdoc td.cd-l2{width:16%;color:#333}.cdoc td.cd-sig{padding:14px 8px 6px}
+  .cdoc .cd-note{font-style:italic;color:#333;padding:6px 8px;border:1px solid #999;border-top:0}
+  .cdoc .cd-foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px 18px;margin-top:12px;font-size:11px;color:#333;border-top:1px solid #999;padding-top:6px}
+
   .sb-nav{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0;padding-bottom:14px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
   .sb-item{display:flex;align-items:center;gap:11px;padding:9px 12px;color:#aebcc4;font-weight:500;font-size:13.5px;cursor:pointer;border:0;background:transparent;border-radius:10px;text-align:left;font-family:var(--font-body);width:100%}
   .sb-item .ico{width:17px;height:17px;flex:none;opacity:.85}
@@ -413,6 +464,10 @@ tr.prDrag:hover{background:#faf3ee}
   .sb-item.active .ico{color:var(--coral);opacity:1}
   .sb-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:#5f7482;font-weight:700;padding:14px 12px 4px}
   .sb-item .sb-soon{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.1);color:#8fa2ad;border-radius:8px;padding:2px 7px;flex:none}
+  .pc-cloud{position:fixed;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 40px -12px rgba(20,54,68,.45);padding:10px 12px;min-width:320px;max-width:420px;text-align:left;font-size:13px}
+  .pc-cloud .pc-h{font-weight:700;margin-bottom:6px}.pc-cloud .pc-sec{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:8px 0 2px}
+  .pc-cloud .pc-row{display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dashed var(--line)}.pc-cloud .pc-row>span{flex:1;min-width:0}.pc-cloud .pc-row small{display:block;color:var(--muted);font-size:11px}.pc-cloud .pc-row b{white-space:nowrap}
+  .pc-cloud .pc-cmp{margin-top:8px;font-weight:600;font-size:13px}
   .sb-item .sb-badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;font-size:11.5px;font-weight:800;color:#fff;background:var(--coral-deep,#e2606c);border-radius:11px;display:flex;align-items:center;justify-content:center;flex:none}
   .sb-facpill{margin:0 0 10px}
   .sb-custom{opacity:.55;margin-top:14px}
@@ -667,10 +722,11 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-filling"><h2 class="viewtitle">Filling Sheet</h2><p class="sub">Record each retort basket as you fill it. Tap a number field for the keypad.</p><div id="rootFilling"></div></section>
   <section class="view" id="view-production"><h2 class="viewtitle">Record Production</h2><p class="sub">Enter what was made — stock is deducted automatically by recipe percentage.</p><div id="rootProduction"></div></section>
   <section class="view" id="view-stock"><h2 class="viewtitle">Stock</h2><p class="sub">Live levels. Remaining = opening + deliveries + stocktake − used.</p><div id="rootStock"></div></section>
-  <section class="view" id="view-deliveries"><h2 class="viewtitle">Deliveries (Goods In)</h2><p class="sub">Log a delivery — it adds to stock.</p><div id="rootDeliveries"></div></section>
+  <section class="view" id="view-deliveries"><h2 class="viewtitle">Goods in</h2><p class="sub">Every delivery, with or without an order. Ingredient and kilos are enough to save; anything left blank is flagged until it’s finished.</p><div id="rootDeliveries"></div></section>
+  <section class="view" id="view-girecords"><h2 class="viewtitle">Goods-in records</h2><p class="sub">The T001 goods-in register as recorded, with the ABP commercial document for each meat delivery.</p><div id="rootGirecords"></div></section>
   <section class="view" id="view-adjustments"><h2 class="viewtitle">Stocktake &amp; Adjustments</h2><p class="sub">Corrections to stock (waste, recount, write-off).</p><div id="rootAdjustments"></div></section>
   <section class="view" id="view-packaging"><h2 class="viewtitle">Packaging &amp; Finished Goods</h2><p class="sub">Bags, pouches, labels, treats and finished goods.</p><div id="rootPackaging"></div></section>
-  <section class="view" id="view-suppliers"><h2 class="viewtitle">Suppliers</h2><p class="sub">Approved-supplier (SALSA) list.</p><div id="rootSuppliers"></div></section>
+  <section class="view" id="view-suppliers"><h2 class="viewtitle">Suppliers &amp; registers</h2><p class="sub">Your approved-supplier (SALSA) list, and the official registers of approved establishments.</p><div id="rootSuppliers"></div></section>
   <section class="view" id="view-users"><h2 class="viewtitle">Users</h2><p class="sub">Manage who can sign in.</p><div id="rootUsers"></div></section>
   <section class="view" id="view-email"><h2 class="viewtitle">Email</h2><p class="sub">Microsoft 365 connection, outgoing emails and turning tagged Outlook emails into Planning tasks.</p><div id="rootEmail"></div></section>
   <section class="view" id="view-filldash"><h2 class="viewtitle">Filling Dashboard</h2><p class="sub">Live filling progress against the day's plan.</p><div id="rootFilldash"></div></section>
@@ -716,6 +772,7 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-fmrecipes"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="book"></span><h2>Recipe Management</h2><span class="fm-badge">Coming soon</span><p>A future home for developing, versioning and approving recipes — beyond the day-to-day recipe library.</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
   <section class="view" id="view-fminventory"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="box"></span><h2>Inventory &amp; Traceability</h2><span class="fm-badge">Coming soon</span><p>A future home for deeper inventory control and end-to-end batch traceability, building on Stock and Pick &amp; Mix.</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
   <section class="view" id="view-fmquality"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="shield"></span><h2>Quality &amp; Food Safety</h2><span class="fm-badge">Coming soon</span><p>A future home for quality checks, food-safety records and audit paperwork (SALSA and beyond).</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
+  <section class="view" id="view-purchasing"><h2 class="viewtitle">Purchase orders</h2><p class="sub">Raise an order per supplier, send it, then book the delivery in against it — stock, batch codes and the price in Costing update from the booking-in.</p><div id="rootPurchasing"></div></section>
   <section class="view" id="view-fmprocurement"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="cart"></span><h2>Procurement &amp; Suppliers</h2><span class="fm-badge">Coming soon</span><p>A future home for purchase orders and supplier management, building on the approved-supplier list.</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
   <section class="view" id="view-fmsales"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="trendingUp"></span><h2>Sales &amp; Demand</h2><span class="fm-badge">Coming soon</span><p>A future home for sales and demand across channels, to help plan what to make and when.</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
   <section class="view" id="view-fmexport"><div class="fm-shell"><div class="fm-card"><span class="fm-ic" data-icon="globe"></span><h2>Export &amp; Compliance</h2><span class="fm-badge">Coming soon</span><p>A future home for export paperwork and compliance requirements.</p><p class="fm-note">This is an empty placeholder. Nothing here is built yet, and it doesn't affect the rest of the app.</p></div></div></section>
@@ -1175,7 +1232,7 @@ function recipeDetails(id){
 }
 function r0refresh(){ if(typeof refreshAll==='function') try{ refreshAll(); }catch(e){} }
 window.recipeDetails=recipeDetails;
-function closeModal(){ document.getElementById('modalBg').classList.remove('open'); }
+function closeModal(){ document.getElementById('modalBg').classList.remove('open'); document.body.classList.remove('gi-open'); }
 document.getElementById('modalBg').addEventListener('click',e=>{ if(e.target.id==='modalBg') closeModal(); });
 
 /* ---------------- Weekly Production Board ---------------- */
@@ -2243,12 +2300,26 @@ async function startApp(){
   if(KIOSK) goFullscreen();
   renderSidebar();
   navTo('home');
-  loadPlanningNudge();
+  loadPlanningNudge(); loadGiAttention();
   setSync('● Shared');
   startVersionWatch();
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v50', date:'8 Oct 2026', notes:[
+    'Five workspaces in the sidebar — Production, Warehouse (new), Technical, Office, HR (new) — switched with icon tabs that grow into their name (hover on a computer; the chosen one on a tablet). Each account can be given a home workspace on the Users screen, so the warehouse tablet opens on Warehouse.',
+    'Goods in (was “Deliveries”) is one tablet-friendly sheet for every delivery, with or without an order. Ingredient and kilos are enough to save; anything left blank (batch, temperature, type, checks, delivery note, approval numbers, haulier, order) is saved as INCOMPLETE and highlighted in the list — a count shows on the sidebar — so it can be finished later. Deliveries without an order are flagged “No order”; opening one offers “Raise order from this delivery”, which creates the order from the recorded lines and marks it received. Refusals (temperature above −15 °C, supplier not approved, transport or quality unsatisfactory) still refuse on the spot as before. Book in on a purchase order opens the same sheet.',
+    'Approval-number lookup: the four official registers of approved establishments are now inside HQ — FSA England & Wales, FSA Northern Ireland, FSS Scotland, and the APHA list of animal by-product plants — plus your own approved supplier list. Type an approval number (as written anywhere: “GB 2093”, “UK(NI) 9502 EC”, “51/647/8003”) or a name into the supplier or producer box on the goods-in sheet and the establishment comes up with its address and what it is approved for; picked producers are recorded on the delivery. A number found on a register shows ✓ with the register and issue date; one found nowhere shows ✗. Registers refresh themselves from the official sites about monthly (a failed download keeps the last good copy). Suppliers → Official registers tab lets you search them directly and shows each source’s issue date.',
+    'ABP Commercial Document (T002) is generated for every meat delivery (Meat/Offal ingredients or CAT 3 lines) — one per delivery, numbered CD-YYYY-NNN, saved against the delivery. Consignor is the supplier when bought direct, or the producer looked up from the register when bought through a trader. Haulier (from the transport list), lorry reg, transport operator no. and place of origin are recorded on the sheet and printed on the document. Print from the Goods in list (📄), the sheet, or Goods-in records.',
+    'Goods-in records (Technical) — the T001 register as recorded, filter by month, print, with the ABP document for each meat delivery.'
+  ]},
+  {v:'v49', date:'8 Oct 2026', notes:[
+    'Purchase orders — new screen (Office · Purchase orders, and in the Stock tile). Raise an order per supplier: ingredient lines with kg, £/kg (filled from Costing’s supplier quote, editable) with a price cloud: click the £/kg box to see everything Costing knows for that ingredient — the standard price recipes are costed at, each supplier’s quote (with delivery), any recipe that prices it differently, and what was recently paid — use any of them with one click, and as you type it tells you whether you’re below or above Costing and by how much on the order; and a “Use for” tag — when you pick the ingredient, HQ lists the recipes that use it, grouped by brand, and you tick a whole brand or single recipes (or leave it as Any). Send it by email from HQ (once Microsoft 365 is connected) or print the branded PDF and mark it sent. The list shows Sent / Part-received / Received, with overdue orders flagged. Everyone with a login can raise orders.',
+    'Goods in against an order follows the Goods In Records sheet (T001): per line — qty in, batch number, product temperature, FFHC/CAT 3; shared — date, delivery note, supplier on the approved list (yes/no), supplier approval no., producer (establishment) and its approval no., transport vehicle & driver, quality of goods (visual), initials. The three checks are enforced: a frozen line above −15 °C, a supplier not on the approved list, unsatisfactory transport or quality all switch Book in to “Record refused delivery” — the refusal is recorded against the order (nothing enters stock, the order stays open) and you’re told to notify the factory manager and complete G003.',
+    'Booking in against an order: “Book in” pre-fills each line with what’s still outstanding — enter what arrived, the batch/lot, the goods-in checks (temperature, vehicle, quality, FFHC/CAT 3, initials), the delivery note number, and the PRODUCER (the establishment that made it, with its approval number) separately from the supplier you ordered from. It creates the normal delivery records, so stock, batch codes and traceability work exactly as before; shorts keep the order open; the price is logged into Recipe Costing automatically.',
+    'Stock has an “On order” column, so “running low” and “on its way” can be told apart.',
+    'Pick & Mix batch chooser: lots bought for this recipe’s brand come first and are tagged; lots bought for another brand are shown as “bought for … — use anyway?” and can still be picked.'
+  ]},
   {v:'v48', date:'1 Oct 2026', notes:[
     'Pick & Mix now works per mincing run. A new “Mixing runs” tab lists every mix from Record Production — mince date, product, Julian, mix kg, pack split (e.g. 700g × 195 · 300g × 84), baskets and cook dates — with “＋ Add pick & mix” on each. It opens the batch chooser already filled in from the run, so you only pick the batch codes; saving records them against that run and its exact baskets. Recorded runs show ✓ and can be edited (who changed it and when is kept).',
     'Mixing sheet with batch codes: the 🖨 button on a run prints the sheet in the usual format — pack split, bag counts, the tick-box ingredient table — with the Batch code column filled in from the saved pick & mix (blank for handwriting if not recorded yet).',
@@ -2464,7 +2535,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v48';
+const APP_VERSION='v50';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -2558,7 +2629,7 @@ function startVersionWatch(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,girecords:renderGiRecords,purchasing:renderPurchasing,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
 /* KPI dashboard module (same pattern as costing: served by the app, shown in a frame) */
 function renderKpi(){ const f=document.getElementById('kpiFrame'); if(!f) return; const want='/kpi?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
 function renderSpecs(){ const f=document.getElementById('specsFrame'); if(!f) return; const want='/specs?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
@@ -2603,12 +2674,16 @@ const ICONS={
   alert:'<path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"/><path d="M12 16h.01"/>',
   dashboard:'<path d="M4 4h6v8h-6z"/><path d="M4 16h6v4h-6z"/><path d="M14 12h6v8h-6z"/><path d="M14 4h6v4h-6z"/>',
   mail:'<path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10z"/><path d="M3 7l9 6l9 -6"/>',
+  warehouse:'<path d="M3 21v-12l9 -5l9 5v12"/><path d="M7 21v-6h10v6"/><path d="M10 15v6"/><path d="M14 15v6"/>',
+  briefcase:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7v-2a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/>',
+  people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 4.5"/>',
   planning:'<path d="M3.5 5.5l1.5 1.5l2.5 -2.5"/><path d="M3.5 11.5l1.5 1.5l2.5 -2.5"/><path d="M3.5 17.5l1.5 1.5l2.5 -2.5"/><path d="M11 6l9 0"/><path d="M11 12l9 0"/><path d="M11 18l9 0"/>'
 };
 function svg(name){ return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[name]||'')+'</svg>'; }
 
 /* ================= NEW LOOK: sidebar navigation ================= */
 /* Two workspaces, like the design's Production / Office toggle. Every existing screen keeps its name. */
+const WORKSPACES=[['production','Production','factory'],['warehouse','Warehouse','warehouse'],['technical','Technical','flask'],['office','Office','briefcase'],['hr','HR','people']];
 const SB_SECTIONS={
   production:[
     ['home','Today','home'],
@@ -2622,12 +2697,22 @@ const SB_SECTIONS={
     ['mixing','Mixing Sheets','printer'],
     ['optimings','Operations timings','sliders']
   ],
+  warehouse:[
+    ['home','Today','home'],
+    ['deliveries','Goods in','truck'],
+    ['purchasing','Purchase orders','cart'],
+    ['stock','Stock','box'],
+    ['adjustments','Stocktake','clipboardCheck'],
+    ['packaging','Packaging','package']
+  ],
   technical:[
     ['home','Today','home'],
     ['planning','Planning','planning'],
     ['library','Recipe Library','book'],
     ['costing','Recipe Costing','coins'],
     ['specs','Product Specs','clipboardText'],
+    ['suppliers','Suppliers & registers','users'],
+    ['girecords','Goods-in records','clipboardList'],
     ['complaints','Complaints','alert'],
     ['mixing','Mixing Sheets','printer']
   ],
@@ -2636,20 +2721,23 @@ const SB_SECTIONS={
     ['planning','Planning','planning'],
     ['kpi','KPI Dashboard','dashboard'],
     ['kpiinput','KPI Daily Input','clipboardText'],
-    ['library','Recipe Library','book'],
-    ['ingredients','Ingredients','basket'],
     ['planner','Production Planner','calendar'],
+    ['purchasing','Purchase orders','cart'],
+    ['deliveries','Goods in','truck'],
     ['stock','Stock','box'],
-    ['deliveries','Deliveries','truck'],
-    ['adjustments','Stocktake','clipboardCheck'],
-    ['packaging','Packaging','package'],
-    ['suppliers','Suppliers','users'],
+    ['suppliers','Suppliers & registers','users'],
+    ['ingredients','Ingredients','basket'],
+    ['library','Recipe Library','book'],
     ['costing','Recipe Costing','coins'],
     ['specs','Product Specs','clipboardText'],
     ['complaints','Complaints','alert'],
     ['log','Change Log','history'],
-    ['users','Users','user'],
     ['email','Email','mail']
+  ],
+  hr:[
+    ['home','Today','home'],
+    ['planning','Planning','planning'],
+    ['users','Users','user']
   ]
 };
 /* Foundations for future modules — empty, clearly-marked placeholders (admins only for now) */
@@ -2667,7 +2755,7 @@ let SB_ACTIVE='home';
 const SB_ITEMS={}; Object.values(SB_SECTIONS).flat().forEach(it=>{ if(!SB_ITEMS[it[0]]) SB_ITEMS[it[0]]=it; });
 /* admin-chosen layout (shared, stored on the server); null = the standard layout above */
 let MENU_LAYOUT=null;
-async function loadMenuLayout(){ try{ const d=await api('/api/menu-layout'); MENU_LAYOUT=(d.layout&&d.layout.v===1)?d.layout:null; }catch(e){ MENU_LAYOUT=null; } }
+async function loadMenuLayout(){ try{ const d=await api('/api/menu-layout'); MENU_LAYOUT=(d.layout&&(d.layout.v===1||d.layout.v===2))?d.layout:null; }catch(e){ MENU_LAYOUT=null; } }
 function sbSection(mode){
   if(MENU_LAYOUT && Array.isArray(MENU_LAYOUT[mode])) return [SB_ITEMS.home, SB_ITEMS.planning, ...MENU_LAYOUT[mode].filter(k=>k!=='home'&&k!=='planning').map(k=>SB_ITEMS[k]).filter(Boolean)];
   return SB_SECTIONS[mode]||[];
@@ -2675,18 +2763,21 @@ function sbSection(mode){
 function sbAllowed(list){ return list.filter(it=>it[0]==='home'||canView(it[0])); }
 function sbModeOk(m){ return sbAllowed(sbSection(m)).length>1; }
 function sbPickMode(){
+  /* the account's home workspace wins the first time it is seen (so a tablet set to Warehouse opens there); after that the local choice sticks */
+  const home=CURRENT_USER&&CURRENT_USER.workspace; let stamp=''; try{ stamp=localStorage.getItem('wpm_sbhome')||''; }catch(e){}
+  if(home && SB_SECTIONS[home] && stamp!==CURRENT_USER.id+':'+home){ SB_MODE=home; try{ localStorage.setItem('wpm_sbmode',home); localStorage.setItem('wpm_sbhome',CURRENT_USER.id+':'+home); }catch(e){} }
   if(SB_MODE && SB_SECTIONS[SB_MODE] && sbModeOk(SB_MODE)) return SB_MODE;
-  return ['production','technical','office'].find(sbModeOk)||'production';
+  return WORKSPACES.map(w=>w[0]).find(sbModeOk)||'production';
 }
 function renderSidebar(){
   if(!CURRENT_USER) return;
   const mode=sbPickMode();
-  const okModes=['production','technical','office'].filter(sbModeOk);
+  const okModes=WORKSPACES.map(w=>w[0]).filter(sbModeOk);
   const tg=document.getElementById('sbToggle');
   if(tg){ tg.style.display=okModes.length>1?'':'none';
-    tg.querySelectorAll('button').forEach(b=>{ b.style.display=okModes.includes(b.dataset.mode)?'':'none';
-      b.classList.toggle('on',b.dataset.mode===mode);
-      b.onclick=()=>{ SB_MODE=b.dataset.mode; try{localStorage.setItem('wpm_sbmode',SB_MODE);}catch(e){} renderSidebar(); }; });
+    tg.innerHTML=WORKSPACES.filter(w=>okModes.includes(w[0])).map(w=>'<button type="button" data-mode="'+w[0]+'" class="'+(w[0]===mode?'on':'')+'" title="'+w[1]+'">'+svg(w[2])+'<span><em>'+w[1]+'</em></span></button>').join('');
+    tg.querySelectorAll('button').forEach(b=>{ b.onclick=()=>{ SB_MODE=b.dataset.mode; try{localStorage.setItem('wpm_sbmode',SB_MODE);}catch(e){} renderSidebar(); }; });
+    sbTabsFit();
   }
   const fh=document.getElementById('sbFactory');
   if(fh){
@@ -2701,7 +2792,7 @@ function renderSidebar(){
     } else fh.innerHTML='';
   }
   const items=sbAllowed(sbSection(mode));
-  let html=items.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span>${it[0]==='planning'&&PLANNING_DUE>0?'<span class="sb-badge" title="Tasks due today or overdue">'+PLANNING_DUE+'</span>':''}</button>`).join('');
+  let html=items.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span>${it[0]==='planning'&&PLANNING_DUE>0?'<span class="sb-badge" title="Tasks due today or overdue">'+PLANNING_DUE+'</span>':''}${it[0]==='deliveries'&&GI_ATTN>0?'<span class="sb-badge" title="Deliveries needing attention">'+GI_ATTN+'</span>':''}</button>`).join('');
   if(mode==='office'&&isAdmin()){
     html+='<div class="sb-head">Coming soon</div>'+SB_FUTURE.map(it=>`<button type="button" class="sb-item${SB_ACTIVE===it[0]?' active':''}" data-sv="${it[0]}" onclick="sbGo('${it[0]}')">${svg(it[2])}<span>${escapeHtml(it[1])}</span><span class="sb-soon">Soon</span></button>`).join('');
   }
@@ -2709,19 +2800,24 @@ function renderSidebar(){
   const nav=document.getElementById('sbNav'); if(nav) nav.innerHTML=html;
 }
 function sbGo(v){ if(v==='planning'){ sbClose(); location.href='/planning'; return; } sbClose(); navTo(v); }
+/* when a grown workspace tab is still narrower than its name, let the name run across */
+function sbTabsFit(){ const tg=document.getElementById('sbToggle'); if(!tg) return; tg.querySelectorAll('button').forEach(b=>{ const sp=b.querySelector('span'), em=sp&&sp.querySelector('em'); if(!em) return; const ov=em.scrollWidth-sp.clientWidth; if(ov>2&&(b.classList.contains('on')||b.matches(':hover'))){ sp.style.setProperty('--ov',ov+'px'); sp.style.setProperty('--dur',(1.6+ov/40)+'s'); sp.classList.add('run'); } else sp.classList.remove('run'); }); }
+document.addEventListener('transitionend',e=>{ if(e.target.closest&&e.target.closest('#sbToggle')) sbTabsFit(); });
+document.addEventListener('mouseleave',e=>{ if(e.target&&e.target.id==='sbToggle') sbTabsFit(); },true);
+window.addEventListener('resize',()=>sbTabsFit());
 window.sbGo=sbGo;
 /* ===== admin: choose which screens sit in which workspace (applies to everyone) ===== */
 function openMenuLayout(){
-  const modes=['production','technical','office'];
+  const modes=WORKSPACES.map(w=>w[0]);
   const eff={}; modes.forEach(m=>eff[m]=new Set(sbSection(m).map(it=>it[0])));
-  const keys=[...new Set([...SB_SECTIONS.production,...SB_SECTIONS.technical,...SB_SECTIONS.office].map(it=>it[0]))].filter(k=>k!=='home');
+  const keys=[...new Set(Object.values(SB_SECTIONS).flat().map(it=>it[0]))].filter(k=>k!=='home');
   const rows=keys.map(k=>`<tr><td style="text-align:left">${escapeHtml(SB_ITEMS[k][1])}</td>${modes.map(m=>
     `<td style="text-align:center"><input type="checkbox" class="mlk" data-k="${k}" data-m="${m}"${eff[m].has(k)?' checked':''}></td>`).join('')}</tr>`).join('');
   pop(`<div style="max-width:560px">
     <h3 style="margin-top:0">Customise the menu</h3>
     <p class="sub" style="margin:4px 0 10px">Tick where each screen should appear. This changes the menu for <b>everyone</b> — people still only see screens their account is allowed to view. <b>Today</b> is always first in every workspace.</p>
     <div style="max-height:52vh;overflow:auto"><table style="width:100%">
-      <thead><tr><th style="text-align:left">Screen</th><th>Production</th><th>Technical</th><th>Office</th></tr></thead>
+      <thead><tr><th style="text-align:left">Screen</th>${WORKSPACES.map(w=>'<th>'+w[1]+'</th>').join('')}</tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
       <button class="btn ghost sm" onclick="saveMenuLayout(null)">Reset to standard</button>
@@ -2730,7 +2826,7 @@ function openMenuLayout(){
     </div></div>`);
 }
 function collectMenuLayout(){
-  const out={v:1,production:[],technical:[],office:[]};
+  const out={v:2}; WORKSPACES.forEach(w=>out[w[0]]=[]);
   document.querySelectorAll('#modalInner .mlk').forEach(c=>{ if(c.checked) out[c.dataset.m].push(c.dataset.k); });
   return out;
 }
@@ -2752,8 +2848,8 @@ document.querySelectorAll('.fm-ic[data-icon]').forEach(el=>{ el.innerHTML=svg(el
 const HOME_GROUPS=[
   {k:'recipes',t:'Recipes',icon:'book',sub:'Library, ingredients, mixing — recipes are made in Recipe Costing',items:[['Recipe Library','list','library'],['Ingredients','basket','ingredients'],['Mixing Sheets','printer','mixing']]},
   {k:'prod',t:'Production',icon:'factory',sub:'Pick & mix, filling, cooking, records',items:[['Pick & Mix','flask','pickmix'],['Filling Sheet','clipboardCheck','filling'],['Cooking','flame','cooking'],['Filling Dashboard','gauge','filldash'],['Record Production','clipboardList','production'],['Production Summary','chartBar','prodsum'],['Production Planner','calendar','planner']]},
-  {k:'goodsin',t:'Deliveries',icon:'truck',sub:'Goods in & suppliers',items:[['Deliveries','truck','deliveries'],['Suppliers','users','suppliers']]},
-  {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging']]},
+  {k:'goodsin',t:'Goods in',icon:'truck',sub:'Deliveries, records & suppliers',items:[['Goods in','truck','deliveries'],['Goods-in records','clipboardList','girecords'],['Suppliers & registers','users','suppliers']]},
+  {k:'stock',t:'Stock',icon:'box',sub:'Stock, stocktake, packaging',items:[['Stock','box','stock'],['Stocktake','clipboardCheck','adjustments'],['Packaging','package','packaging'],['Purchase orders','cart','purchasing']]},
   {k:'costing',t:'Costing',icon:'coins',sub:'Recipe costs, prices & margins',items:[['Recipe Costing','coins','costing'],['Product Specs','clipboardText','specs']]},
   {k:'cs',t:'Customer Service',icon:'alert',sub:'Complaints log & investigation',items:[['Complaints','alert','complaints']]},
   {k:'kpis',t:'KPIs',icon:'dashboard',sub:'Ops dashboard & daily numbers',items:[['KPI Dashboard','dashboard','kpi'],['KPI Daily Input','clipboardText','kpiinput']]},
@@ -2768,8 +2864,8 @@ const AREAS=[
   {k:'filldash',label:'Filling Dashboard',edit:false},
   {k:'prodsum',label:'Production Summary',edit:false},
   {k:'pickmix',label:'Pick & Mix (traceability)',edit:true},
-  {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Deliveries',edit:true},
-  {k:'suppliers',label:'Suppliers',edit:true},{k:'stock',label:'Stock',edit:true},
+  {k:'planner',label:'Production Planner',edit:true},{k:'deliveries',label:'Goods in (deliveries & records)',edit:true},
+  {k:'suppliers',label:'Suppliers & registers',edit:true},{k:'purchasing',label:'Purchase orders (raise & book in)',edit:true},{k:'stock',label:'Stock',edit:true},
   {k:'adjustments',label:'Stocktake',edit:true},{k:'packaging',label:'Packaging',edit:true},
   {k:'optimings',label:'Operations timings',edit:true},
   {k:'costing',label:'Recipe Costing (prices & margins)',edit:false},
@@ -2782,11 +2878,11 @@ const AREAS=[
   {k:'email',label:'Email',edit:true}
 ];
 const PRESETS={
-  filling:{view:{filling:1,filldash:1,mixing:1},edit:{filling:1}},
-  cooking:{view:{cooking:1,filldash:1,production:1,prodsum:1,mixing:1},edit:{cooking:1}},
-  office:{view:{library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,pickmix:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1,complaints:1},edit:{filling:1,production:1,cooking:1,pickmix:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,complaints:1}},
-  customerservice:{view:{complaints:1},edit:{complaints:1}},
-  display:{view:{kpi:1},edit:{},display:1}
+  filling:{view:{purchasing:1,filling:1,filldash:1,mixing:1},edit:{purchasing:1,filling:1}},
+  cooking:{view:{purchasing:1,cooking:1,filldash:1,production:1,prodsum:1,mixing:1},edit:{purchasing:1,cooking:1}},
+  office:{view:{purchasing:1,library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,pickmix:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1,complaints:1},edit:{purchasing:1,filling:1,production:1,cooking:1,pickmix:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,complaints:1}},
+  customerservice:{view:{purchasing:1,complaints:1},edit:{purchasing:1,complaints:1}},
+  display:{view:{purchasing:1,kpi:1},edit:{purchasing:1,},display:1}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 /* ===== two factories: Ayr (fresh/cooked) and Blair (cold pressed) =====
@@ -2803,8 +2899,8 @@ function setFactory(f){ try{ localStorage.setItem('wpm_factory',f); }catch(e){} 
 window.setFactory=setFactory;
 function inFactory(r){ const f=currentFactory(); return f==='all' || factoryOf(r.brand)===f; }
 function VREC(){ return state.recipes.filter(inFactory); }
-function canView(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
-function canEdit(a){ if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
+function canView(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
+function canEdit(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 
 /* ===== Filling-line targets & shift timing ===== */
 const FILL_SIZES=[250,300,380,400,500,700];                 // pack sizes (grams) shown in Operations timings
@@ -3329,6 +3425,99 @@ async function fdEditBasket(i){
   };
 }
 window.fdEditBasket=fdEditBasket;
+
+/* ===== v49 — Purchase orders (raise · send · book in) ===== */
+let _po=[], poFilter='open';
+function poUsers(ingId){ const by={}; VREC().filter(r=>(r.ingredients||[]).some(li=>li.ingId===ingId)).forEach(r=>{ (by[r.brand||'Other']=by[r.brand||'Other']||[]).push(r); }); return by; }
+function poUseLabel(v){ return v?v.split(',').map(s=>s.trim()).filter(Boolean).join(' · '):'Any'; }
+function poUseChooser(ingId,current,onDone){
+  const by=poUsers(ingId); const brands=Object.keys(by).sort(); const cur=new Set((current||'').split(',').map(s=>s.trim()).filter(Boolean));
+  if(!brands.length){ alert('No recipe uses this ingredient yet — it can be used anywhere.'); onDone(''); return; }
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Use for — '+escapeHtml(ingName(ingId))+'</h3><button class="btn ghost sm" id="ufClose">Close ✕</button></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:10px">'+brands.map((b,i)=>'<div class="card" style="padding:8px 10px"><label style="display:flex;gap:8px;align-items:center;font-weight:700"><input type="checkbox" class="ufB" data-b="'+escapeHtml(b)+'"'+(cur.has(b)?' checked':'')+'> '+escapeHtml(b)+' <span class="muted" style="font-weight:400">(all)</span></label>'+by[b].sort((x,y)=>x.name.localeCompare(y.name)).map(r=>'<label style="display:flex;gap:8px;align-items:center;margin:4px 0 0 22px;font-size:13px"><input type="checkbox" class="ufR" data-b="'+escapeHtml(b)+'" data-v="'+escapeHtml(b+' — '+r.name)+'"'+(cur.has(b+' — '+r.name)?' checked':'')+'> '+escapeHtml(r.name)+'</label>').join('')+'</div>').join('')+'</div>'+
+    '<div style="margin-top:12px;display:flex;gap:8px;align-items:center"><button class="btn coral" id="ufOk">Done</button><button class="btn ghost" id="ufAny">Any (no restriction)</button></div>');
+  document.querySelectorAll('.ufB').forEach(c=>c.onchange=()=>{ document.querySelectorAll('.ufR[data-b="'+c.dataset.b.replace(/"/g,'\\"')+'"]').forEach(r=>{ r.checked=false; r.disabled=c.checked; }); }); document.querySelectorAll('.ufB:checked').forEach(c=>c.onchange());
+  document.getElementById('ufOk').onclick=()=>{ const v=[...document.querySelectorAll('.ufB:checked')].map(c=>c.dataset.b).concat([...document.querySelectorAll('.ufR:checked')].map(c=>c.dataset.v)); closeModal(); onDone(v.join(', ')); };
+  document.getElementById('ufAny').onclick=()=>{ closeModal(); onDone(''); }; document.getElementById('ufClose').onclick=()=>{ closeModal(); onDone(current||''); };
+}
+function poBrands(){ return [...new Set(VREC().map(r=>r.brand).filter(Boolean))].sort(); }
+function poSupplierNames(){ return [...new Set([...(state.suppliers||[]).map(s=>s.name),...(state.ingredients||[]).map(i=>i.supplier)].filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
+function poStatusPill(po){ const late=po.expected&&po.status!=='received'&&po.expected<todayISO(); if(po.status==='draft') return '<span class="pill">draft</span>'; if(po.status==='received') return '<span class="pill ok">received</span>'; if(po.status==='part') return '<span class="pill low">part-received '+fmt(po.received_kg)+'/'+fmt(po.kg)+'</span>'+(late?' <span class="pill out">overdue</span>':''); return late?'<span class="pill out">overdue</span>':'<span class="pill" style="background:#e3f0ff;color:#1c4f8a">sent</span>'; }
+async function renderPurchasing(){
+  const root=document.getElementById('rootPurchasing'); if(!root) return;
+  root.innerHTML='<div class="toolbar"><button class="btn coral sm" id="poNew">＋ New order</button><label class="fld">Show<select id="poShow"><option value="open"'+(poFilter==='open'?' selected':'')+'>Open orders</option><option value="all"'+(poFilter==='all'?' selected':'')+'>All</option></select></label><span class="spacer"></span><span class="hint" id="poMsg"></span></div><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Order</th><th>Supplier</th><th>Lines</th><th class="num">Value</th><th>Expected</th><th>Status</th><th></th></tr></thead><tbody id="poBody"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>';
+  document.getElementById('poNew').onclick=()=>poModal(null); document.getElementById('poShow').onchange=e=>{ poFilter=e.target.value; poDraw(); };
+  try{ _po=await api('/api/po'); }catch(e){ document.getElementById('poBody').innerHTML='<tr><td colspan="7" class="muted">'+escapeHtml(e.message)+'</td></tr>'; return; }
+  poDraw();
+}
+window.renderPurchasing=renderPurchasing;
+function poDraw(){
+  const rows=_po.filter(p=>poFilter==='all'||p.status!=='received'); const ed=canEdit('purchasing');
+  document.getElementById('poBody').innerHTML=rows.map(p=>'<tr><td><b>'+escapeHtml(p.number)+'</b><div class="muted" style="font-size:11px">'+escapeHtml((p.created||'').slice(0,10))+' · '+escapeHtml(p.created_by||'')+'</div></td><td>'+escapeHtml(p.supplier)+'</td><td style="white-space:normal">'+p.lines.map(l=>escapeHtml(l.descr)+' '+fmt(l.kg)+(l.use_for?' <span class="muted">('+escapeHtml(l.use_for)+')</span>':'')).join(' · ')+'</td><td class="num">'+(p.value?'£'+p.value.toFixed(2):'—')+'</td><td>'+escapeHtml(p.expected||'—')+'</td><td>'+poStatusPill(p)+'</td><td class="num" style="white-space:nowrap">'+
+    (ed?(p.status==='draft'?'<button class="btn ghost sm" data-poedit="'+p.id+'">Edit</button> <button class="btn coral sm" data-posend="'+p.id+'">Send</button> ':(p.status!=='received'?'<button class="btn coral sm" data-porecv="'+p.id+'">Book in</button> ':'')):'')+'<button class="btn ghost sm" data-poprint="'+p.id+'">🖨</button>'+(ed&&p.status==='draft'?' <button class="btn danger" data-podel="'+p.id+'">✕</button>':'')+'</td></tr>').join('')||'<tr><td colspan="7" class="muted">No '+(poFilter==='open'?'open ':'')+'orders.</td></tr>';
+  const by=id=>_po.find(p=>p.id===id);
+  document.querySelectorAll('[data-poedit]').forEach(b=>b.onclick=()=>poModal(by(b.dataset.poedit)));
+  document.querySelectorAll('[data-posend]').forEach(b=>b.onclick=()=>poSend(by(b.dataset.posend)));
+  document.querySelectorAll('[data-porecv]').forEach(b=>b.onclick=()=>poReceive(by(b.dataset.porecv)));
+  document.querySelectorAll('[data-poprint]').forEach(b=>b.onclick=()=>poPrint(by(b.dataset.poprint)));
+  document.querySelectorAll('[data-podel]').forEach(b=>b.onclick=async()=>{ if(!confirm('Delete this draft order?')) return; try{ await api('/api/po/'+b.dataset.podel+'/delete','POST',{}); renderPurchasing(); }catch(e){ alert(e.message); } });
+}
+function poModal(po){
+  const lines=po?po.lines.map(l=>({ing_id:l.ing_id,kg:l.kg,per_kg:l.per_kg,use_for:l.use_for})):[{ing_id:'',kg:'',per_kg:'',use_for:''}];
+  const ings=(state.ingredients||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)); const brands=poBrands();
+  const ingOpts=sel=>'<option value="">— ingredient —</option>'+ings.map(i=>'<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+escapeHtml(i.name)+'</option>').join('');
+  const useOpts=sel=>'<option value="">Any</option>'+brands.map(b=>'<option'+(b===sel?' selected':'')+'>'+escapeHtml(b)+'</option>').join('');
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">'+(po?'Edit '+escapeHtml(po.number):'New purchase order')+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px"><label class="fld" style="min-width:260px">Supplier<input id="poSup" list="poSupList" value="'+escapeHtml(po?po.supplier:'')+'" placeholder="start typing…"><datalist id="poSupList">'+poSupplierNames().map(s=>'<option value="'+escapeHtml(s)+'">').join('')+'</datalist></label><label class="fld">Expected delivery<input type="date" id="poExp" value="'+escapeHtml(po?po.expected:'')+'"></label><label class="fld" style="min-width:240px">Supplier email (for Send)<input id="poEmail" type="email" value="'+escapeHtml(po?po.supplier_email:'')+'"></label></div>'+
+    '<div style="overflow:auto;margin-top:12px"><table><thead><tr><th>Ingredient</th><th class="num">kg</th><th class="num">£/kg</th><th>Use for</th><th></th></tr></thead><tbody id="poLines"></tbody></table></div><button class="btn ghost sm" id="poAddLine" style="margin-top:6px">+ Add line</button>'+
+    '<label class="fld" style="margin-top:10px;display:flex">Notes to supplier<input id="poNotes" value="'+escapeHtml(po?po.notes:'')+'"></label>'+
+    '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn" id="poSaveDraft">Save draft</button><button class="btn coral" id="poSaveSend">Save &amp; send</button><span class="hint" id="poModalMsg"></span></div>');
+  const draw=()=>{ document.getElementById('poLines').innerHTML=lines.map((l,i)=>'<tr><td><select data-i="'+i+'" class="poIng" style="min-width:220px">'+ingOpts(l.ing_id)+'</select></td><td class="num"><input type="number" min="0" step="0.1" class="poKg" data-i="'+i+'" value="'+(l.kg||'')+'" style="width:90px;text-align:right"></td><td class="num"><input type="number" min="0" step="0.01" class="poPrice" data-i="'+i+'" value="'+(l.per_kg||'')+'" style="width:90px;text-align:right"></td><td><button type="button" class="btn ghost sm poUse" data-i="'+i+'" style="max-width:260px;white-space:normal;text-align:left">'+escapeHtml(poUseLabel(l.use_for))+' ▾</button></td><td><button class="btn danger" data-del="'+i+'">✕</button></td></tr>').join('');
+    const box=document.getElementById('poLines');
+    box.querySelectorAll('.poIng').forEach(s=>s.onchange=async e=>{ const i=+e.target.dataset.i; lines[i].ing_id=e.target.value; const ing=ings.find(x=>x.id===e.target.value); if(ing&&!lines[i].per_kg){ try{ const r=await api('/api/po/price?ing='+encodeURIComponent(ing.name)+'&sup='+encodeURIComponent(document.getElementById('poSup').value)); if(r.per_kg>0){ lines[i].per_kg=r.per_kg; const pi=box.querySelector('.poPrice[data-i="'+i+'"]'); if(pi) pi.value=r.per_kg; } }catch(_){} } });
+    box.querySelectorAll('.poKg').forEach(s=>s.oninput=e=>{ lines[+e.target.dataset.i].kg=e.target.value; }); box.querySelectorAll('.poPrice').forEach(s=>{ s.oninput=e=>{ lines[+e.target.dataset.i].per_kg=e.target.value; poCloudCompare(); }; s.onfocus=()=>poPriceCloud(+s.dataset.i,s,lines,ings); s.onclick=()=>{ if(!_poCloud) poPriceCloud(+s.dataset.i,s,lines,ings); }; }); box.querySelectorAll('.poUse').forEach(b=>b.onclick=()=>{ const i=+b.dataset.i; if(!lines[i].ing_id){ alert('Choose the ingredient first.'); return; } lines.forEach((l,k)=>{ const kg=box.querySelector('.poKg[data-i="'+k+'"]'), pr=box.querySelector('.poPrice[data-i="'+k+'"]'); if(kg) l.kg=kg.value; if(pr) l.per_kg=pr.value; }); const hdr={sup:document.getElementById('poSup').value,exp:document.getElementById('poExp').value,em:document.getElementById('poEmail').value,notes:document.getElementById('poNotes').value}; const keep=document.getElementById('modalInner').innerHTML; poUseChooser(lines[i].ing_id,lines[i].use_for,v=>{ lines[i].use_for=v; document.getElementById('modalBg').classList.add('open'); document.getElementById('modalInner').innerHTML=keep; document.getElementById('poSup').value=hdr.sup; document.getElementById('poExp').value=hdr.exp; document.getElementById('poEmail').value=hdr.em; document.getElementById('poNotes').value=hdr.notes; poRewire(); draw(); }); });
+    box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ lines.splice(+b.dataset.del,1); if(!lines.length) lines.push({ing_id:'',kg:'',per_kg:'',use_for:''}); draw(); }); };
+  const emails=api('/api/po/supplier-emails').catch(()=>({}));
+  function poRewire(){ document.getElementById('poAddLine').onclick=()=>{ const last=lines[lines.length-1]||{}; lines.push({ing_id:'',kg:'',per_kg:'',use_for:last.use_for||''}); draw(); }; document.getElementById('poSup').addEventListener('change',async e=>{ const em=await emails; const el=document.getElementById('poEmail'); if(el&&!el.value&&em[e.target.value]) el.value=em[e.target.value]; }); document.getElementById('poSaveDraft').onclick=()=>save(false); document.getElementById('poSaveSend').onclick=()=>save(true); }
+  draw(); poRewire();
+  const save=async send=>{ const msg=document.getElementById('poModalMsg'); const body={id:po?po.id:undefined,supplier:document.getElementById('poSup').value.trim(),supplier_email:document.getElementById('poEmail').value.trim(),expected:document.getElementById('poExp').value,notes:document.getElementById('poNotes').value,lines:lines.map(l=>({ing_id:l.ing_id,kg:+l.kg||0,per_kg:+l.per_kg||0,use_for:l.use_for||''}))};
+    msg.textContent='Saving…'; try{ const saved=await api('/api/po','POST',body); if(send){ closeModal(); await renderPurchasing(); poSend(_po.find(p=>p.id===saved.id)||saved); } else { closeModal(); renderPurchasing(); } }catch(e){ msg.textContent=e.message; } };
+}
+function poSend(po){
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Send '+escapeHtml(po.number)+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div><p class="hint" style="margin:8px 0">'+escapeHtml(po.supplier)+' · '+po.lines.length+' line'+(po.lines.length>1?'s':'')+' · '+fmt(po.kg)+' kg'+(po.value?' · £'+po.value.toFixed(2):'')+'</p>'+
+    '<label class="fld" style="display:flex">Supplier email<input id="psEmail" type="email" value="'+escapeHtml(po.supplier_email||'')+'" placeholder="leave blank to send the PDF yourself"></label>'+
+    '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn coral" id="psGo">✉ Email it &amp; mark sent</button><button class="btn" id="psPdf">🖨 PDF, I’ll send it — mark sent</button><span class="hint" id="psMsg"></span></div>');
+  const go=async withEmail=>{ const msg=document.getElementById('psMsg'); msg.textContent='Sending…'; try{ const r=await api('/api/po/'+po.id+'/send','POST',{email:withEmail?document.getElementById('psEmail').value.trim():''}); closeModal(); if(!withEmail) poPrint(po); await renderPurchasing(); const m=document.getElementById('poMsg'); if(m) m.textContent=r.emailed?('Emailed to '+document.getElementById('psEmail')?.value||'supplier'):(r.warn||'Marked as sent.'); }catch(e){ msg.textContent=e.message; } };
+  document.getElementById('psGo').onclick=()=>go(true); document.getElementById('psPdf').onclick=()=>go(false);
+}
+function poPrint(po){
+  const sup=(state.suppliers||[]).find(s=>s.name===po.supplier)||{}; const addr=[sup.address,sup.postcode].filter(Boolean).join(', ');
+  const html='<div class="mixsheet"><div class="hd"><div><div class="t">PURCHASE ORDER '+escapeHtml(po.number)+'</div><div class="b"><b>Wilsons Pet Food</b> · raised '+escapeHtml((po.created||'').slice(0,10))+' by '+escapeHtml(po.created_by||'')+'</div></div><div style="text-align:right"><div class="b"><b>To:</b> '+escapeHtml(po.supplier)+'</div>'+(addr?'<div class="b">'+escapeHtml(addr)+'</div>':'')+(po.expected?'<div class="b"><b>Delivery expected:</b> '+escapeHtml(po.expected)+'</div>':'')+'</div></div>'+
+    '<table class="ms-table"><thead><tr><th>Ingredient</th><th>Use for</th><th class="num">Quantity (kg)</th><th class="num">£/kg</th><th class="num">Line £</th></tr></thead><tbody>'+po.lines.map(l=>'<tr><td><b>'+escapeHtml(l.descr)+'</b></td><td>'+escapeHtml(l.use_for||'')+'</td><td class="num">'+fmt(l.kg)+'</td><td class="num">'+(l.per_kg?(+l.per_kg).toFixed(2):'')+'</td><td class="num">'+(l.per_kg?((+l.kg)*(+l.per_kg)).toFixed(2):'')+'</td></tr>').join('')+'</tbody><tfoot><tr><th colspan="2">TOTAL</th><th class="num">'+fmt(po.kg)+'</th><th></th><th class="num">'+(po.value?po.value.toFixed(2):'')+'</th></tr></tfoot></table>'+
+    (po.notes?'<p class="b" style="margin-top:10px;white-space:pre-wrap">'+escapeHtml(po.notes)+'</p>':'')+'<p class="b" style="margin-top:14px">Please quote '+escapeHtml(po.number)+' on the delivery note and invoice. Deliveries to Wilsons Pet Food, Ayr.</p></div>';
+  const host=document.getElementById('view-print-picking'); host.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
+}
+async function poReceive(po){ return giSheet(null, po); }
+/* the price cloud: everything Costing knows about this ingredient's price, with one-click use and a live saving/extra line */
+let _poCloud=null;
+function poCloudClose(){ if(_poCloud){ _poCloud.remove(); _poCloud=null; } }
+function poCloudCompare(){ if(!_poCloud) return; const inp=_poCloud._input, kgEl=document.querySelector('.poKg[data-i="'+inp.dataset.i+'"]'); const v=parseFloat(inp.value), std=_poCloud._std, kg=parseFloat(kgEl&&kgEl.value)||0; const el=_poCloud.querySelector('.pc-cmp'); if(!el) return;
+  if(!(v>0)||!(std>0)){ el.innerHTML=''; return; } const d=v-std; const tot=Math.abs(d)*kg;
+  el.innerHTML=Math.abs(d)<0.0005?'<span style="color:var(--ok)">Same as Costing’s standard.</span>':(d<0?'<span style="color:var(--ok)">£'+Math.abs(d).toFixed(2)+'/kg below Costing'+(kg?' — saves £'+tot.toFixed(2)+' on '+fmt(kg)+' kg':'')+'</span>':'<span style="color:var(--warn)">£'+d.toFixed(2)+'/kg above Costing'+(kg?' — £'+tot.toFixed(2)+' more on '+fmt(kg)+' kg':'')+'</span>'); }
+async function poPriceCloud(i,inp,lines,ings){ poCloudClose(); const ing=ings.find(x=>x.id===lines[i].ing_id); if(!ing) return;
+  const seq=(poPriceCloud._seq=(poPriceCloud._seq||0)+1); let p; try{ p=await api('/api/po/pricing?ing='+encodeURIComponent(ing.name)); }catch(e){ return; } if(seq!==poPriceCloud._seq) return; poCloudClose();
+  const row=(label,price,sub)=>'<div class="pc-row"><span>'+label+(sub?'<small>'+sub+'</small>':'')+'</span><b>£'+(+price).toFixed(2)+'</b><button type="button" class="btn ghost sm pc-use" data-v="'+(+price).toFixed(2)+'">use</button></div>';
+  let html='<div class="pc-h">'+escapeHtml(ing.name)+' — prices in Costing</div>';
+  html+=p.standard>0?row('Standard price',p.standard,'what recipes are costed at'):'<div class="pc-row"><span>No standard price in Costing yet</span></div>';
+  if(p.quotes.length) html+='<div class="pc-sec">Supplier quotes</div>'+p.quotes.map(q=>row(escapeHtml(q.supplier),q.total,q.del?('£'+q.perKg.toFixed(2)+' + £'+q.del.toFixed(2)+' delivery'):'')).join('');
+  if(p.recipes.length) html+='<div class="pc-sec">Priced differently in recipes</div>'+p.recipes.map(r=>row(escapeHtml(r.recipe),r.perKg,'')).join('');
+  if(p.recent.length) html+='<div class="pc-sec">Recently paid</div>'+p.recent.map(r=>row(escapeHtml(r.supplier||''),r.perKg,escapeHtml(r.date||'')+' · '+fmt(r.kg)+' kg')).join('');
+  html+='<div class="pc-cmp"></div>';
+  const c=document.createElement('div'); c.className='pc-cloud'; c.innerHTML=html; c._input=inp; c._std=p.standard; document.body.appendChild(c); const rc=inp.getBoundingClientRect(); c.style.position='fixed'; c.style.top=(rc.bottom+4)+'px'; c.style.left=Math.max(8,Math.min(rc.right-c.offsetWidth,window.innerWidth-c.offsetWidth-8))+'px'; c.style.right='auto'; _poCloud=c;
+  c.querySelectorAll('.pc-use').forEach(b=>b.onmousedown=e=>{ e.preventDefault(); inp.value=b.dataset.v; lines[i].per_kg=b.dataset.v; poCloudCompare(); });
+  c.onmousedown=e=>{ if(!e.target.classList.contains('pc-use')) e.preventDefault(); };
+  inp.addEventListener('blur',()=>setTimeout(poCloudClose,150),{once:true}); poCloudCompare(); }
+window.poModal=poModal; window.poSend=poSend; window.poReceive=poReceive; window.poPrint=poPrint;
 async function drawFilldash(){
   const root=document.getElementById('rootFilldash'); if(!root)return;
   const date=_dashDate, isToday=(date===todayISO());
@@ -3609,14 +3798,14 @@ function pmNew(){
 }
 async function pmPickBatch(ingId){
   let data; try{ data=await api('/api/ingredient-batches?ing_id='+encodeURIComponent(ingId)); }catch(e){ alert('Could not load batches: '+e.message); return; }
-  const lots=data.lots||[], fifo=data.fifo; const r=byId(pmMix.recipeId); const li=(r.ingredients||[]).find(x=>x.ingId===ingId); const need=li?pmNeed(li):0;
+  const r=byId(pmMix.recipeId); const myBrand=(r&&r.brand)||'', myFull=r?(r.brand+' — '+r.name):''; const lotOk=l=>{ if(!l.use_for) return true; const parts=l.use_for.split(',').map(s=>s.trim()); return parts.includes(myBrand)||parts.includes(myFull); }; const lots=(data.lots||[]).slice().sort((a,b)=>(lotOk(a)?0:1)-(lotOk(b)?0:1)), fifo=data.fifo; const li=(r.ingredients||[]).find(x=>x.ingId===ingId); const need=li?pmNeed(li):0;
   const cur=(pmMix.sel[ingId]||[]).map(s=>s.batch);
   pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">'+escapeHtml(ingName(ingId))+' — choose batch</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
    '<p class="hint">Need about <b>'+fmt(need)+' kg</b>. Newest first; the oldest batch still in stock is suggested (FIFO). Tap more than one to split across batches.</p>'+
    (lots.length?'<div style="display:flex;flex-direction:column;gap:8px;max-height:56vh;overflow:auto;margin-top:6px">'+lots.map(l=>{ var low=l.remaining<=0.0001, isf=(l.batch===fifo), on=cur.indexOf(l.batch)>=0;
       return '<button class="pickbtn" data-b="'+escapeHtml(l.batch)+'" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:12px 14px;border-radius:12px'+(isf?';border-left:5px solid #1f9d57':'')+(on?';border-color:var(--coral);box-shadow:inset 0 0 0 2px var(--coral)':'')+(low?';opacity:.5':'')+'">'+
         '<span style="font-size:23px;font-weight:800;color:var(--navy);min-width:92px;line-height:1.05;word-break:break-all">'+escapeHtml(l.batch)+(on?' <span style="color:var(--coral)">✓</span>':'')+'</span>'+
-        '<span style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+fmt(l.remaining)+' kg left'+(isf?' <span style="background:#e6f4ec;color:#1f7a47;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600">use first</span>':'')+(low?' <span style="background:#fae3df;color:#b4231f;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600">empty</span>':'')+'</div><div style="font-size:12.5px;color:var(--muted);margin-top:2px">'+escapeHtml(l.last_date||l.first_date||'')+' · '+escapeHtml(l.supplier||'')+'</div></span>'+
+        '<span style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+fmt(l.remaining)+' kg left'+(isf?' <span style="background:#e6f4ec;color:#1f7a47;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600">use first</span>':'')+(low?' <span style="background:#fae3df;color:#b4231f;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600">empty</span>':'')+'</div><div style="font-size:12.5px;color:var(--muted);margin-top:2px">'+(l.use_for?('<span style="background:'+(lotOk(l)?'#e3f0ff;color:#1c4f8a':'#fff1d6;color:#8a5a00')+';font-size:11px;padding:1px 7px;border-radius:8px;font-weight:700;margin-right:6px">'+(lotOk(l)?'for '+escapeHtml(l.use_for):'bought for '+escapeHtml(l.use_for)+' — use anyway?')+'</span>'):'')+escapeHtml(l.last_date||l.first_date||'')+' · '+escapeHtml(l.supplier||'')+'</div></span>'+
       '</button>'; }).join('')+'</div>':'<p class="muted">No batches recorded for this ingredient — add its deliveries (with batch codes) first.</p>')+
    '<div style="margin-top:10px;display:flex;gap:8px"><button class="btn coral sm" id="pmDone">Done</button><button class="btn ghost sm" id="pmClrOne">Clear this ingredient</button></div>');
   document.querySelectorAll('[data-b]').forEach(btn=>btn.onclick=()=>{ const l=pmMix.sel[ingId]||[]; const i=l.findIndex(s=>s.batch===btn.dataset.b); if(i>=0) l.splice(i,1); else l.push({batch:btn.dataset.b}); pmMix.sel[ingId]=l; pmPickBatch(ingId); });
@@ -4163,13 +4352,13 @@ function renderRawStock(){
   root.innerHTML=`<div class="kpis"><div class="kpi"><div class="n">${state.stock.length}</div><div class="l">Ingredients</div></div>
     <div class="kpi warnk"><div class="n">${low}</div><div class="l">Low</div></div><div class="kpi alarm"><div class="n">${out}</div><div class="l">Out / negative</div></div></div>
     <div class="toolbar"><label class="fld">Search<input id="stSearch" placeholder="filter…" style="width:170px"></label><label class="fld" style="justify-content:flex-end"><span><input type="checkbox" id="stAlert"> Only alerts</span></label><div class="spacer"></div><button class="btn ghost sm" id="stRefresh">↻ Refresh</button></div>
-    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Ingredient</th><th class="num">Opening</th><th class="num">Deliv.</th><th class="num">Stocktake</th><th class="num">Used</th><th class="num">Remaining</th><th class="num">Re-order</th><th>Status</th><th></th></tr></thead><tbody id="stBody"></tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Ingredient</th><th class="num">Opening</th><th class="num">Deliv.</th><th class="num">Stocktake</th><th class="num">Used</th><th class="num">Remaining</th><th class="num">On order</th><th class="num">Re-order</th><th>Status</th><th></th></tr></thead><tbody id="stBody"></tbody></table></div>`;
   const draw=()=>{ const q=(document.getElementById('stSearch').value||'').toLowerCase(), only=document.getElementById('stAlert').checked;
     let list=state.stock.filter(s=>(!q||s.name.toLowerCase().includes(q))&&(!only||s.status!=='ok'));
     list.sort((a,b)=>(({out:0,low:1,ok:2}[a.status])-({out:0,low:1,ok:2}[b.status]))||a.name.localeCompare(b.name));
     document.getElementById('stBody').innerHTML=list.map(s=>`<tr><td><b>${escapeHtml(s.name)}</b><br><span class="muted" style="font-size:11px">${escapeHtml(s.category||'')}</span></td>
       <td class="num">${fmt(s.opening)}</td><td class="num">${fmt(s.deliveries)}</td><td class="num">${fmt(s.adjustments)}</td><td class="num">${fmt(s.used)}</td>
-      <td class="num"><b>${fmt(s.remaining)}</b></td><td class="num">${fmt(s.reorder)}</td><td><span class="pill ${s.status}">${s.status}</span></td>
+      <td class="num"><b>${fmt(s.remaining)}</b></td><td class="num">${s.on_order>0?('<b style="color:var(--sea)">'+fmt(s.on_order)+'</b>'):'<span class="muted">—</span>'}</td><td class="num">${fmt(s.reorder)}</td><td><span class="pill ${s.status}">${s.status}</span></td>
       <td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="stocktake('${s.id}')">Count</button> <button class="btn ghost sm" onclick="stockSet('${s.id}')">Set</button></td></tr>`).join('')||'<tr><td colspan="9" class="muted">None.</td></tr>'; };
   document.getElementById('stSearch').oninput=draw; document.getElementById('stAlert').onchange=draw;
   document.getElementById('stRefresh').onclick=async()=>{ await reloadStock(); draw(); };
@@ -4192,31 +4381,195 @@ function stocktake(id){ const s=state.stock.find(x=>x.id===id);
 window.stockSet=stockSet; window.stocktake=stocktake;
 
 /* ===== Deliveries ===== */
-function renderDeliveries(){
-  const root=document.getElementById('rootDeliveries'); if(!root) return;
-  root.innerHTML=`<div class="card"><div class="row-flex" style="flex-wrap:wrap;gap:10px">
-    <label class="fld">Date<input type="date" id="dvDate" value="${todayISO()}"></label>
-    <label class="fld" style="flex:2">Supplier<input id="dvSup" list="supList" placeholder="Supplier"><datalist id="supList">${state.suppliers.map(s=>`<option value="${escapeHtml(s.name)}">`).join('')}</datalist></label>
-    <label class="fld" style="flex:2">Ingredient<select id="dvIng"><option value="">—</option>${ingSelectOptions()}</select></label>
-    <label class="fld">Qty (kg)<input id="dvQty" type="number" min="0"></label></div>
-    <div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px">
-    <label class="fld">Description<input id="dvDescr"></label><label class="fld">Ref / PO<input id="dvRef"></label><label class="fld">Batch / lot<input id="dvBatch"></label>
-    <label class="fld">Temp °C<input id="dvTemp" style="width:80px"></label><label class="fld">Vehicle clean<input id="dvVeh" style="width:80px" placeholder="Y/N"></label>
-    <label class="fld">Quality OK<input id="dvQual" style="width:80px" placeholder="Y/N"></label><label class="fld">Approved sup.<input id="dvAppr" style="width:80px" placeholder="Y/N"></label><label class="fld">Initials<input id="dvInit" style="width:80px"></label></div>
-    <div class="toolbar" style="margin-top:12px"><button class="btn" id="dvSave">Add delivery</button><span class="hint" id="dvMsg"></span></div></div>
-    <h3>Recent deliveries</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Date</th><th>Supplier</th><th>Ingredient</th><th class="num">Qty kg</th><th>Batch</th><th>By</th><th></th></tr></thead><tbody id="dvHist"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>`;
-  document.getElementById('dvSave').onclick=async()=>{ if(!document.getElementById('dvIng').value||!(+document.getElementById('dvQty').value>0)){ document.getElementById('dvMsg').textContent='Pick an ingredient and quantity.'; return; }
-    document.getElementById('dvMsg').textContent='Saving…';
-    try{ await api('/api/deliveries','POST',{date:document.getElementById('dvDate').value,supplier:document.getElementById('dvSup').value,ing_id:document.getElementById('dvIng').value,descr:document.getElementById('dvDescr').value,qty:+document.getElementById('dvQty').value,ref:document.getElementById('dvRef').value,batch:document.getElementById('dvBatch').value,temp:document.getElementById('dvTemp').value,veh:document.getElementById('dvVeh').value,qual:document.getElementById('dvQual').value,approved:document.getElementById('dvAppr').value,initials:document.getElementById('dvInit').value});
-      await reloadStock(); ['dvQty','dvDescr','dvRef','dvBatch','dvTemp','dvInit'].forEach(id=>document.getElementById(id).value=''); document.getElementById('dvMsg').textContent='Saved ✓'; loadDvHist();
-    }catch(e){ document.getElementById('dvMsg').textContent='Failed: '+e.message; } };
-  loadDvHist();
+/* ===== Goods in (v50): one sheet for every delivery, with or without an order; tablet-friendly;
+   saves with just ingredient + kilos, flags what's missing; approval numbers looked up in the official registers ===== */
+let GI_LIST=[], GI_FILTER='attention', GI_ATTN=0, _giHauliers=null;
+async function loadGiAttention(){ if(!CURRENT_USER||!canView('deliveries')){ GI_ATTN=0; return; } try{ GI_ATTN=(await api('/api/goodsin/attention')).n||0; }catch(e){ GI_ATTN=0; } renderSidebar(); }
+function giStatusPill(g){
+  if(g.status==='refused') return '<span class="pill gi-rd">Refused</span>'+(g.reason?'<div class="muted" style="font-size:11px">'+escapeHtml(g.reason)+'</div>':'');
+  if(g.status==='incomplete') return '<span class="pill gi-am">Incomplete</span><div class="muted" style="font-size:11px;max-width:260px">'+escapeHtml((g.missing||[]).join(' · '))+'</div>';
+  if(g.status==='ok') return '<span class="pill ok">Complete</span>'+(g.doc?'<div class="muted" style="font-size:11px">ABP doc '+escapeHtml(g.doc)+'</div>':'');
+  return '<span class="muted" style="font-size:11px">—</span>';
 }
-async function loadDvHist(){ let rows; try{ rows=await api('/api/deliveries'); }catch(e){ return; }
-  document.getElementById('dvHist').innerHTML=rows.slice(0,60).map(d=>`<tr><td>${escapeHtml(d.date)}</td><td>${escapeHtml(d.supplier)}</td><td>${escapeHtml(d.ing_id?ingName(d.ing_id):(d.descr||''))}</td><td class="num">${fmt(d.qty)}</td><td>${escapeHtml(d.batch||'')}</td><td>${escapeHtml(d.by||'')}</td><td class="num"><button class="btn danger" onclick="delDeliv('${d.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan="7" class="muted">None yet.</td></tr>';
+async function renderDeliveries(){
+  const root=document.getElementById('rootDeliveries'); if(!root) return; const ed=canEdit('deliveries');
+  root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><div class="gi-chips" id="giChips"></div><div class="spacer"></div>'+(ed?'<button class="btn coral" id="giNew" style="min-height:44px">＋ New delivery</button>':'')+'</div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table class="gi-list"><thead><tr><th>Date</th><th>Supplier</th><th>Order</th><th>Lines</th><th class="num">Kg</th><th>Status</th><th>By</th><th></th></tr></thead><tbody id="giBody"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody></table></div>';
+  const nb=document.getElementById('giNew'); if(nb) nb.onclick=()=>giSheet(null,null);
+  try{ GI_LIST=await api('/api/goodsin'); }catch(e){ document.getElementById('giBody').innerHTML='<tr><td colspan="8" class="muted">'+escapeHtml(e.message)+'</td></tr>'; return; }
+  giDraw();
 }
-async function delDeliv(id){ if(!confirm('Delete delivery? Stock will be reduced.'))return; await api('/api/deliveries/'+encodeURIComponent(id),'DELETE'); await reloadStock(); loadDvHist(); }
-window.delDeliv=delDeliv;
+function giDraw(){
+  const body=document.getElementById('giBody'), chips=document.getElementById('giChips'); if(!body) return;
+  const att=GI_LIST.filter(g=>g.status==='incomplete').length, nopo=GI_LIST.filter(g=>!g.po_id&&g.status).length;
+  if(!att&&GI_FILTER==='attention') GI_FILTER='all';
+  chips.innerHTML=[['attention','Needs attention',att],['all','All',GI_LIST.length],['nopo','No order',nopo]].map(c=>'<button type="button" class="gi-chip'+(GI_FILTER===c[0]?' on':'')+'" data-f="'+c[0]+'">'+c[1]+(c[2]?' · '+c[2]:'')+'</button>').join('');
+  chips.querySelectorAll('.gi-chip').forEach(b=>b.onclick=()=>{ GI_FILTER=b.dataset.f; giDraw(); });
+  const list=GI_LIST.filter(g=>GI_FILTER==='all'||(GI_FILTER==='attention'&&g.status==='incomplete')||(GI_FILTER==='nopo'&&!g.po_id&&g.status));
+  body.innerHTML=list.length?list.map(g=>'<tr class="'+(g.status==='incomplete'?'gi-row-am':(g.status==='refused'?'gi-row-rd':''))+'" data-grp="'+escapeHtml(g.grp)+'"><td style="white-space:nowrap">'+escapeHtml(g.date||'')+'</td><td><b>'+escapeHtml(g.supplier||'—')+'</b>'+(g.producer?'<div class="muted" style="font-size:11px">'+escapeHtml(g.producer)+'</div>':'')+'</td>'+
+    '<td>'+(g.po_number?escapeHtml(g.po_number):(g.status?'<span class="pill gi-rd">No order</span>':'<span class="muted">—</span>'))+'</td><td>'+g.lines.map(l=>escapeHtml(l.ing_id?ingName(l.ing_id):(l.descr||''))).join(' · ')+'</td><td class="num">'+fmt(g.kg)+'</td><td>'+giStatusPill(g)+'</td><td>'+escapeHtml(g.by||'')+'</td>'+
+    '<td class="num" style="white-space:nowrap">'+(g.doc?'<button class="btn ghost sm" data-cdoc="'+escapeHtml(g.grp)+'" title="Print the ABP commercial document">📄</button> ':'')+'<button class="btn ghost sm" data-open="'+escapeHtml(g.grp)+'">Open</button></td></tr>').join(''):'<tr><td colspan="8" class="muted">Nothing here.</td></tr>';
+  body.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>giSheet(b.dataset.open,null));
+  body.querySelectorAll('[data-cdoc]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); cdocPrint(b.dataset.cdoc); });
+  body.querySelectorAll('tr[data-grp]').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('button')) return; giSheet(tr.dataset.grp,null); });
+}
+function giClose(){ document.body.classList.remove('gi-open'); giDdClose(); closeModal(); }
+window.giClose=giClose;
+/* ---- the register lookup dropdown (shared by the supplier and producer approval boxes) ---- */
+let _giDd=null,_giDdSeq=0;
+function giDdClose(){ if(_giDd){ _giDd.remove(); _giDd=null; } }
+function giSrcTag(r){ const m={own:'Your list',ew:'FSA E&W',ni:'FSA NI',sc:'FSS Scotland',abp:'APHA ABP'}; return '<span class="gi-tag gi-tag-'+escapeHtml(r.src)+'">'+escapeHtml(m[r.src]||r.label||r.src)+'</span>'; }
+function giLookup(inp,onPick){
+  let t=null; const run=async()=>{ const q=inp.value.trim(); if(q.length<2){ giDdClose(); return; } const seq=++_giDdSeq; let rows; try{ rows=await api('/api/estab?q='+encodeURIComponent(q)); }catch(e){ return; } if(seq!==_giDdSeq||document.activeElement!==inp) return; giDdClose(); if(!rows.length) return;
+    const dd=document.createElement('div'); dd.className='gi-dd'; dd.innerHTML=rows.map((r,i)=>'<div class="gi-dd-row" data-i="'+i+'"><div class="gi-dd-top"><span class="n">'+escapeHtml(r.name)+'</span>'+giSrcTag(r)+'</div><div class="gi-dd-sub">'+escapeHtml(r.no)+(r.addr||r.pc?' · '+escapeHtml([r.addr,r.pc].filter(Boolean).join(', ')):'')+(r.act?' · '+escapeHtml(String(r.act).slice(0,70)):'')+'</div></div>').join('');
+    document.body.appendChild(dd); _giDd=dd; const rc=inp.getBoundingClientRect(); dd.style.top=(rc.bottom+4)+'px'; dd.style.left=Math.max(8,Math.min(rc.left,window.innerWidth-Math.min(560,window.innerWidth-16)-8))+'px'; dd.style.width=Math.min(560,window.innerWidth-16)+'px';
+    dd.querySelectorAll('.gi-dd-row').forEach(el=>{ el.onmousedown=e=>e.preventDefault(); el.onclick=()=>{ onPick(rows[+el.dataset.i]); giDdClose(); }; }); };
+  inp.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(run,220); });
+  inp.addEventListener('focus',()=>{ if(inp.value.trim().length>=2) run(); });
+  inp.addEventListener('blur',()=>setTimeout(()=>{ if(_giDd&&!_giDd.matches(':hover')) giDdClose(); },200));
+}
+async function giVerify(no, markEl){ // "✓ on FSA England & Wales (Oct 2026)" or "✗ not on any register"
+  if(!markEl) return null; const q=String(no||'').trim(); if(!q||q.toLowerCase()==='n/a'){ markEl.innerHTML=''; return null; }
+  let rows=[]; try{ rows=await api('/api/estab?q='+encodeURIComponent(q)); }catch(e){}
+  const norm=s=>String(s||'').toUpperCase().replace(/\(CAT ?3\)/g,'').replace(/\b(EC|CE|WE|EG)\b/g,'').replace(/^(UK\s*\(?NI\)?|GB|UK|NI|IRL|IE)\s*/,'').replace(/[\s.]/g,'');
+  const hit=rows.find(r=>r.src!=='own'&&(norm(r.no)===norm(q)||(r.core&&norm(r.core)===norm(q))))||rows.find(r=>norm(r.no)===norm(q));
+  if(hit){ markEl.innerHTML='<span class="gi-ok">✓ '+escapeHtml(hit.src==='own'?'on your approved list':'on '+(hit.label||hit.src)+(GI_ISSUES[hit.src]?' ('+GI_ISSUES[hit.src]+')':''))+'</span>'; return hit; }
+  markEl.innerHTML='<span class="gi-bad">✗ not on any register</span>'; return null;
+}
+let GI_ISSUES={};
+async function giLoadIssues(){ try{ const s=await api('/api/estab/status'); GI_ISSUES={}; (s.sources||[]).forEach(x=>{ if(x.issue){ const [y,m]=x.issue.split('-'); GI_ISSUES[x.src]=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+y; } }); }catch(e){} }
+/* ---- the sheet ---- */
+async function giSheet(grp, po){
+  const ed=canEdit('deliveries'); let g=null;
+  if(grp){ try{ g=await api('/api/goodsin/'+encodeURIComponent(grp)); }catch(e){ alert(e.message); return; } }
+  if(!_giHauliers){ try{ _giHauliers=await api('/api/hauliers'); }catch(e){ _giHauliers=[]; } }
+  if(!Object.keys(GI_ISSUES).length) giLoadIssues();
+  const sup0=g?g.supplier:(po?po.supplier:''); let orders=[]; try{ orders=await api('/api/goodsin/open-orders'+(sup0?'?supplier='+encodeURIComponent(sup0):'')); }catch(e){}
+  if(po&&!orders.find(o=>o.id===po.id)) orders.unshift(po);
+  // lines in memory
+  let L=[];
+  if(g) L=g.lines.map(l=>Object.assign({},l));
+  else if(po) L=po.lines.filter(l=>(+l.kg||0)-(+l.received||0)>0.001).map(l=>({id:'',ing_id:l.ing_id,descr:l.descr,qty:+((+l.kg)-(+l.received||0)).toFixed(2),batch:'',temp:'',type:'',per_kg:+l.per_kg||0,po_line_id:l.id,use_for:l.use_for||'',_ordered:+l.kg}));
+  if(!L.length) L.push({id:'',ing_id:'',descr:'',qty:'',batch:'',temp:'',type:'',per_kg:0,po_line_id:''});
+  const supRec=name=>(state.suppliers||[]).find(s=>s.name===name);
+  const h=`<div class="gi-sheet">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Goods in${g&&g.po_number?' — '+escapeHtml(g.po_number):(po?' — '+escapeHtml(po.number):'')}</h3><div style="display:flex;gap:6px;align-items:center"><span class="muted" style="font-size:12px">${g?escapeHtml('by '+(g.by||''))+'':''}</span><button class="btn ghost sm" onclick="giClose()" style="min-height:40px">Close ✕</button></div></div>
+  <div class="gi-g" style="margin-top:12px">
+    <label class="fld">Date<input type="date" id="giDate" value="${escapeHtml(g?g.date:todayISO())}"></label>
+    <label class="fld" style="grid-column:span 2">Supplier<input id="giSup" list="giSupList" placeholder="pick or type" value="${escapeHtml(sup0)}" autocomplete="off"><datalist id="giSupList">${(state.suppliers||[]).map(s=>'<option value="'+escapeHtml(s.name)+'">').join('')}</datalist></label>
+    <label class="fld" style="grid-column:span 2">Order<select id="giPo"></select></label>
+    <label class="fld">Delivery note no.<input id="giDN" value="${escapeHtml(g?g.del_note:'')}" placeholder="optional"></label>
+  </div>
+  <div id="giLines"></div>
+  <button type="button" class="gi-add" id="giAdd">＋ Add a line${po||(g&&g.po_id)?' not on the order':''}</button>
+  <div class="gi-g" style="margin-top:12px">
+    <label class="fld">Supplier approval no.<input id="giAppr" value="${escapeHtml(g?g.approval:((supRec(sup0)||{}).approval||''))}" autocomplete="off" placeholder="type number"><span class="gi-mark" id="giApprMark"></span></label>
+    <label class="fld">Supplier on approved list?<select id="giAppd"><option value="">— check —</option><option${(g?g.approved:(supRec(sup0)?'Yes':''))==='Yes'?' selected':''}>Yes</option><option${(g?g.approved:'')==='No'?' selected':''}>No</option></select></label>
+    <label class="fld" style="grid-column:span 2">Producer approval no. <span class="muted" style="font-weight:400">(if bought through a trader)</span><input id="giProdAppr" value="${escapeHtml(g?g.producer_approval:'')}" autocomplete="off" placeholder="type number off the box"><span class="gi-mark" id="giProdMark"></span></label>
+    <label class="fld" style="grid-column:span 2">Producer (establishment)<input id="giProd" value="${escapeHtml(g?g.producer:'')}" autocomplete="off" placeholder="fills in from the number"><span class="gi-mark muted" id="giProdAddr" style="font-weight:400">${escapeHtml(g?g.producer_addr:'')}</span></label>
+  </div>
+  <div class="gi-g" style="margin-top:12px">
+    <label class="fld">Transport vehicle &amp; driver<select id="giVeh"><option value="">— check —</option><option${(g?g.veh:'')==='Satisfactory'?' selected':''}>Satisfactory</option><option${(g?g.veh:'')==='Unsatisfactory'?' selected':''}>Unsatisfactory</option></select></label>
+    <label class="fld">Quality of goods (visual)<select id="giQual"><option value="">— check —</option><option${(g?g.qual:'')==='Acceptable'?' selected':''}>Acceptable</option><option${(g?g.qual:'')==='Unsatisfactory'?' selected':''}>Unsatisfactory</option></select></label>
+    <label class="fld">Initials<input id="giInit" value="${escapeHtml(g?g.initials:'')}" style="text-transform:uppercase"></label>
+    <label class="fld">Haulier<input id="giHaul" list="giHaulList" value="${escapeHtml(g?g.haulier:'')}" autocomplete="off" placeholder="who brought it"><datalist id="giHaulList">${_giHauliers.map(x=>'<option value="'+escapeHtml(x.name)+'">').join('')}</datalist></label>
+    <label class="fld">Lorry reg<input id="giReg" value="${escapeHtml(g?g.lorry_reg:'')}" style="text-transform:uppercase"></label>
+    <label class="fld">Transport operator no.<input id="giOp" value="${escapeHtml(g?g.operator_no:'')}"></label>
+    <label class="fld">Place of origin<select id="giOrigin"><option value="">auto from register</option>${['UK','IE (EU)','Other (EU)','Other'].map(o=>'<option'+((g?g.origin:'')===o?' selected':'')+'>'+o+'</option>').join('')}</select></label>
+  </div>
+  <div id="giVerdict" style="margin-top:12px"></div>
+  <div class="gi-bar">${ed?'<button class="btn coral gi-save" id="giSave">Save delivery</button><button class="btn danger gi-save" id="giRefuse" style="display:none">⛔ Record refused delivery</button>':''}<span class="gi-miss" id="giMiss"></span><span class="spacer"></span>${g&&g.doc?'<button class="btn ghost sm" onclick="cdocPrint(\''+escapeHtml(g.grp)+'\')">📄 ABP document '+escapeHtml(g.doc)+'</button>':''}${g&&ed?'<button class="btn ghost sm" id="giDel" style="color:var(--warn)">Delete</button>':''}</div>
+  <div class="muted" style="font-size:11px;line-height:1.45;margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">Frozen meat must be at or below −15 °C and from a supplier on the approved list; transport and goods must be acceptable — otherwise refuse the delivery, notify the factory manager and record the corrective action on G003. Anything left blank is saved as incomplete and can be finished later from the Goods in list.</div>
+  </div>`;
+  document.body.classList.add('gi-open'); pop(h);
+  const $=id=>document.getElementById(id); const gv=id=>($(id)||{}).value||'';
+  const ingOpts=sel=>'<option value="">— ingredient —</option>'+[...state.ingredients].sort((a,b)=>a.name.localeCompare(b.name)).map(i=>'<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+escapeHtml(i.name)+'</option>').join('');
+  const TYPES=['FFHC','CAT 3','DOG FOOD','PACKAGING'];
+  function drawLines(){
+    $('giLines').innerHTML=L.map((l,i)=>'<div class="gi-line" data-i="'+i+'"><div class="gi-line-t">'+(l.po_line_id?'<b>'+escapeHtml(l.descr)+'</b><span class="muted">ordered '+fmt(l._ordered!=null?l._ordered:'')+(l._ordered!=null?' kg':'')+(l.use_for?' · '+escapeHtml(l.use_for):'')+'</span>':'<select class="gi-ing" data-i="'+i+'">'+ingOpts(l.ing_id)+'</select>')+(l.po_line_id?'':'<button type="button" class="gi-x" data-i="'+i+'" title="Remove line">✕</button>')+'</div>'+
+      '<div class="gi-g"><label class="fld">Kg in<input type="number" inputmode="decimal" step="0.1" min="0" class="gi-qty" data-i="'+i+'" value="'+(l.qty||'')+'"></label><label class="fld">Batch no.<input class="gi-batch" data-i="'+i+'" value="'+escapeHtml(l.batch||'')+'" placeholder="optional"></label><label class="fld">Temp °C<input class="gi-temp" data-i="'+i+'" inputmode="text" value="'+escapeHtml(l.temp||'')+'" placeholder="-18 or ambient"></label><label class="fld">Type<select class="gi-type" data-i="'+i+'"><option value="">—</option>'+TYPES.map(t=>'<option'+(l.type===t?' selected':'')+'>'+t+'</option>').join('')+'</select></label><label class="fld">£/kg<input type="number" inputmode="decimal" step="0.01" class="gi-price" data-i="'+i+'" value="'+(l.per_kg||'')+'"></label></div></div>').join('');
+    $('giLines').querySelectorAll('.gi-ing').forEach(s=>s.onchange=()=>{ const l=L[+s.dataset.i]; l.ing_id=s.value; l.descr=s.value?ingName(s.value):''; live(); });
+    $('giLines').querySelectorAll('.gi-qty,.gi-batch,.gi-temp,.gi-type,.gi-price').forEach(el=>{ const f={'gi-qty':'qty','gi-batch':'batch','gi-temp':'temp','gi-type':'type','gi-price':'per_kg'}[el.className.split(' ')[0]]; const h=()=>{ L[+el.dataset.i][f]=el.value; live(); }; el.oninput=h; el.onchange=h; });
+    $('giLines').querySelectorAll('.gi-x').forEach(b=>b.onclick=()=>{ L.splice(+b.dataset.i,1); if(!L.length) L.push({id:'',ing_id:'',descr:'',qty:'',batch:'',temp:'',type:'',per_kg:0,po_line_id:''}); drawLines(); live(); });
+  }
+  $('giAdd').onclick=()=>{ L.push({id:'',ing_id:'',descr:'',qty:'',batch:'',temp:'',type:'',per_kg:0,po_line_id:''}); drawLines(); setTimeout(()=>{ const s=$('giLines').querySelector('.gi-line:last-child .gi-ing'); if(s) s.focus(); },30); };
+  function drawOrders(){ const sel=$('giPo'); const cur=g?g.po_id:(po?po.id:''); const sup=gv('giSup').trim(); const list=orders.filter(o=>!sup||o.supplier===sup||o.id===cur);
+    sel.innerHTML='<option value="">No order yet</option>'+list.map(o=>'<option value="'+o.id+'"'+(o.id===cur?' selected':'')+'>'+escapeHtml(o.number)+' · '+o.lines.map(l=>fmt(l.kg)+' kg '+l.descr).join(', ').slice(0,80)+(o.status==='draft'?' (draft)':'')+'</option>').join('')+(g&&!g.po_id&&ed?'<option value="__raise">＋ Raise order from this delivery</option>':'');
+    if(g&&g.po_id&&!list.find(o=>o.id===g.po_id)) sel.innerHTML+='<option value="'+escapeHtml(g.po_id)+'" selected>'+escapeHtml(g.po_number||'order')+'</option>'; }
+  drawOrders();
+  $('giPo').onchange=()=>{ const o=orders.find(x=>x.id===$('giPo').value); if(!o) return; if(!gv('giSup')) { $('giSup').value=o.supplier; supChanged(); }
+    o.lines.forEach(l=>{ const left=(+l.kg||0)-(+l.received||0); if(left<=0.001||L.find(x=>x.po_line_id===l.id)) return; const blank=L.findIndex(x=>!x.ing_id&&!x.qty); const nl={id:'',ing_id:l.ing_id,descr:l.descr,qty:+left.toFixed(2),batch:'',temp:'',type:'',per_kg:+l.per_kg||0,po_line_id:l.id,use_for:l.use_for||'',_ordered:+l.kg}; if(blank>=0) L[blank]=nl; else L.push(nl); }); drawLines(); live(); };
+  let supSrc=g?g.supplier_src:'', prodSrc=g?g.producer_src:'', prodAddr=g?g.producer_addr:'';
+  async function supChanged(){ const s=supRec(gv('giSup').trim()); if(s){ if(!gv('giAppr')||!g) $('giAppr').value=s.approval||''; if(!gv('giAppd')) $('giAppd').value='Yes'; } try{ orders=await api('/api/goodsin/open-orders'+(gv('giSup')?'?supplier='+encodeURIComponent(gv('giSup').trim()):'')); }catch(e){} drawOrders(); const hit=await giVerify(gv('giAppr'),$('giApprMark')); supSrc=hit?hit.src:''; if(hit&&!gv('giAppd')) $('giAppd').value='Yes'; live(); }
+  $('giSup').addEventListener('change',supChanged);
+  giLookup($('giAppr'),r=>{ $('giAppr').value=r.no; supSrc=r.src; $('giApprMark').innerHTML='<span class="gi-ok">✓ on '+escapeHtml(r.src==='own'?'your approved list':r.label)+'</span>'; if(!gv('giAppd')) $('giAppd').value='Yes'; if(!gv('giSup')&&r.src==='own'){ $('giSup').value=r.name; supChanged(); } live(); });
+  $('giAppr').addEventListener('change',async()=>{ const hit=await giVerify(gv('giAppr'),$('giApprMark')); supSrc=hit?hit.src:''; live(); });
+  const pickProd=r=>{ $('giProdAppr').value=r.no; $('giProd').value=r.name; prodAddr=[r.addr,r.pc].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', '); prodSrc=r.src; $('giProdAddr').textContent=prodAddr; $('giProdMark').innerHTML='<span class="gi-ok">✓ on '+escapeHtml(r.src==='own'?'your approved list':r.label+(GI_ISSUES[r.src]?' ('+GI_ISSUES[r.src]+')':''))+'</span>'; live(); };
+  giLookup($('giProdAppr'),pickProd); giLookup($('giProd'),pickProd);
+  $('giProdAppr').addEventListener('change',async()=>{ const hit=await giVerify(gv('giProdAppr'),$('giProdMark')); if(hit){ if(!gv('giProd')) $('giProd').value=hit.name; prodAddr=[hit.addr,hit.pc].filter(Boolean).join(', '); prodSrc=hit.src; $('giProdAddr').textContent=prodAddr; } else { prodSrc=''; } live(); });
+  $('giHaul').addEventListener('change',()=>{ const x=_giHauliers.find(y=>y.name===gv('giHaul')); if(x){ if(!gv('giOp')) $('giOp').value=x.last_operator||x.approval||''; if(!gv('giReg')&&x.last_reg) $('giReg').value=x.last_reg; } live(); });
+  if(gv('giAppr')) giVerify(gv('giAppr'),$('giApprMark')).then(hit=>{ supSrc=hit?hit.src:supSrc; }); if(g&&g.producer_approval) giVerify(g.producer_approval,$('giProdMark'));
+  const isFrozenBad=t=>{ const s=String(t||'').trim().toLowerCase(); if(!s||s==='ambient'||s==='chilled') return false; const v=parseFloat(s.replace(/[^0-9.\-]/g,'')); return !isNaN(v)&&v>-15; };
+  const meatIds=new Set((state.ingredients||[]).filter(i=>i.category==='Meat'||i.category==='Offal').map(i=>i.id));
+  function verdict(){ const fails=[]; L.filter(l=>+l.qty>0).forEach(l=>{ if(isFrozenBad(l.temp)&&String(l.type).toUpperCase()!=='PACKAGING') fails.push('Temperature above −15 °C'); });
+    if(gv('giAppd')==='No') fails.push('Supplier not on the approved list'); if(gv('giVeh')==='Unsatisfactory') fails.push('Transport unsatisfactory'); if(gv('giQual')==='Unsatisfactory') fails.push('Quality unsatisfactory');
+    const u=[...new Set(fails)]; const v=$('giVerdict'), go=$('giSave'), rf=$('giRefuse');
+    if(u.length){ v.innerHTML='<div class="gi-refuse">⛔ Refuse the delivery and notify the factory manager — '+escapeHtml(u.join(' · '))+'. Record the corrective action on G003.</div>'; if(go) go.style.display='none'; if(rf) rf.style.display=''; }
+    else { v.innerHTML=''; if(go) go.style.display=''; if(rf) rf.style.display='none'; } return u; }
+  function missingLocal(){ const miss=[]; const lines=L.filter(l=>l.ing_id&&+l.qty>0); if(!gv('giSup').trim()) miss.push('supplier'); if(!gv('giPo')) miss.push('order'); if(!gv('giDN').trim()) miss.push('delivery note');
+    lines.forEach(l=>{ const d=l.descr||ingName(l.ing_id); if(!String(l.batch||'').trim()) miss.push('batch ('+d+')'); if(!String(l.temp||'').trim()&&String(l.type).toUpperCase()!=='PACKAGING') miss.push('temp ('+d+')'); if(!l.type) miss.push('type ('+d+')'); });
+    if(!gv('giAppr').trim()) miss.push('approval no.'); if(!gv('giAppd')) miss.push('supplier approved?'); if(!gv('giVeh')) miss.push('vehicle check'); if(!gv('giQual')) miss.push('quality check'); if(!gv('giInit').trim()) miss.push('initials');
+    if(lines.some(l=>meatIds.has(l.ing_id)||String(l.type).toUpperCase()==='CAT 3')&&!gv('giHaul').trim()) miss.push('haulier'); return miss; }
+  function live(){ const u=verdict(); const el=$('giMiss'); if(!el) return; const lines=L.filter(l=>l.ing_id&&+l.qty>0); if(!lines.length){ el.innerHTML='<span class="muted">Enter an ingredient and the kilos to save.</span>'; return; } if(u.length){ el.innerHTML=''; return; } const miss=missingLocal(); el.innerHTML=miss.length?'Saves as <b>incomplete</b>: '+escapeHtml(miss.join(' · ')):'<span class="gi-ok">Complete — all checks recorded.</span>'; }
+  ['giDate','giSup','giPo','giDN','giAppr','giAppd','giVeh','giQual','giInit','giHaul','giReg','giOp','giOrigin','giProd','giProdAppr'].forEach(id=>{ const el=$(id); if(el){ el.addEventListener('input',live); el.addEventListener('change',live); } });
+  drawLines(); live();
+  const body=(refused,reason)=>({grp:g?g.grp:'',date:gv('giDate'),supplier:gv('giSup').trim(),po_id:(gv('giPo')&&gv('giPo')!=='__raise')?gv('giPo'):'',del_note:gv('giDN').trim(),approval:gv('giAppr').trim(),approved:gv('giAppd'),producer:gv('giProd').trim(),producer_approval:gv('giProdAppr').trim(),producer_addr:gv('giProd').trim()?prodAddr:'',producer_src:gv('giProdAppr').trim()?prodSrc:'',supplier_src:supSrc,veh:gv('giVeh'),qual:gv('giQual'),initials:gv('giInit').trim().toUpperCase(),haulier:gv('giHaul').trim(),lorry_reg:gv('giReg').trim(),operator_no:gv('giOp').trim(),origin:gv('giOrigin'),refused:!!refused,reason:reason||'',
+    lines:L.filter(l=>l.ing_id&&+l.qty>0).map(l=>({id:l.id||'',ing_id:l.ing_id,descr:l.descr,qty:+l.qty,batch:String(l.batch||'').trim(),temp:String(l.temp||'').trim(),type:l.type||'',per_kg:+l.per_kg||0,po_line_id:l.po_line_id||'',use_for:l.use_for||''}))});
+  async function after(r,raise){ let note=''; if(raise){ try{ const rr=await api('/api/goodsin/'+encodeURIComponent(r.grp)+'/raise-po','POST',{}); note=' Order '+rr.group.po_number+' raised and marked received.'; }catch(e){ note=' Could not raise the order: '+e.message; } }
+    if(gv('giHaul').trim()&&!_giHauliers.find(x=>x.name===gv('giHaul').trim())){ try{ await api('/api/hauliers','POST',{name:gv('giHaul').trim()}); _giHauliers=null; }catch(e){} }
+    giClose(); await reloadStock(); loadGiAttention(); if(document.getElementById('giBody')) renderDeliveries(); if(document.getElementById('poBody')||document.getElementById('rootPurchasing')&&SB_ACTIVE==='purchasing') renderPurchasing();
+    const m=document.getElementById('poMsg'); if(m) m.textContent=(r.status==='incomplete'?'Saved as incomplete — '+r.missing.join(', ')+'.':(r.status==='refused'?'Refusal recorded.':'Delivery saved — stock updated.'))+(r.doc?' ABP document '+r.doc+'.':'')+note; }
+  if($('giSave')) $('giSave').onclick=async()=>{ const b=body(false,''); if(!b.lines.length){ $('giMiss').innerHTML='<span class="gi-bad">Enter an ingredient and the kilos for at least one line.</span>'; return; } if(verdict().length) return; $('giSave').disabled=true; $('giMiss').textContent='Saving…';
+    try{ const r=await api('/api/goodsin','POST',b); await after(r,gv('giPo')==='__raise'); }catch(e){ $('giSave').disabled=false; $('giMiss').innerHTML='<span class="gi-bad">'+escapeHtml(e.message)+'</span>'; } };
+  if($('giRefuse')) $('giRefuse').onclick=async()=>{ const reasons=verdict(); if(!reasons.length) return; const b=body(true,reasons.join('; ')); if(!b.lines.length){ $('giMiss').innerHTML='<span class="gi-bad">Enter what was offered (ingredient and kilos) so the refusal is on record.</span>'; return; } if(!confirm('Record this delivery as REFUSED ('+reasons.join(', ')+')? Nothing enters stock.')) return; $('giRefuse').disabled=true;
+    try{ const r=await api('/api/goodsin','POST',b); await after(r,false); }catch(e){ $('giRefuse').disabled=false; $('giMiss').innerHTML='<span class="gi-bad">'+escapeHtml(e.message)+'</span>'; } };
+  if($('giDel')) $('giDel').onclick=async()=>{ if(!confirm('Delete this delivery? Stock will be reduced and the order (if any) reopened.')) return; try{ await api('/api/goodsin/'+encodeURIComponent(g.grp)+'/delete','POST',{}); giClose(); await reloadStock(); loadGiAttention(); if(document.getElementById('giBody')) renderDeliveries(); }catch(e){ alert(e.message); } };
+}
+window.giSheet=giSheet;
+/* ---- the ABP Consignment Document (T002), printed from what was recorded ---- */
+async function cdocPrint(grp){
+  let d; try{ d=await api('/api/cdoc/'+encodeURIComponent(grp)); }catch(e){ alert(e.message); return; }
+  const td=(l,v,extra)=>'<tr><td class="cd-l">'+l+'</td><td class="cd-v"'+(extra||' colspan="3"')+'>'+escapeHtml(v||'')+'</td>';
+  const dmy=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+'/'+m[2]+'/'+m[1]:iso||''; };
+  const html='<div class="mixsheet cdoc"><div class="cd-t">ABP Consignment Document</div><div class="cd-t2">ANIMAL BY-PRODUCTS COMMERCIAL DOCUMENT – TO ACCOMPANY ANIMAL BY-PRODUCTS</div><div class="cd-t3">Consignor, transporter, and receiver each to retain a copy of this document for two years</div>'+
+    '<h4>Section 1 (to be completed by consignor)</h4><table class="cd">'+
+    '<tr><td class="cd-l">Name of consignor:</td><td class="cd-v">'+escapeHtml(d.consignor.name)+'</td><td class="cd-l2">Unique number:</td><td class="cd-v">'+escapeHtml(d.unique)+'</td></tr>'+
+    '<tr><td class="cd-l">Lic/app/reg no. of consignor:</td><td class="cd-v">'+escapeHtml(d.consignor.no)+'</td><td class="cd-l2">Date:</td><td class="cd-v">'+escapeHtml(dmy(d.date))+'</td></tr>'+
+    td('Address of consignor:',d.consignor.addr)+'</tr>'+td('Place of origin of material:',d.origin)+'</tr>'+td('Description of the material and ABP category:',d.description)+'</tr>'+td('Quantity of material (kg):',(+d.qty).toLocaleString())+'</tr>'+td('Name of haulier:',d.haulier.name)+'</tr>'+
+    '<tr><td class="cd-l cd-sig">Signed for consignor:</td><td class="cd-v cd-sig" colspan="3">Name:</td></tr></table>'+
+    '<h4>Section 2 (completed by haulier)</h4><div class="cd-note">The above material was collected from the consignor and delivered to the consignee in compliance with EU Regulation (EC) No 1069/2009 and EU Regulation (EC) No 142/2011</div><table class="cd">'+
+    td('Date on which material was taken from the above premises:',dmy(d.date))+'</tr><tr><td class="cd-l cd-sig">Signed for haulier:</td><td class="cd-v cd-sig" colspan="3">Name:</td></tr>'+td('Name and address of carrier:',[d.haulier.name,d.haulier.addr].filter(Boolean).join(', '))+'</tr>'+td('Truck / Lorry Reg Number:',d.haulier.reg)+'</tr>'+td('Operator organising transport:',d.haulier.operator)+'</tr></table>'+
+    '<h4>Section 3 (completed by receiver)</h4><table class="cd">'+td('Name of receiver:',d.receiver.name)+'</tr>'+td('Approval number of receiver (if applicable):',d.receiver.no)+'</tr>'+td('Address of receiver:',d.receiver.addr)+'</tr></table>'+
+    '<div class="cd-note">I confirm that the material identified in section 1 above was received at the named consignee premises from the named haulier.</div><table class="cd"><tr><td class="cd-l cd-sig">Signed for consignee:</td><td class="cd-v cd-sig" colspan="3">Name: '+escapeHtml(d.initials)+'</td></tr></table>'+
+    '<div class="cd-foot"><span>Document Name: '+escapeHtml(d.footer.name)+' · Issue: '+escapeHtml(d.footer.issue)+'</span><span>Document No: '+escapeHtml(d.footer.doc)+' · Date: '+escapeHtml(d.footer.date)+'</span><span>Authorised by: '+escapeHtml(d.footer.by)+'</span><span>HQ ref: '+escapeHtml(d.number)+(d.po?' · '+escapeHtml(d.po):'')+(d.dn?' · DN '+escapeHtml(d.dn):'')+'</span></div></div>';
+  const host=document.getElementById('view-print-picking'); host.innerHTML=html; document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400);
+}
+window.cdocPrint=cdocPrint;
+/* ---- Goods-in records (T001 register view, technical) ---- */
+async function renderGiRecords(){
+  const root=document.getElementById('rootGirecords'); if(!root) return;
+  root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><label class="fld">Month<select id="grMonth"></select></label><label class="fld">Search<input id="grQ" placeholder="supplier, ingredient, batch…" style="width:220px"></label><div class="spacer"></div><button class="btn ghost sm" id="grPrint">🖨 Print</button></div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table id="grTable"><thead><tr><th>Date</th><th>Supplier</th><th>Ingredient</th><th class="num">Qty kg</th><th>Ref / PO</th><th>Reg / Approval No</th><th>Supplier approved</th><th>Temp °C</th><th>Vehicle</th><th>Quality</th><th>Type</th><th>Batch</th><th>Initials</th><th>Producer</th><th>ABP doc</th></tr></thead><tbody id="grBody"><tr><td colspan="15" class="muted">Loading…</td></tr></tbody></table></div>';
+  let groups=[]; try{ groups=await api('/api/goodsin'); }catch(e){ document.getElementById('grBody').innerHTML='<tr><td colspan="15" class="muted">'+escapeHtml(e.message)+'</td></tr>'; return; }
+  const months=[...new Set(groups.map(g=>String(g.date||'').slice(0,7)).filter(Boolean))].sort().reverse(); const ms=document.getElementById('grMonth'); ms.innerHTML='<option value="">All</option>'+months.map(m=>'<option value="'+m+'"'+(m===todayISO().slice(0,7)?' selected':'')+'>'+m+'</option>').join('');
+  const draw=()=>{ const mo=ms.value, q=(document.getElementById('grQ').value||'').toLowerCase(); const rows=[];
+    groups.filter(g=>!mo||String(g.date||'').startsWith(mo)).forEach(g=>g.lines.forEach(l=>{ const ing=l.ing_id?ingName(l.ing_id):(l.descr||''); const txt=(g.supplier+' '+ing+' '+l.batch+' '+g.po_number+' '+g.producer).toLowerCase(); if(q&&!txt.includes(q)) return;
+      rows.push('<tr'+(g.status==='refused'?' style="color:var(--warn)"':'')+'><td style="white-space:nowrap">'+escapeHtml(g.date)+'</td><td>'+escapeHtml(g.supplier||'')+'</td><td>'+escapeHtml(ing)+'</td><td class="num">'+fmt(l.qty)+'</td><td>'+escapeHtml(g.po_number||'')+(g.del_note?'<div class="muted" style="font-size:11px">DN '+escapeHtml(g.del_note)+'</div>':'')+'</td><td>'+escapeHtml(g.approval||'')+'</td><td>'+escapeHtml(g.approved||'')+'</td><td>'+escapeHtml(l.temp||'')+'</td><td>'+escapeHtml(g.veh||'')+'</td><td>'+escapeHtml(g.qual||'')+'</td><td>'+escapeHtml(l.type||'')+'</td><td>'+escapeHtml(l.batch||'')+'</td><td>'+escapeHtml(g.initials||'')+'</td><td>'+escapeHtml(g.producer||'')+(g.producer_approval?'<div class="muted" style="font-size:11px">'+escapeHtml(g.producer_approval)+'</div>':'')+'</td><td style="white-space:nowrap">'+(g.doc?'<button class="btn ghost sm" onclick="cdocPrint(\''+escapeHtml(g.grp)+'\')">📄 '+escapeHtml(g.doc)+'</button>':'')+'</td></tr>'); }));
+    document.getElementById('grBody').innerHTML=rows.join('')||'<tr><td colspan="15" class="muted">No goods-in records for this selection.</td></tr>'; };
+  ms.onchange=draw; document.getElementById('grQ').oninput=draw; draw();
+  document.getElementById('grPrint').onclick=()=>{ const host=document.getElementById('view-print-picking'); host.innerHTML='<div class="mixsheet"><div class="hd"><div><div class="t">GOODS IN RECORDS (T001)</div><div class="b"><b>Wilsons Pet Food</b> · '+escapeHtml(ms.value||'all dates')+'</div></div></div>'+document.getElementById('grTable').outerHTML.replace(/<button[^>]*>|<\/button>/g,'').replace('<table','<table class="ms-table"')+'</div>'; document.getElementById('pageStyle').textContent='@page{size:A4 landscape;margin:10mm}'; host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400); };
+}
+window.renderGiRecords=renderGiRecords;
 
 /* ===== Stocktake / Adjustments ===== */
 function renderAdjustments(){
@@ -4293,14 +4646,29 @@ async function autoMapBags(){
 window.autoMapBags=autoMapBags;
 
 /* ===== Suppliers ===== */
+let SU_TAB='list';
 function renderSuppliers(){
   const root=document.getElementById('rootSuppliers'); if(!root) return;
-  root.innerHTML=`<div class="toolbar"><label class="fld">Search<input id="suSearch" placeholder="filter…" style="width:200px"></label><div class="spacer"></div><button class="btn alt sm" id="suAdd">＋ Add supplier</button></div>
+  const tabs='<div class="gi-chips" style="margin-bottom:10px"><button type="button" class="gi-chip'+(SU_TAB==='list'?' on':'')+'" onclick="SU_TAB=\'list\';renderSuppliers()">Approved suppliers</button><button type="button" class="gi-chip'+(SU_TAB==='reg'?' on':'')+'" onclick="SU_TAB=\'reg\';renderSuppliers()">Official registers</button></div>';
+  if(SU_TAB==='reg'){ renderRegisters(root,tabs); return; }
+  root.innerHTML=tabs+`<div class="toolbar"><label class="fld">Search<input id="suSearch" placeholder="filter…" style="width:200px"></label><div class="spacer"></div><button class="btn alt sm" id="suAdd">＋ Add supplier</button></div>
     <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Trading name</th><th>Approval</th><th>Product</th><th>Activity</th><th>Post code</th><th></th></tr></thead><tbody id="suBody"></tbody></table></div>`;
   const draw=()=>{ const q=(document.getElementById('suSearch').value||'').toLowerCase();
     const list=state.suppliers.filter(s=>!q||(s.name+' '+(s.product||'')+' '+(s.approval||'')).toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
-    document.getElementById('suBody').innerHTML=list.map(s=>`<tr><td><b>${escapeHtml(s.name)}</b><br><span class="muted" style="font-size:11px">${escapeHtml(s.address||'')}</span></td><td>${escapeHtml(s.approval||'')}</td><td>${escapeHtml(s.product||'')}</td><td>${escapeHtml(s.activity||'')}</td><td>${escapeHtml(s.postcode||'')}</td><td class="num"><button class="btn ghost sm" onclick="editSup('${s.id}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">None.</td></tr>'; };
+    document.getElementById('suBody').innerHTML=list.map(s=>`<tr><td><b>${escapeHtml(s.name)}</b><br><span class="muted" style="font-size:11px">${escapeHtml(s.address||'')}</span></td><td>${escapeHtml(s.approval||'')}</td><td>${escapeHtml(s.product||'')}</td><td>${escapeHtml(s.activity||'')}</td><td>${escapeHtml(s.postcode||'')}</td><td class="num"><button class="btn ghost sm" onclick="editSup('${s.id}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No suppliers.</td></tr>'; };
   document.getElementById('suSearch').oninput=draw; document.getElementById('suAdd').onclick=()=>editSup(null); draw();
+}
+async function renderRegisters(root,tabs){
+  root.innerHTML=tabs+'<div class="toolbar" style="flex-wrap:wrap;gap:8px"><label class="fld" style="min-width:260px">Approval number or name<input id="rgQ" placeholder="e.g. 2093, 51/647/8003, Cranswick" autocomplete="off" style="min-height:40px;font-size:15px"></label><div class="spacer"></div>'+(isAdmin()?'<button class="btn ghost sm" id="rgRefresh">↻ Refresh from the official sites</button>':'')+'</div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Register</th><th>Approval no.</th><th>Establishment</th><th>Address</th><th>Approved for</th></tr></thead><tbody id="rgBody"><tr><td colspan="5" class="muted">Type a number or a name.</td></tr></tbody></table></div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Source</th><th>Issue</th><th class="num">Entries</th><th>Loaded</th><th></th></tr></thead><tbody id="rgSrc"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>';
+  const mon=iss=>{ if(!iss) return ''; const [y,m]=iss.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+y; };
+  const drawSrc=async()=>{ try{ const s=await api('/api/estab/status'); document.getElementById('rgSrc').innerHTML=(s.sources||[]).map(x=>'<tr><td><b>'+escapeHtml(x.label||x.src)+'</b></td><td>'+escapeHtml(mon(x.issue))+'</td><td class="num">'+(+x.n||0).toLocaleString()+'</td><td class="muted">'+escapeHtml((x.fetched||'').slice(0,10))+'</td><td class="muted" style="font-size:11px">'+(x.error?'<span class="gi-bad">last refresh failed: '+escapeHtml(x.error)+'</span>':(x.url?'<a href="'+escapeHtml(x.url)+'" target="_blank" rel="noopener">official file</a>':''))+'</td></tr>').join('')+'<tr><td colspan="5" class="muted" style="font-size:11px">Your own approved supplier list is searched too. Registers are refreshed from the official sites about once a month; a failed download keeps the last good copy.</td></tr>'; }catch(e){} };
+  drawSrc();
+  let t=null; document.getElementById('rgQ').oninput=()=>{ clearTimeout(t); t=setTimeout(async()=>{ const q=document.getElementById('rgQ').value.trim(); if(q.length<2){ document.getElementById('rgBody').innerHTML='<tr><td colspan="5" class="muted">Type a number or a name.</td></tr>'; return; } let rows=[]; try{ rows=await api('/api/estab?q='+encodeURIComponent(q)); }catch(e){}
+    document.getElementById('rgBody').innerHTML=rows.map(r=>'<tr><td>'+giSrcTag(r)+'</td><td><b>'+escapeHtml(r.no)+'</b></td><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml([r.addr,r.pc].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(', '))+'</td><td class="muted" style="font-size:12px">'+escapeHtml(String(r.act||'').slice(0,120))+(r.cat&&/ABP/.test(r.cat)?' · '+escapeHtml(r.cat):'')+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">Not found on any register or your approved list.</td></tr>'; },220); };
+  const rb=document.getElementById('rgRefresh'); if(rb) rb.onclick=async()=>{ rb.disabled=true; rb.textContent='Refreshing… (about a minute)'; try{ await api('/api/estab/refresh','POST',{}); }catch(e){ alert(e.message); } rb.disabled=false; rb.textContent='↻ Refresh from the official sites'; drawSrc(); GI_ISSUES={}; };
+  setTimeout(()=>{ const q=document.getElementById('rgQ'); if(q) q.focus(); },50);
 }
 function editSup(id){ const s=id?state.suppliers.find(x=>x.id===id):{id:null,name:'',approval:'',product:'',activity:'',address:'',postcode:''};
   pop(`<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${id?'Edit':'New'} supplier</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>
@@ -4326,7 +4694,7 @@ function getPrefs(){ if(!MYPREFS) MYPREFS=prefsDefault(); return MYPREFS; }
 function savePrefs(){ clearTimeout(_prefsT); _prefsT=setTimeout(()=>{ api('/api/myprefs','PUT',{prefs:MYPREFS}).catch(()=>{}); },400); }
 function shortcutDefs(){
   const seen=new Set(), out=[];
-  [...SB_SECTIONS.production,...SB_SECTIONS.office].forEach(([v,label,icon])=>{
+  Object.values(SB_SECTIONS).flat().forEach(([v,label,icon])=>{
     if(v==='home'||seen.has(v)) return; seen.add(v);
     if(canView(v)) out.push([v,label,icon]);
   });
@@ -4738,7 +5106,7 @@ async function renderUsers(){
   document.getElementById('usInvite').onclick=()=>inviteModal();
   document.getElementById('usPush').onclick=pushReloadToEveryone;
   try{ const rows=await api('/api/users'); window._users=rows;
-    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}</td><td style="white-space:nowrap">${presenceCell(u)}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
+    document.getElementById('usBody').innerHTML=rows.map(u=>`<tr><td><b>${escapeHtml(u.username)}</b></td><td>${escapeHtml(u.role)}${u.factory?' · <span class="pill">'+escapeHtml(u.factory==='ayr'?'Ayr':'Blair')+'</span>':''}${u.workspace?' · <span class="pill">'+escapeHtml((WORKSPACES.find(w=>w[0]===u.workspace)||[])[1]||u.workspace)+'</span>':''}</td><td style="white-space:nowrap">${presenceCell(u)}</td><td class="small ${u.email?'':'muted'}">${u.email?escapeHtml(u.email):'—'}</td><td class="small muted">${escapeHtml(permSummary(u))}</td><td>${escapeHtml((u.created||'').slice(0,10))}</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" onclick="userModal(${u.id})">Edit</button> ${u.username==='admin'?'':`<button class="btn danger" onclick="delUser(${u.id})">✕</button>`}</td></tr>`).join(''); }
   catch(e){ document.getElementById('usBody').innerHTML=`<tr><td colspan="7" class="muted">${escapeHtml(e.message)}</td></tr>`; }
   renderInvites();
 }
@@ -4866,6 +5234,7 @@ function userModal(id){
      <label class="fld">${u?'Reset password (optional)':'Password'}<input id="uPass" type="text" placeholder="${u?'leave blank to keep':''}"></label>
      <label class="fld">Role<select id="uRole"><option value="staff">staff</option><option value="admin"${u&&u.role==='admin'?' selected':''}>admin (full access)</option></select></label>
      <label class="fld">Factory<select id="uFactory"><option value="">Both / not set</option><option value="ayr"${u&&u.factory==='ayr'?' selected':''}>Ayr — Fresh / Cooked</option><option value="blair"${u&&u.factory==='blair'?' selected':''}>Blair — Cold Pressed</option></select></label>
+     <label class="fld">Home workspace<select id="uWorkspace"><option value="">Not set (remembers their last)</option>${WORKSPACES.map(w=>'<option value="'+w[0]+'"'+(u&&u.workspace===w[0]?' selected':'')+'>'+w[1]+'</option>').join('')}</select></label>
      <label class="fld">Email (for notifications)<input id="uEmail" type="email" autocapitalize="none" placeholder="name@wilsonspetfood.co.uk" value="${u&&u.email?escapeHtml(u.email):''}"></label>
    </div>
    <div id="permWrap" style="margin-top:12px">
@@ -4885,9 +5254,10 @@ function userModal(id){
     const role=roleSel.value; const perms=role==='admin'?null:collectPerms(); const pass=document.getElementById('uPass').value;
     const factory=(document.getElementById('uFactory')||{}).value||'';
     const email=(document.getElementById('uEmail')||{}).value||'';
+    const workspace=(document.getElementById('uWorkspace')||{}).value||'';
     try{
-      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,factory,email,password:pass||undefined}); }
-      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms,factory,email}); }
+      if(u){ await api('/api/users/'+u.id,'PUT',{role,perms,factory,email,workspace,password:pass||undefined}); }
+      else { const un=document.getElementById('uUser').value.trim(); if(!un||!pass){ document.getElementById('uMsg').textContent='Username and password required.'; return; } await api('/api/users','POST',{username:un,password:pass,role,perms,factory,email,workspace}); }
       closeModal(); renderUsers();
     }catch(e){ document.getElementById('uMsg').textContent=e.message; }
   };
