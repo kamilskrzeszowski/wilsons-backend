@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v53';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v54';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -2579,9 +2579,9 @@ async function hrRoutes(ctx) {
   if (!hrCan(user)) { json(res, 403, { error: 'You don’t have HR access.' }); return true; }
   if (url === '/api/hr/employees' && m === 'GET') { json(res, 200, db.prepare('SELECT * FROM employees ORDER BY status, name').all().map(e => { const v = hrEmpView(e); return Object.assign({}, e, { pin_hash: undefined, setup_photo: e.setup_photo ? 1 : 0, in: v.in, since: v.since, last: v.last, week: v.week }); })); return true; }
   if (url === '/api/hr/employees' && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const name = String((b && b.name) || '').trim(); if (!name) { json(res, 400, { error: 'Name required' }); return true; } const parts = name.split(' ');
-    if (b.id) { const ex = db.prepare('SELECT id FROM employees WHERE id=?').get(b.id); if (!ex) { json(res, 404, { error: 'not found' }); return true; } db.prepare('UPDATE employees SET name=?,first=?,last=?,site=?,shift=?,dept=?,role=?,hours_week=?,status=?,started=?,notes=?,updated=? WHERE id=?').run(name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', now(), b.id); json(res, 200, { ok: true, id: b.id }); return true; }
+    if (b.id) { const ex = db.prepare('SELECT id FROM employees WHERE id=?').get(b.id); if (!ex) { json(res, 404, { error: 'not found' }); return true; } db.prepare('UPDATE employees SET name=?,first=?,last=?,site=?,shift=?,dept=?,role=?,hours_week=?,status=?,started=?,notes=?,agency=?,updated=? WHERE id=?').run(name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', String(b.agency || '').trim(), now(), b.id); json(res, 200, { ok: true, id: b.id }); return true; }
     if (db.prepare('SELECT id FROM employees WHERE name=? AND status<>\'leaver\'').get(name)) { json(res, 409, { error: 'There is already someone with that name.' }); return true; }
-    const id = uid('e'); db.prepare("INSERT INTO employees(id,name,first,last,site,shift,dept,role,hours_week,status,started,notes,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', now(), now()); json(res, 200, { ok: true, id }); return true; }
+    const id = uid('e'); db.prepare("INSERT INTO employees(id,name,first,last,site,shift,dept,role,hours_week,status,started,notes,agency,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', String(b.agency || '').trim(), now(), now()); json(res, 200, { ok: true, id }); return true; }
   let mm = url.match(/^\/api\/hr\/employees\/([^/]+)\/(reset-pin|delete)$/);
   if (mm && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const id = decodeURIComponent(mm[1]); if (mm[2] === 'reset-pin') { db.prepare("UPDATE employees SET pin_hash='', pin_set=0, pin_set_at='', setup_photo='', updated=? WHERE id=?").run(now(), id); json(res, 200, { ok: true }); return true; } const n = db.prepare('SELECT count(*) c FROM attendance WHERE emp_id=?').get(id).c; if (n) { json(res, 400, { error: 'This person has sign-ins on record — mark them as a leaver instead of deleting.' }); return true; } db.prepare('DELETE FROM employees WHERE id=?').run(id); json(res, 200, { ok: true }); return true; }
   if (url === '/api/hr/attendance' && m === 'GET') {
@@ -2612,6 +2612,7 @@ async function hrRoutes(ctx) {
  * of sections; the person fills it in on their phone and it writes straight into their record.
  * ==========================================================================*/
 try { db.exec("ALTER TABLE employees ADD COLUMN hr_private TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE employees ADD COLUMN agency TEXT DEFAULT ''"); } catch (e) {}   // v54: non-empty = agency worker (the agency's name): no contract, no bank/NI, hours go on the agency report
 db.exec("CREATE TABLE IF NOT EXISTS packs(id TEXT PRIMARY KEY, emp_id TEXT, token TEXT, sections TEXT, created TEXT, created_by TEXT, expires TEXT, opened TEXT DEFAULT '', submitted TEXT DEFAULT '', status TEXT DEFAULT 'sent', note TEXT DEFAULT '')");
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_packs_tok ON packs(token)'); } catch (e) {}
 db.exec("CREATE TABLE IF NOT EXISTS hr_log(id INTEGER PRIMARY KEY, emp_id TEXT, what TEXT, by TEXT, at TEXT, detail TEXT DEFAULT '')");
