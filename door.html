@@ -16,8 +16,8 @@ html,body{height:100%;margin:0;background:var(--navy);color:var(--txt);font-fami
 #app{height:100%;display:flex;flex-direction:column;padding:max(16px,env(safe-area-inset-top)) 22px max(16px,env(safe-area-inset-bottom))}
 header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
 header img{height:46px}
-header .door{font-size:15px;color:var(--mut)}header .door b{color:#fff;font-weight:500}
-header .clock{margin-left:auto;text-align:right;font-size:15px;color:var(--mut)}header .clock b{display:block;font-size:30px;color:#fff;font-family:var(--fd);font-weight:400;letter-spacing:.02em;line-height:1}
+header .door{display:none}
+header .clock{margin-left:auto;text-align:right;font-size:20px;color:#dbe4e8;font-weight:500}header .clock b{display:block;font-size:64px;color:#fff;font-family:var(--fd);font-weight:400;letter-spacing:.02em;line-height:1;margin-bottom:4px}header .clock span{display:block}header .clock .n{font-size:14px;color:var(--mut)}
 main{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px}
 h1{font-family:var(--fd);font-weight:400;font-size:34px;margin:0;letter-spacing:.01em}h1 small{display:block;font-family:var(--fb);font-size:16px;color:var(--mut);margin-top:4px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1}
@@ -76,7 +76,7 @@ select option{color:#143644}
 </head>
 <body>
 <div id="app">
-  <header><img src="/assets/logo-grapefruit.svg" alt="Wilsons"><div class="door" id="doorName"></div><div class="clock"><b id="clock">--:--</b><span id="onsiteN"></span></div></header>
+  <header><img src="/assets/logo-grapefruit.svg" alt="Wilsons"><div class="door" id="doorName"></div><button type="button" id="fsBtn" class="ghost sm" style="min-height:44px;font-size:15px;margin-left:16px;display:none" onclick="goFull()">⤢ Full screen</button><div class="clock"><b id="clock">--:--</b><span id="dateLine"></span><span class="n" id="onsiteN"></span></div></header>
   <main id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
@@ -90,11 +90,11 @@ let STATE=null, view='home', idleT=null, pin='', cur=null, visitor=null, roll=nu
 async function api(p,method,body){ const r=await fetch(p,{method:method||'GET',headers:Object.assign({'Authorization':'Bearer '+TOKEN},body?{'Content-Type':'application/json'}:{}),body:body?JSON.stringify(body):undefined}); if(r.status===401||r.status===403){ fatal('This tablet is not signed in as a door account. Sign in to Wilsons HQ with the tablet login first.'); throw new Error('auth'); } const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j; }
 function fatal(t){ $('main').innerHTML='<div class="err">'+esc(t)+'<br><br><button class="sm primary" onclick="location.href=\'/\'">Open Wilsons HQ</button></div>'; }
 function toast(t,ms){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove('on'),ms||2200); }
-function tick(){ const d=new Date(); $('clock').textContent=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+function tick(){ const d=new Date(); $('clock').textContent=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); $('dateLine').textContent=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }
 setInterval(tick,5000); tick();
 function idle(ms){ clearTimeout(idleT); idleT=setTimeout(()=>{ if(view!=='rollcall') go('home'); },ms||25000); }
 document.addEventListener('touchstart',()=>idle(),{passive:true}); document.addEventListener('click',()=>idle());
-async function refresh(){ try{ STATE=await api('/api/door/state'); $('doorName').innerHTML='<b>'+esc(STATE.door)+'</b><br>'+esc(STATE.today); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(view==='home') draw(); if(view==='onsite') draw(); }catch(e){} }
+async function refresh(){ try{ STATE=await api('/api/door/state'); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(view==='home') draw(); if(view==='onsite') draw(); }catch(e){} }
 setInterval(refresh,20000);
 /* camera: asked for once; if refused we carry on without photos */
 async function cam(){ if(camStream) return true; try{ camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false}); $('cam').srcObject=camStream; camOk=true; }catch(e){ camOk=false; } return camOk; }
@@ -175,7 +175,13 @@ async function startRoll(){ try{ roll=await api('/api/door/rollcall/start','POST
 async function rollTick(i){ roll.people[i].ticked=!roll.people[i].ticked; draw(); try{ await api('/api/door/rollcall/'+roll.id+'/tick','POST',{i,ticked:roll.people[i].ticked}); }catch(e){} }
 async function rollClose(kind){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind}); document.body.classList.remove('rollcall'); roll=null; toast(kind==='drill'?'Drill recorded.':'Roll call saved.',3000); go('home'); }catch(e){ toast(e.message); } }
 async function rollAbandon(){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind:'cancelled'}); }catch(e){} document.body.classList.remove('rollcall'); roll=null; go('home'); }
-(async function boot(){ if(!TOKEN){ fatal('This tablet is not signed in. Open Wilsons HQ, sign in with the tablet login, and it will come back here.'); return; } try{ STATE=await api('/api/door/state'); }catch(e){ return; } $('doorName').innerHTML='<b>'+esc(STATE.door)+'</b><br>'+esc(STATE.today); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(STATE.rollcall){ roll=STATE.rollcall; view='rollcall'; } draw(); cam(); document.addEventListener('click',function once(){ try{ if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{}); }catch(e){} document.removeEventListener('click',once); }); })();
+(async function boot(){ if(!TOKEN){ fatal('This tablet is not signed in. Open Wilsons HQ, sign in with the tablet login, and it will come back here.'); return; } try{ STATE=await api('/api/door/state'); }catch(e){ return; } $('onsiteN').textContent=STATE.onsite.length+' on site'; if(STATE.rollcall){ roll=STATE.rollcall; view='rollcall'; } draw(); cam(); fsWatch(); })();
+/* full screen: browsers only allow it from a tap, so every tap asks until we are, and a button shows while we're not */
+function isFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
+function goFull(){ try{ const el=document.documentElement; const p=el.requestFullscreen?el.requestFullscreen({navigationUI:'hide'}):(el.webkitRequestFullscreen?el.webkitRequestFullscreen():null); if(p&&p.catch) p.catch(()=>{}); }catch(e){} setTimeout(fsWatch,400); }
+function fsWatch(){ const b=$('fsBtn'); if(b) b.style.display=isFull()?'none':''; }
+document.addEventListener('fullscreenchange',fsWatch); document.addEventListener('webkitfullscreenchange',fsWatch);
+document.addEventListener('pointerdown',()=>{ if(!isFull()) goFull(); },true);
 </script>
 </body>
 </html>
