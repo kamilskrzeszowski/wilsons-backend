@@ -315,6 +315,8 @@ tr.prDrag:hover{background:#faf3ee}
     <button data-view="stock">Stock</button>
     <button data-view="deliveries">Goods in</button>
     <button data-view="girecords">Goods-in records</button>
+    <button data-view="people">People</button>
+    <button data-view="attendance">Attendance</button>
     <button data-view="purchasing">Purchase orders</button>
     <button data-view="adjustments">Stocktake</button>
     <button data-view="packaging">Packaging</button>
@@ -349,7 +351,7 @@ tr.prDrag:hover{background:#faf3ee}
     <div class="sb-tabs" id="sbToggle"></div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v51</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v53</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -449,6 +451,9 @@ tr.prDrag:hover{background:#faf3ee}
   .gi-tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
   .gi-tag-ew{border-color:#5b6ee1;color:#4a5bc4}.gi-tag-ni{border-color:#b98a00;color:#8a6600}.gi-tag-sc{border-color:#007985;color:#007985}.gi-tag-abp{border-color:#a0522d;color:#a0522d}.gi-tag-own{border-color:var(--accent);color:var(--accent)}
   @media (max-width:900px){ .gi-open .modal-bg{padding:0} .gi-open .modal{max-width:100%;min-height:100dvh;border-radius:0;padding:14px} .gi-bar{bottom:-14px;margin:14px -14px -14px;border-radius:0} }
+  .rc-grp{border:1px solid var(--line);border-radius:12px;margin:8px 0;background:var(--card)}.rc-grp summary{padding:10px 14px;cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center}.rc-grp summary::-webkit-details-marker{display:none}.rc-grp summary::before{content:'▸';color:var(--muted)}.rc-grp[open] summary::before{content:'▾'}
+  .rc-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 12px;padding:4px 14px 12px}.rc-fields .fld{margin:0}.rc-fields input,.rc-fields select,.rc-fields textarea{width:100%;box-sizing:border-box}
+  .rc-pack{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   /* ABP consignment document print */
   .cdoc{color:#111;font-size:12.5px;line-height:1.45}.cdoc .cd-t{font-weight:800;font-size:17px;text-align:center}.cdoc .cd-t2{text-align:center;font-weight:700;font-size:12px;margin-top:2px}.cdoc .cd-t3{text-align:center;font-size:11px;color:#333;margin-bottom:10px}
   .cdoc h4{background:#eee;border:1px solid #999;padding:4px 8px;margin:10px 0 0;font-size:12.5px}
@@ -723,6 +728,8 @@ tr.prDrag:hover{background:#faf3ee}
   <section class="view" id="view-production"><h2 class="viewtitle">Record Production</h2><p class="sub">Enter what was made — stock is deducted automatically by recipe percentage.</p><div id="rootProduction"></div></section>
   <section class="view" id="view-stock"><h2 class="viewtitle">Stock</h2><p class="sub">Live levels. Remaining = opening + deliveries + stocktake − used.</p><div id="rootStock"></div></section>
   <section class="view" id="view-deliveries"><h2 class="viewtitle">Goods in</h2><p class="sub">Every delivery, with or without an order. Ingredient and kilos are enough to save; anything left blank is flagged until it’s finished.</p><div id="rootDeliveries"></div></section>
+  <section class="view" id="view-people"><h2 class="viewtitle">People</h2><p class="sub">Everyone who signs in at the door: site, shift, hours and whether their PIN is set.</p><div id="rootPeople"></div></section>
+  <section class="view" id="view-attendance"><h2 class="viewtitle">Attendance</h2><p class="sub">Who is on site, the day’s sign-ins with photos, visitors and contractors, roll calls. Fix a missing sign-out here; every change is logged.</p><div id="rootAttendance"></div></section>
   <section class="view" id="view-girecords"><h2 class="viewtitle">Goods-in records</h2><p class="sub">The T001 goods-in register as recorded, with the ABP commercial document for each meat delivery.</p><div id="rootGirecords"></div></section>
   <section class="view" id="view-adjustments"><h2 class="viewtitle">Stocktake &amp; Adjustments</h2><p class="sub">Corrections to stock (waste, recount, write-off).</p><div id="rootAdjustments"></div></section>
   <section class="view" id="view-packaging"><h2 class="viewtitle">Packaging &amp; Finished Goods</h2><p class="sub">Bags, pouches, labels, treats and finished goods.</p><div id="rootPackaging"></div></section>
@@ -2279,6 +2286,7 @@ document.getElementById('restoreBtn').addEventListener('click',()=>{
 async function startApp(){
   const d=await api('/api/bootstrap');
   CURRENT_USER=d.user;
+  if(d.user.role!=='admin' && d.user.perms && d.user.perms.view && d.user.perms.view.door && !d.user.perms.view.hr){ location.replace('/door'); return; }
   state={ recipes:(d.recipes||[]).map(r=>Object.assign({},r,{packs:r.packs||[],ingredients:r.ingredients||[]})),
           ingredients:d.ingredients||[], suppliers:d.suppliers||[], packaging:d.packaging||[], stock:d.stock||[],
           log:loadLocalLog(), weekPlans:(d.weekPlans&&Object.keys(d.weekPlans).length)?d.weekPlans:loadLocalPlans(), security:{passHash:null}, dataVersion:8, rev:0 };
@@ -2307,6 +2315,16 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v53', date:'17 Oct 2026', notes:[
+    'The employee record (HR · People → Open). Every group from the paper forms: personal details, date of birth & NI number (sealed), contact, emergency contacts, right to work & declarations, the food-handler health questionnaire, bank details & starter statement (sealed), site rules & handbook, equal opportunities (stored anonymously — never shown by name, counted in totals only). Sealed groups are encrypted in the database (set HR_SECRET in Railway so a copy of the database alone cannot read them).',
+    'The pack: from a person’s record, “Send a pack…”, tick the sections you want (new starter: all; existing staff: whatever you want updated, no contract), Create link. The private link works 14 days; the person fills it in on their phone, section by section, signs each declaration by typing their name, and it writes straight into their record — nothing to copy over. Copy the link to send by text, WhatsApp or your own email; HQ emails it itself once Microsoft 365 is connected. People shows sent / opened / returned per person. Contract section is ready for the template.'
+  ]},
+  {v:'v52', date:'17 Oct 2026', notes:[
+    'The door tablet (HR · phase 1). A tablet login (Users → preset “Door tablet”) opens straight on the sign-in screen: staff type a 4-digit PIN and tap Sign IN or Sign OUT (leaving site for any reason is a sign-out, so the fire register is always true); a photo is taken at each tap and kept 4 weeks. First time here: pick your name, choose a PIN, done — nobody needs a PIN in advance. Visitors and contractors sign in with name, company, host, vehicle, the six site rules confirmed one by one, badge number; contractors add the work, where, permit to work and hot work. Who’s on site is one tap away; visitors sign out by tapping their name.',
+    'Fire · roll call: one button turns the tablet into the roll call — everyone on site listed, tick them at the assembly point, the unticked count stays on screen; saved as drill or real. Anyone still signed in 16 hours later is closed automatically and flagged for the manager.',
+    'HR workspace: People (names from the Ayr fire register, site, shift day/back/night, dept, role, hours, PIN status, reset PIN, leavers) and Attendance (on site now, set-up-today faces, the day’s sign-ins with photos, visitors and contractors, roll calls, fix a time or add a missing sign-in/out — logged — and print the day as the paper fire register). New permission area “HR”; admins have it.',
+    'Next: the full employee record and starter pack with the contract, then timesheets with the Tuesday send to accounts.'
+  ]},
   {v:'v51', date:'17 Oct 2026', notes:[
     'Recipe versions (Recipe Costing). A recipe is now a family of numbered versions with exactly one LIVE version. Next to the recipe name a small control reads “v2 · live since …”; open it to see every version with its dates and cost, start a new version (a copy of the one you are looking at), compare two versions ingredient by ingredient, or open the History page. Editing a version that has ever been live always saves as a NEW version — nothing used in production is overwritten. Drafts are invisible to the factory.',
     'Live from: when saving or from the version page, set the date a version goes live. Today or earlier = live now. A later date = scheduled; HQ switches at midnight that day even if nobody opens Costing (the previous version gets its live-until date). Every version keeps live-from / live-until, who made it live, and how many batches were made with it. Mixing sheets, Pick & Mix, filling and stock follow the live version automatically; each batch records its version.',
@@ -2542,7 +2560,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v51';
+const APP_VERSION='v53';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -2636,7 +2654,7 @@ function startVersionWatch(){
 }
 
 /* ---- render the production/stock tabs when their nav button is clicked ---- */
-function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,girecords:renderGiRecords,purchasing:renderPurchasing,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
+function renderForTab(v){ ({home:renderHomeMenu,filling:renderFilling,production:renderProduction,filldash:renderFilldash,cooking:renderCooking,prodsum:renderProdsum,pickmix:renderPickmix,optimings:renderOptimings,stock:renderStock,deliveries:renderDeliveries,girecords:renderGiRecords,people:renderPeople,attendance:renderAttendance,purchasing:renderPurchasing,adjustments:renderAdjustments,packaging:renderPackaging,suppliers:renderSuppliers,users:renderUsers,email:renderEmail,costing:renderCosting,complaints:renderComplaints,kpi:renderKpi,kpiinput:renderKpiInput,specs:renderSpecs}[v]||function(){})(); }
 /* KPI dashboard module (same pattern as costing: served by the app, shown in a frame) */
 function renderKpi(){ const f=document.getElementById('kpiFrame'); if(!f) return; const want='/kpi?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
 function renderSpecs(){ const f=document.getElementById('specsFrame'); if(!f) return; const want='/specs?token='+encodeURIComponent(TOKEN)+'&embed=1'; if(f.getAttribute('src')!==want) f.setAttribute('src',want); }
@@ -2744,6 +2762,8 @@ const SB_SECTIONS={
   hr:[
     ['home','Today','home'],
     ['planning','Planning','planning'],
+    ['people','People','people'],
+    ['attendance','Attendance','clipboardCheck'],
     ['users','Users','user']
   ]
 };
@@ -2881,6 +2901,8 @@ const AREAS=[
   {k:'kpi',label:'KPI Dashboard (edit = change targets & settings)',edit:true},
   {k:'kpiinput',label:'KPI daily input',edit:true},
   {k:'specs',label:'Product Specs (edit = change spec sheets)',edit:true},
+  {k:'hr',label:'HR (people, attendance; edit = fix times, reset PINs)',edit:true},
+  {k:'door',label:'Door tablet (sign-in screen only — for the tablet’s own login)',edit:false},
   {k:'log',label:'Change Log',edit:false},{k:'users',label:'Users',edit:true},
   {k:'email',label:'Email',edit:true}
 ];
@@ -2889,7 +2911,8 @@ const PRESETS={
   cooking:{view:{purchasing:1,cooking:1,filldash:1,production:1,prodsum:1,mixing:1},edit:{purchasing:1,cooking:1}},
   office:{view:{purchasing:1,library:1,ingredients:1,mixing:1,filling:1,production:1,prodsum:1,cooking:1,pickmix:1,filldash:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,log:1,complaints:1},edit:{purchasing:1,filling:1,production:1,cooking:1,pickmix:1,planner:1,deliveries:1,suppliers:1,stock:1,adjustments:1,packaging:1,optimings:1,complaints:1}},
   customerservice:{view:{purchasing:1,complaints:1},edit:{purchasing:1,complaints:1}},
-  display:{view:{purchasing:1,kpi:1},edit:{purchasing:1,},display:1}
+  display:{view:{purchasing:1,kpi:1},edit:{purchasing:1,},display:1},
+  door:{view:{door:1},edit:{},door:1}
 };
 function isAdmin(){ return !!(CURRENT_USER && CURRENT_USER.role==='admin'); }
 /* ===== two factories: Ayr (fresh/cooked) and Blair (cold pressed) =====
@@ -2908,8 +2931,8 @@ function inFactory(r){ const f=currentFactory(); return f==='all' || factoryOf(r
 let SHOW_ALL_STAGES=false; try{ SHOW_ALL_STAGES=localStorage.getItem('wpm_allstages')==='1'; }catch(e){}
 function stageOk(r){ return SHOW_ALL_STAGES || !r.stage || r.stage==='production'; }
 function VREC(){ return state.recipes.filter(r=>inFactory(r)&&stageOk(r)); }
-function canView(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
-function canEdit(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
+function canView(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
+function canEdit(a){ if(a==='girecords') a='deliveries'; if(a==='people'||a==='attendance') a='hr'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 
 /* ===== Filling-line targets & shift timing ===== */
 const FILL_SIZES=[250,300,380,400,500,700];                 // pack sizes (grams) shown in Operations timings
@@ -4390,6 +4413,100 @@ function stocktake(id){ const s=state.stock.find(x=>x.id===id);
 window.stockSet=stockSet; window.stocktake=stocktake;
 
 /* ===== Deliveries ===== */
+/* ===== HR phase 1 (v52): People and Attendance ===== */
+const SHIFTS=[['day','Day shift'],['back','Back shift'],['night','Night shift']];
+let HR_EMPS=[];
+function hrShift(s){ return (SHIFTS.find(x=>x[0]===s)||[])[1]||s||''; }
+function hrSite(s){ return s==='blair'?'Blair':'Ayr'; }
+async function renderPeople(){
+  const root=document.getElementById('rootPeople'); if(!root) return; const ed=canEdit('hr');
+  root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><div class="gi-chips" id="peChips"></div><label class="fld">Search<input id="peQ" placeholder="name…" style="width:180px"></label><div class="spacer"></div>'+(ed?'<button class="btn coral" id="peAdd">＋ Add person</button>':'')+'</div>'+
+    '<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Name</th><th>Site</th><th>Shift</th><th>Dept · role</th><th class="num">Hours / wk</th><th>Started</th><th>PIN</th><th>Pack</th><th>Now</th><th></th></tr></thead><tbody id="peBody"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody></table></div>'+
+    '<p class="hint" style="margin-top:8px">PINs are chosen by each person at the tablet the first time they sign in. Open a person to see their record and to send them a pack — a private link where they fill in their own details.</p>';
+  let filter='active';
+  const draw=()=>{ const q=(document.getElementById('peQ').value||'').toLowerCase(); const list=HR_EMPS.filter(e=>(filter==='all'||e.status===filter)&&(!q||e.name.toLowerCase().includes(q)));
+    document.getElementById('peChips').innerHTML=[['active','Active',HR_EMPS.filter(e=>e.status==='active').length],['leaver','Leavers',HR_EMPS.filter(e=>e.status==='leaver').length],['all','All',HR_EMPS.length]].map(c=>'<button type="button" class="gi-chip'+(filter===c[0]?' on':'')+'" data-f="'+c[0]+'">'+c[1]+' · '+c[2]+'</button>').join('');
+    document.getElementById('peChips').querySelectorAll('.gi-chip').forEach(b=>b.onclick=()=>{ filter=b.dataset.f; draw(); });
+    document.getElementById('peBody').innerHTML=list.map(e=>'<tr><td><b>'+escapeHtml(e.name)+'</b>'+(e.status==='leaver'?' <span class="pill">leaver</span>':'')+'</td><td>'+hrSite(e.site)+'</td><td>'+escapeHtml(hrShift(e.shift))+'</td><td>'+escapeHtml([e.dept,e.role].filter(Boolean).join(' · '))+'</td><td class="num">'+fmt(e.hours_week)+'</td><td>'+escapeHtml(e.started||'')+'</td><td>'+(e.pin_set?'<span class="pill ok">set'+(e.pin_set_at?' '+escapeHtml(e.pin_set_at.slice(0,10)):'')+'</span>':'<span class="pill gi-am">not yet</span>')+'</td><td>'+hrPackPill(hrLatestPack(e.id))+'</td><td>'+(e.in?'<span class="pill ok">on site · '+escapeHtml(e.since)+'</span>':'<span class="muted" style="font-size:11px">'+escapeHtml(e.last||'—')+'</span>')+'</td><td class="num" style="white-space:nowrap"><button class="btn ghost sm" data-pe="'+e.id+'">Open</button></td></tr>').join('')||'<tr><td colspan="10" class="muted">Nobody here.</td></tr>';
+    document.getElementById('peBody').querySelectorAll('[data-pe]').forEach(b=>b.onclick=()=>peRecord(b.dataset.pe)); };
+  document.getElementById('peQ').oninput=draw; const ab=document.getElementById('peAdd'); if(ab) ab.onclick=()=>peModal(null);
+  try{ [HR_EMPS,HR_PACKS]=await Promise.all([api('/api/hr/employees'),api('/api/hr/packs')]); }catch(e){ document.getElementById('peBody').innerHTML='<tr><td colspan="10" class="muted">'+escapeHtml(e.message)+'</td></tr>'; return; }
+  draw();
+}
+function peModal(id){ const e=id?HR_EMPS.find(x=>x.id===id):{name:'',site:'ayr',shift:'day',dept:'',role:'',hours_week:40,status:'active',started:'',notes:''};
+  pop('<div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">'+(id?'Edit — '+escapeHtml(e.name):'Add person')+'</h3><button class="btn ghost sm" onclick="closeModal()">Close ✕</button></div>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:10px"><label class="fld" style="flex:2">Full name<input id="peName" value="'+escapeHtml(e.name)+'"></label><label class="fld">Site<select id="peSite"><option value="ayr"'+(e.site!=='blair'?' selected':'')+'>Ayr</option><option value="blair"'+(e.site==='blair'?' selected':'')+'>Blair</option></select></label><label class="fld">Shift<select id="peShift">'+SHIFTS.map(s=>'<option value="'+s[0]+'"'+(e.shift===s[0]?' selected':'')+'>'+s[1]+'</option>').join('')+'</select></label></div>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld">Department<input id="peDept" value="'+escapeHtml(e.dept||'')+'" placeholder="Production"></label><label class="fld">Role<input id="peRole" value="'+escapeHtml(e.role||'')+'" placeholder="Filling operator"></label><label class="fld">Hours / week<input id="peHours" type="number" step="0.5" value="'+(e.hours_week||40)+'" style="width:90px"></label><label class="fld">Started<input id="peStart" type="date" value="'+escapeHtml(e.started||'')+'"></label><label class="fld">Status<select id="peStatus"><option value="active"'+(e.status==='active'?' selected':'')+'>Active</option><option value="leaver"'+(e.status==='leaver'?' selected':'')+'>Leaver</option></select></label></div>'+
+    '<div class="row-flex" style="flex-wrap:wrap;gap:10px;margin-top:8px"><label class="fld" style="flex:1">Notes<input id="peNotes" value="'+escapeHtml(e.notes||'')+'"></label></div>'+
+    '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn coral" id="peSave">Save</button>'+(id?(e.pin_set?'<button class="btn ghost sm" id="peReset">Reset PIN</button>':'<span class="hint">No PIN yet — they set it at the tablet</span>'):'')+(id?'<button class="btn ghost sm" id="peDel" style="margin-left:auto;color:var(--warn)">Delete</button>':'')+'<span class="hint" id="peMsg"></span></div>');
+  const g=i=>(document.getElementById(i)||{}).value||'';
+  document.getElementById('peSave').onclick=async()=>{ try{ await api('/api/hr/employees','POST',{id:id||undefined,name:g('peName').trim(),site:g('peSite'),shift:g('peShift'),dept:g('peDept').trim(),role:g('peRole').trim(),hours_week:+g('peHours')||40,status:g('peStatus'),started:g('peStart'),notes:g('peNotes')}); closeModal(); if(id) peRecord(id); else renderPeople(); }catch(err){ document.getElementById('peMsg').textContent=err.message; } };
+  const rb=document.getElementById('peReset'); if(rb) rb.onclick=async()=>{ if(!confirm('Reset '+e.name+'’s PIN? They choose a new one at the tablet next time (First time here).')) return; try{ await api('/api/hr/employees/'+id+'/reset-pin','POST',{}); closeModal(); renderPeople(); }catch(err){ document.getElementById('peMsg').textContent=err.message; } };
+  const db_=document.getElementById('peDel'); if(db_) db_.onclick=async()=>{ if(!confirm('Delete '+e.name+'? Only possible if they have no sign-ins; otherwise mark them as a leaver.')) return; try{ await api('/api/hr/employees/'+id+'/delete','POST',{}); closeModal(); renderPeople(); }catch(err){ document.getElementById('peMsg').textContent=err.message; } };
+}
+window.peModal=peModal;
+/* ===== HR phase 2a (v53): the employee record and the pack ===== */
+let HR_SCHEMA_CACHE=null, HR_PACKS=[];
+async function hrSchema(){ if(!HR_SCHEMA_CACHE) HR_SCHEMA_CACHE=(await api('/api/hr/schema')).schema; return HR_SCHEMA_CACHE; }
+function hrPackPill(p){ if(!p) return '<span class="muted" style="font-size:11px">—</span>'; const d=s=>String(s||'').slice(0,10); if(p.status==='submitted') return '<span class="pill ok" title="returned '+escapeHtml(d(p.submitted))+'">returned '+escapeHtml(d(p.submitted))+'</span>'; if(p.status==='expired') return '<span class="pill gi-rd">expired</span>'; if(p.status==='revoked') return '<span class="muted" style="font-size:11px">cancelled</span>'; return '<span class="pill gi-am" title="'+(p.opened?'opened '+escapeHtml(d(p.opened)):'not opened yet')+'">sent '+escapeHtml(d(p.created))+(p.opened?' · opened':'')+'</span>'; }
+function hrLatestPack(empId){ return HR_PACKS.filter(p=>p.emp_id===empId).sort((a,b)=>String(b.created).localeCompare(String(a.created)))[0]; }
+async function peRecord(id){
+  const ed=canEdit('hr'); let S,R; try{ [S,R]=await Promise.all([hrSchema(),api('/api/hr/employees/'+encodeURIComponent(id)+'/record')]); }catch(e){ alert(e.message); return; }
+  const e=R.employee; const val=(g,k)=>{ const grp=S.find(x=>x.key===g); const src=grp&&grp.private?R.priv:R.hr; return ((src||{})[g]||{})[k]; };
+  const inp=(g,f)=>{ const v=val(g,f.k); const dis=ed?'':' disabled'; const id_=`rc_${g}_${f.k}`;
+    if(f.type==='info') return '<div class="hint" style="grid-column:1/-1">'+escapeHtml(f.label)+'</div>';
+    if(f.type==='yesno') return `<label class="fld">${escapeHtml(f.label)}<select id="${id_}"${dis}><option value="">—</option><option${v==='Yes'?' selected':''}>Yes</option><option${v==='No'?' selected':''}>No</option></select>${f.details&&val(g,f.k+'_details')?'<span class="hint">'+escapeHtml(val(g,f.k+'_details'))+'</span>':''}</label>`;
+    if(f.type==='options'||f.type==='select') return `<label class="fld">${escapeHtml(f.label)}<select id="${id_}"${dis}><option value="">—</option>${f.options.map(o=>`<option${v===o?' selected':''}>${escapeHtml(o)}</option>`).join('')}${v&&!f.options.includes(v)?`<option selected>${escapeHtml(v)}</option>`:''}</select>${f.other&&val(g,f.k+'_other')?'<span class="hint">'+escapeHtml(val(g,f.k+'_other'))+'</span>':''}</label>`;
+    if(f.type==='textarea') return `<label class="fld" style="grid-column:1/-1">${escapeHtml(f.label)}<textarea id="${id_}" rows="2"${dis}>${escapeHtml(v||'')}</textarea></label>`;
+    return `<label class="fld">${escapeHtml(f.label)}<input id="${id_}" type="${f.type==='date'?'date':'text'}" value="${escapeHtml(v||'')}"${dis}></label>`; };
+  const groups=S.filter(g=>g.key!=='eo').map(g=>{ const sig=(R.hr.signed||{})[g.key]; return `<details class="rc-grp"${g.key==='personal'?' open':''}><summary><b>${escapeHtml(g.title)}</b>${g.private?' <span class="pill" title="sealed in the database; HR only">sealed</span>':''}${sig?' <span class="muted" style="font-size:11px">signed by '+escapeHtml(sig.name)+' on '+escapeHtml(String(sig.at).slice(0,10))+'</span>':''}</summary><div class="rc-fields">${g.fields.map(f=>inp(g.key,f)).join('')}</div></details>`; }).join('');
+  const packs=R.packs.map(p=>`<div class="rc-pack">${hrPackPill(p)} <span class="muted" style="font-size:12px">${escapeHtml(p.sections.map(k=>(S.find(x=>x.key===k)||{}).title||k).join(', '))}</span>${p.status==='sent'?` <button class="btn ghost sm" data-copy="${escapeHtml(location.origin+p.link)}">Copy link</button> <button class="btn ghost sm" data-revoke="${p.id}">Cancel</button>`:''}</div>`).join('')||'<span class="muted" style="font-size:12px">No pack sent yet.</span>';
+  const secs=S.filter(g=>g.pack!==false).map(g=>`<label class="vis-row" style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" class="pkSec" value="${g.key}" checked> ${escapeHtml(g.title)}${g.private?' <span class="muted">(sealed)</span>':''}</label>`).join('')+`<label class="vis-row" style="display:flex;gap:8px;align-items:center;font-size:13px;opacity:.5"><input type="checkbox" disabled> Contract of employment <span class="muted">(template not loaded yet)</span></label>`;
+  document.body.classList.add('gi-open');
+  pop(`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">${escapeHtml(e.name)} <span class="muted" style="font-size:13px;font-weight:400">${hrSite(e.site)} · ${escapeHtml(hrShift(e.shift))}${e.status==='leaver'?' · leaver':''}</span></h3><div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="peModal('${id}')">Job, site, shift, PIN…</button><button class="btn ghost sm" onclick="giClose()">Close ✕</button></div></div>
+    <div class="card" style="margin-top:10px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><b>Pack</b>${ed?'<button class="btn coral sm" id="pkNew">Send a pack…</button>':''}</div><div id="pkList" style="margin-top:6px;display:flex;flex-direction:column;gap:6px">${packs}</div>
+      <div id="pkForm" style="display:none;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px"><div class="hint" style="margin-bottom:6px">Tick what ${escapeHtml(e.first||e.name)} should fill in. The link works for 14 days and writes straight into this record.</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px">${secs}</div><div class="row-flex" style="gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end"><label class="fld" style="max-width:300px">Email the link to (optional)<input id="pkEmail" type="email" placeholder="their personal email"></label><button class="btn coral sm" id="pkGo">Create link</button><span class="hint" id="pkMsg"></span></div><div id="pkOut" style="margin-top:8px"></div></div></div>
+    <div id="rcGroups">${groups}</div>
+    <div class="card" style="padding:10px 12px"><b>Equal opportunities</b> <span class="muted" style="font-size:12px">${R.eo_done?'answered — kept anonymous, counted in the monitoring totals only':'not answered yet'}</span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">${ed?'<button class="btn coral" id="rcSave">Save record</button>':''}<span class="hint" id="rcMsg"></span><span class="spacer"></span><span class="muted" style="font-size:11px">${R.log.length?'Last: '+escapeHtml(R.log[0].what)+' · '+escapeHtml(R.log[0].by)+' · '+escapeHtml(String(R.log[0].at).slice(0,16).replace('T',' ')):''}</span></div>`);
+  const wire=()=>{ document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{ try{ await navigator.clipboard.writeText(b.dataset.copy); b.textContent='Copied ✓'; }catch(x){ prompt('Copy this link:',b.dataset.copy); } }); document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ if(!confirm('Cancel this link? It will stop working.')) return; try{ await api('/api/hr/packs/'+b.dataset.revoke+'/revoke','POST',{}); peRecord(id); }catch(x){ alert(x.message); } }); };
+  wire();
+  const nb=document.getElementById('pkNew'); if(nb) nb.onclick=()=>{ const f=document.getElementById('pkForm'); f.style.display=f.style.display==='none'?'':'none'; };
+  const go=document.getElementById('pkGo'); if(go) go.onclick=async()=>{ const sections=[...document.querySelectorAll('.pkSec')].filter(c=>c.checked).map(c=>c.value); const msg=document.getElementById('pkMsg'); msg.textContent='Creating…'; try{ const r=await api('/api/hr/packs','POST',{emp_id:id,sections,email:(document.getElementById('pkEmail')||{}).value||''}); const link=location.origin+r.pack.link; document.getElementById('pkOut').innerHTML='<div class="card" style="padding:10px 12px;background:var(--pick,#eef6ff)"><div style="font-size:12px;color:var(--muted)">'+(r.emailed?'Emailed. ':'')+(r.warn?escapeHtml(r.warn)+' ':'')+'Send this link to '+escapeHtml(e.first||e.name)+' (WhatsApp, text or email):</div><div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap"><code style="font-size:12px;word-break:break-all">'+escapeHtml(link)+'</code><button class="btn ghost sm" data-copy="'+escapeHtml(link)+'">Copy link</button></div></div>'; msg.textContent=''; HR_PACKS=await api('/api/hr/packs'); wire(); }catch(x){ msg.textContent=x.message; } };
+  const sv=document.getElementById('rcSave'); if(sv) sv.onclick=async()=>{ const data={}; S.forEach(g=>{ if(g.key==='eo') return; g.fields.forEach(f=>{ const el=document.getElementById(`rc_${g.key}_${f.k}`); if(!el) return; const v=el.value; const old=val(g.key,f.k)||''; if(String(v)!==String(old)){ data[g.key]=data[g.key]||{}; data[g.key][f.k]=v; } }); }); if(!Object.keys(data).length){ document.getElementById('rcMsg').textContent='Nothing changed.'; return; } try{ await api('/api/hr/employees/'+encodeURIComponent(id)+'/record','POST',{data}); document.getElementById('rcMsg').textContent='Saved ✓'; setTimeout(()=>peRecord(id),400); }catch(x){ document.getElementById('rcMsg').textContent=x.message; } };
+}
+window.peRecord=peRecord;
+
+let AT_DAY='';
+async function renderAttendance(){
+  const root=document.getElementById('rootAttendance'); if(!root) return; const ed=canEdit('hr'); if(!AT_DAY) AT_DAY=todayISO();
+  root.innerHTML='<div class="toolbar" style="flex-wrap:wrap;gap:8px"><button class="btn ghost sm" id="atPrev">◀</button><label class="fld">Day<input type="date" id="atDay" value="'+AT_DAY+'"></label><button class="btn ghost sm" id="atNext">▶</button><div class="spacer"></div>'+(ed?'<button class="btn ghost sm" id="atAdd">＋ Add a missing sign-in / out</button>':'')+'<button class="btn ghost sm" id="atPrint">🖨 Fire register</button></div><div id="atBody"><p class="muted">Loading…</p></div>';
+  const shift=(n)=>{ const d=new Date(AT_DAY+'T00:00:00'); d.setDate(d.getDate()+n); AT_DAY=d.toISOString().slice(0,10); renderAttendance(); };
+  document.getElementById('atPrev').onclick=()=>shift(-1); document.getElementById('atNext').onclick=()=>shift(1); document.getElementById('atDay').onchange=e=>{ AT_DAY=e.target.value; renderAttendance(); };
+  let d; try{ d=await api('/api/hr/attendance?day='+AT_DAY); }catch(e){ document.getElementById('atBody').innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; return; }
+  const isToday=d.day===d.today; const hm=a=>String(a||'').slice(11,16);
+  const onsite=isToday?'<div class="card"><h3 style="margin:0 0 6px">On site now · '+d.onsite.length+'</h3><div style="display:flex;flex-wrap:wrap;gap:6px">'+(d.onsite.map(o=>'<span class="pill '+(o.kind==='staff'?'ok':'gi-am')+'" title="in '+escapeHtml(o.since)+'">'+escapeHtml(o.name)+(o.kind!=='staff'?' · '+escapeHtml(o.kind):'')+'</span>').join('')||'<span class="muted">Nobody signed in.</span>')+'</div></div>':'';
+  const setups=d.setups.length?'<div class="card"><h3 style="margin:0 0 6px">Set up today · '+d.setups.length+'</h3><p class="hint" style="margin:0 0 8px">Check each face matches the name. Wrong one: reset the PIN in People.</p><div style="display:flex;flex-wrap:wrap;gap:10px">'+d.setups.map(s=>'<div style="text-align:center;font-size:12px"><div class="at-ph" data-ph="setup/'+s.id+'" style="width:84px;height:63px;border-radius:8px;background:var(--chip);margin:0 auto 4px"></div>'+escapeHtml(s.name)+'<div class="muted">'+escapeHtml(hm(s.pin_set_at))+'</div></div>').join('')+'</div></div>':'';
+  const ev=d.events.map(a=>'<tr'+(a.auto?' class="gi-row-am"':'')+'><td>'+escapeHtml(hm(a.at))+'</td><td><b>'+escapeHtml(a.name)+'</b></td><td>'+(a.dir==='in'?'<span class="pill ok">IN</span>':'<span class="pill gi-rd">OUT</span>')+'</td><td>'+(a.has_photo?'<div class="at-ph" data-ph="att/'+a.id+'" style="width:56px;height:42px;border-radius:6px;background:var(--chip)"></div>':'')+'</td><td>'+escapeHtml(a.door||'')+'</td><td class="muted" style="font-size:12px">'+(a.auto?'<b style="color:#8a6600">auto-closed — check</b> ':'')+escapeHtml(a.note||'')+(a.by&&a.by!=='tablet'&&a.by!=='auto'?' · by '+escapeHtml(a.by):'')+'</td><td class="num" style="white-space:nowrap">'+(ed?'<button class="btn ghost sm" data-fix="'+a.id+'" data-at="'+escapeHtml(a.at)+'">Fix time</button> <button class="btn ghost sm" data-del="'+a.id+'" title="Remove this event">✕</button>':'')+'</td></tr>').join('');
+  const vis=d.visitors.map(v=>'<tr><td>'+escapeHtml(hm(v.in_at))+'</td><td><b>'+escapeHtml(v.name)+'</b>'+(v.company?'<div class="muted" style="font-size:11px">'+escapeHtml(v.company)+'</div>':'')+'</td><td>'+escapeHtml(v.kind)+'</td><td>'+escapeHtml(v.host||'')+'</td><td>'+escapeHtml(v.vehicle||'')+'</td><td>'+escapeHtml(v.badge||'')+'</td><td>'+(v.permit?escapeHtml([v.permit.work,v.permit.where,v.permit.permit,v.permit.hot==='Yes'?'hot work':''].filter(Boolean).join(' · ')):'')+'</td><td>'+(v.out_at?escapeHtml(hm(v.out_at))+(v.auto?' <span class="pill gi-am">auto</span>':''):(ed?'<button class="btn ghost sm" data-vout="'+v.id+'">Sign out now</button>':'<span class="pill ok">on site</span>'))+'</td></tr>').join('');
+  const rc=d.rollcalls.map(r=>'<div class="card" style="padding:10px 14px"><b>Roll call '+escapeHtml(hm(r.started))+'</b> · started by '+escapeHtml(r.started_by)+' · '+(r.closed?escapeHtml(r.kind)+' · closed '+escapeHtml(hm(r.closed)):'<span class="pill gi-rd">still open</span>')+'<div class="muted" style="font-size:12px;margin-top:4px">'+r.people.filter(p=>p.ticked).length+' of '+r.people.length+' accounted for'+(r.people.some(p=>!p.ticked)?' · not ticked: '+escapeHtml(r.people.filter(p=>!p.ticked).map(p=>p.name).join(', ')):'')+'</div></div>').join('');
+  document.getElementById('atBody').innerHTML=onsite+setups+'<h3>Staff sign-ins · '+d.events.length+'</h3><div class="card" style="padding:0;overflow:auto"><table class="gi-list"><thead><tr><th>Time</th><th>Name</th><th></th><th>Photo</th><th>Door</th><th>Note</th><th></th></tr></thead><tbody>'+(ev||'<tr><td colspan="7" class="muted">No sign-ins this day.</td></tr>')+'</tbody></table></div>'+
+    '<h3>Visitors &amp; contractors · '+d.visitors.length+'</h3><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>In</th><th>Name</th><th>Kind</th><th>Host</th><th>Vehicle</th><th>Badge</th><th>Permit</th><th>Out</th></tr></thead><tbody>'+(vis||'<tr><td colspan="8" class="muted">None this day.</td></tr>')+'</tbody></table></div>'+(rc?'<h3>Roll calls</h3>'+rc:'');
+  document.querySelectorAll('.at-ph').forEach(async el=>{ try{ const p=await api('/api/hr/photo/'+el.dataset.ph); if(p.photo){ el.style.background='url('+p.photo+') center/cover'; el.title='click to enlarge'; el.style.cursor='zoom-in'; el.onclick=()=>pop('<img src="'+p.photo+'" style="width:100%;border-radius:10px"><div style="margin-top:8px"><button class="btn ghost sm" onclick="closeModal()">Close</button></div>'); } }catch(e){} });
+  const fixModal=(id,at,empId)=>{ pop('<h3 style="margin:0 0 8px">'+(id?'Fix the time':'Add a missing sign-in / out')+'</h3><div class="row-flex" style="flex-wrap:wrap;gap:10px">'+(id?'':'<label class="fld">Person<select id="fxEmp">'+HR_EMPS.filter(e=>e.status==='active').map(e=>'<option value="'+e.id+'">'+escapeHtml(e.name)+'</option>').join('')+'</select></label><label class="fld">Direction<select id="fxDir"><option value="in">IN</option><option value="out">OUT</option></select></label>')+'<label class="fld">Time<input type="datetime-local" id="fxAt" value="'+escapeHtml(at||(AT_DAY+'T16:00'))+'"></label><label class="fld" style="flex:1">Reason<input id="fxNote" placeholder="e.g. forgot to sign out, left 16:05"></label></div><div style="margin-top:12px;display:flex;gap:8px;align-items:center"><button class="btn coral" id="fxGo">Save</button><button class="btn ghost sm" onclick="closeModal()">Cancel</button><span class="hint" id="fxMsg"></span></div>');
+    document.getElementById('fxGo').onclick=async()=>{ const g=i=>(document.getElementById(i)||{}).value||''; try{ await api('/api/hr/attendance/fix','POST',{id:id||undefined,emp_id:id?undefined:g('fxEmp'),dir:id?undefined:g('fxDir'),at:g('fxAt').slice(0,16),note:g('fxNote')}); closeModal(); renderAttendance(); }catch(e){ document.getElementById('fxMsg').textContent=e.message; } }; };
+  document.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>fixModal(b.dataset.fix,b.dataset.at));
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remove this sign-in event? This is logged.')) return; try{ await api('/api/hr/attendance/delete','POST',{id:b.dataset.del}); renderAttendance(); }catch(e){ alert(e.message); } });
+  document.querySelectorAll('[data-vout]').forEach(b=>b.onclick=async()=>{ try{ await api('/api/hr/visitors/'+b.dataset.vout+'/out','POST',{}); renderAttendance(); }catch(e){ alert(e.message); } });
+  const ad=document.getElementById('atAdd'); if(ad) ad.onclick=async()=>{ if(!HR_EMPS.length){ try{ HR_EMPS=await api('/api/hr/employees'); }catch(e){} } fixModal(null,null); };
+  document.getElementById('atPrint').onclick=()=>{ // the day as the paper fire register: number, name, times in/out in pairs
+    const byEmp={}; d.events.forEach(a=>{ (byEmp[a.name]=byEmp[a.name]||[]).push(a); }); const names=Object.keys(byEmp).sort();
+    const rows=names.map((n,i)=>{ const ev=byEmp[n]; const cells=[]; ev.forEach(a=>cells.push(hm(a.at)+(a.auto?'*':''))); while(cells.length<6) cells.push(''); return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(n)+'</td>'+cells.slice(0,6).map(c=>'<td>'+escapeHtml(c)+'</td>').join('')+'</tr>'; }).join('');
+    const vrows=d.visitors.map(v=>'<tr><td></td><td>'+escapeHtml(v.name)+(v.company?' · '+escapeHtml(v.company):'')+' ('+escapeHtml(v.kind)+')</td><td>'+escapeHtml(v.badge||'')+'</td><td>'+escapeHtml(hm(v.in_at))+'</td><td>'+escapeHtml(hm(v.out_at))+'</td><td></td><td></td><td>'+(v.out_at&&v.badge?'✓':'')+'</td></tr>').join('');
+    const host=document.getElementById('view-print-picking'); host.innerHTML='<div class="mixsheet"><div class="hd"><div><div class="t">WILSONS TIMESHEETS / FIRE REGISTER</div><div class="b"><b>Wilsons Pet Food · Ayr</b> · '+escapeHtml(d.day)+'</div></div></div><table class="ms-table"><thead><tr><th>Fire alarm</th><th>Employee name</th><th>Time in</th><th>Time out</th><th>Time in</th><th>Time out</th><th>Time in</th><th>Time out</th></tr></thead><tbody>'+rows+'</tbody></table><p class="b" style="margin-top:8px">* closed automatically — no sign-out recorded</p><table class="ms-table" style="margin-top:12px"><thead><tr><th>Fire alarm</th><th>Contractor / visitor</th><th>Badge issued</th><th>Time in</th><th>Time out</th><th>Time in</th><th>Time out</th><th>Badge returned</th></tr></thead><tbody>'+(vrows||'<tr><td colspan="8"></td></tr>')+'</tbody></table></div>';
+    document.getElementById('pageStyle').textContent='@page{size:A4 portrait;margin:12mm}'; host.classList.add('printing'); window.print(); setTimeout(()=>{ host.classList.remove('printing'); document.getElementById('pageStyle').textContent=''; },400); };
+}
+window.renderPeople=renderPeople; window.renderAttendance=renderAttendance;
 /* ===== Goods in (v50): one sheet for every delivery, with or without an order; tablet-friendly;
    saves with just ingredient + kilos, flags what's missing; approval numbers looked up in the official registers ===== */
 let GI_LIST=[], GI_FILTER='attention', GI_ATTN=0, _giHauliers=null;
@@ -5251,6 +5368,7 @@ function userModal(id){
        <button class="btn ghost sm" onclick="applyPreset('filling')">Filling line</button>
        <button class="btn ghost sm" onclick="applyPreset('cooking')">Cooking</button>
        <button class="btn ghost sm" onclick="applyPreset('office')">Ops admin</button>
+       <button class="btn ghost sm" onclick="applyPreset('door')">Door tablet</button>
        <button class="btn ghost sm" onclick="applyPreset('clear')">Clear</button></div>
      <div id="permBox" class="card" style="padding:8px;max-height:300px;overflow:auto;margin-top:8px">${permMatrix(u?u.perms:null)}</div>
      <p class="hint">Admins always have full access — the table below applies to non‑admin accounts.</p>

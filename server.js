@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v51';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v53';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -1169,6 +1169,7 @@ const server = http.createServer(async (req, res) => {
   const m = req.method;
   try {
     // --- auth ---
+    if (url.startsWith('/api/pack/') && (m === 'GET' || m === 'POST')) { try { await packPublic(url, m, req, res); } catch (e) { json(res, 500, { error: e.message }); } return; }
     if (url === '/api/login' && m === 'POST') {
       const b = await readBody(req); const u = db.prepare('SELECT * FROM users WHERE username=?').get((b.username || '').trim());
       if (!u || !verifyPw(b.password || '', u.salt, u.hash)) return json(res, 401, { error: 'Invalid username or password' });
@@ -1264,6 +1265,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     // --- KPI dashboard page: signed-in users with the KPI (or KPI input) permission ---
+    if (url.startsWith('/pack/') && m === 'GET') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'pack.html'))); }
+    if (url === '/door' && m === 'GET') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'door.html'))); }
     if (url === '/kpi' && m === 'GET') {
       const q = new URLSearchParams((req.url.split('?')[1] || ''));
       const tok = q.get('token') || '';
@@ -1976,6 +1979,7 @@ const server = http.createServer(async (req, res) => {
       if (await poRoutes({ url, m, req, res, user })) return;
       if (await giRoutes({ url, m, req, res, user })) return;
       if (await rvRoutes({ url, m, req, res, user })) return;
+      if (await hrRoutes({ url, m, req, res, user })) return;
       // ---- Microsoft 365 email: status, test-send, pause switch (admins only) ----
       if (url === '/api/mail/status' && m === 'GET') {
         if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
@@ -2476,3 +2480,219 @@ async function rvRoutes(ctx) {
   }
   return false;
 }
+
+
+/* ============================================================================
+ * v52 — HR phase 1: the door. Employees (names, site, shift, PIN), the sign-in tablet
+ * (staff in/out with a photo, visitors and contractors with the site rules, who is on site,
+ * fire roll call), midnight auto-close, 28-day photo retention, and the People / Attendance
+ * screens in HQ. Timesheets and the full employee record come next.
+ * ==========================================================================*/
+db.exec("CREATE TABLE IF NOT EXISTS employees(id TEXT PRIMARY KEY, name TEXT, first TEXT DEFAULT '', last TEXT DEFAULT '', site TEXT DEFAULT 'ayr', shift TEXT DEFAULT 'day', dept TEXT DEFAULT '', role TEXT DEFAULT '', hours_week REAL DEFAULT 40, status TEXT DEFAULT 'active', started TEXT DEFAULT '', pin_hash TEXT DEFAULT '', pin_set INTEGER DEFAULT 0, pin_set_at TEXT DEFAULT '', setup_photo TEXT DEFAULT '', hr TEXT DEFAULT '{}', notes TEXT DEFAULT '', created TEXT, updated TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS attendance(id TEXT PRIMARY KEY, emp_id TEXT, dir TEXT, at TEXT, day TEXT, door TEXT DEFAULT '', photo TEXT DEFAULT '', auto INTEGER DEFAULT 0, by TEXT DEFAULT 'tablet', note TEXT DEFAULT '', created TEXT)");
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_att_emp ON attendance(emp_id, at)'); } catch (e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_att_day ON attendance(day)'); } catch (e) {}
+db.exec("CREATE TABLE IF NOT EXISTS attendance_log(id INTEGER PRIMARY KEY, att_id TEXT, what TEXT, before TEXT, after TEXT, by TEXT, at TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS visitors(id TEXT PRIMARY KEY, kind TEXT DEFAULT 'visitor', name TEXT, company TEXT DEFAULT '', host TEXT DEFAULT '', vehicle TEXT DEFAULT '', badge TEXT DEFAULT '', rules_ok INTEGER DEFAULT 0, permit TEXT DEFAULT '', in_at TEXT, out_at TEXT DEFAULT '', day TEXT, door TEXT DEFAULT '', auto INTEGER DEFAULT 0, created TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS rollcalls(id TEXT PRIMARY KEY, started TEXT, started_by TEXT, door TEXT DEFAULT '', people TEXT, closed TEXT DEFAULT '', kind TEXT DEFAULT '', note TEXT DEFAULT '')");
+const SITE_RULES = ['No food, drink, chewing gum or smoking in production areas', 'Tell your host about any illness, allergies or open cuts before you enter', 'Wear the coat, hairnet and overshoes you are given', 'No photos or videos; stay with your host at all times', 'Wash your hands before entering production', 'When the alarm sounds, leave by the nearest exit and go to the assembly point'];
+function hrLondon(d) { const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d || new Date()); const g = t => (p.find(x => x.type === t) || {}).value; const hh = g('hour') === '24' ? '00' : g('hour'); return { day: g('year') + '-' + g('month') + '-' + g('day'), hm: hh + ':' + g('minute'), at: g('year') + '-' + g('month') + '-' + g('day') + 'T' + hh + ':' + g('minute') }; }
+function hrPinHash(pin) { const salt = metaGet('pinSalt') || (function () { const v = crypto.randomBytes(16).toString('hex'); metaSet('pinSalt', v); return v; })(); return crypto.createHash('sha256').update(salt + '|' + String(pin)).digest('hex'); }
+function hrDoorCan(u) { return u.role === 'admin' || !!(u.perms && (u.perms.door || (u.perms.view && (u.perms.view.door || u.perms.view.hr)))); }
+function hrCan(u) { return u.role === 'admin' || !!(u.perms && u.perms.view && u.perms.view.hr); }
+function hrCanEdit(u) { return u.role === 'admin' || !!(u.perms && u.perms.edit && u.perms.edit.hr); }
+// one-time: the Ayr fire-register names become the staff list (no PINs yet — each person sets one at the tablet)
+(function seedEmployees() {
+  if (metaGet('employeesSeedV') === '1') return;
+  const names = ['Craig Wallace', 'Enya Wallace', 'Neil Westwood', 'Kamil Skrzeszowski', 'Colin Martin', 'Tasha Clark', 'Josh Galloway', 'Michael Wake', 'Katarzyna Mucharzewska', 'Graeme Glover', 'William Rodger', 'Stephanie Hopes', 'Bailey Morrison', 'Pavel Cermak', 'Iain Waller', 'Morgan Brown', 'Charlie McPheators', 'Morgan Farrell', 'Alison Rawney', 'Lee Ahern', 'Paul Withers'];
+  const ins = db.prepare("INSERT INTO employees(id,name,first,last,site,shift,status,created,updated) VALUES(?,?,?,?,'ayr','day','active',?,?)");
+  let n = 0; names.forEach(nm => { if (db.prepare('SELECT id FROM employees WHERE name=?').get(nm)) return; const parts = nm.split(' '); ins.run(uid('e'), nm, parts[0], parts.slice(1).join(' '), now(), now()); n++; });
+  metaSet('employeesSeedV', '1'); console.log('Employees seeded from the fire register: ' + n);
+})();
+function hrLastEvent(empId) { return db.prepare('SELECT * FROM attendance WHERE emp_id=? ORDER BY at DESC, created DESC LIMIT 1').get(empId); }
+function hrWeekHours(empId) {   // Monday 00:00 London → now, paired in/out in order; an open "in" counts to now
+  const L = hrLondon(); const d = new Date(L.day + 'T00:00:00'); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); const monday = d.toISOString().slice(0, 10);
+  const ev = db.prepare("SELECT dir, at FROM attendance WHERE emp_id=? AND at>=? ORDER BY at, created").all(empId, monday + 'T00:00');
+  let mins = 0, open = null; const toMin = a => { const m = String(a).match(/T(\d{2}):(\d{2})/); const dd = new Date(String(a).slice(0, 10) + 'T00:00:00'); return Math.floor(dd.getTime() / 60000) + (+m[1]) * 60 + (+m[2]); };
+  ev.forEach(e => { if (e.dir === 'in') open = toMin(e.at); else if (open != null) { mins += Math.max(0, toMin(e.at) - open); open = null; } });
+  if (open != null) mins += Math.max(0, toMin(L.at) - open);
+  return mins;
+}
+function hrFmtH(mins) { return Math.floor(mins / 60) + ' h ' + String(mins % 60).padStart(2, '0'); }
+function hrEmpView(e) { const last = hrLastEvent(e.id); const inNow = !!(last && last.dir === 'in'); return { id: e.id, name: e.name, first: e.first || e.name.split(' ')[0], site: e.site, shift: e.shift, in: inNow, since: inNow ? last.at.slice(11) : '', last: last ? ((last.dir === 'in' ? 'IN ' : 'OUT ') + last.at.replace('T', ' ')) : '', week: hrFmtH(hrWeekHours(e.id)), pin_set: !!e.pin_set }; }
+function hrOnsite() {
+  const out = [];
+  db.prepare("SELECT * FROM employees WHERE status='active' ORDER BY name").all().forEach(e => { const last = hrLastEvent(e.id); if (last && last.dir === 'in') out.push({ kind: 'staff', id: e.id, name: e.name, since: last.at.slice(11), day: last.day }); });
+  db.prepare("SELECT * FROM visitors WHERE out_at='' ORDER BY in_at").all().forEach(v => out.push({ kind: v.kind, id: v.id, name: v.name, company: v.company, host: v.host, badge: v.badge, since: v.in_at.slice(11), day: v.day }));
+  return out;
+}
+function hrAutoClose() {   // an "in" with no "out" for 16 hours is closed 10 hours after it started and flagged for the manager; visitors are closed at 23:59 of their day
+  const nowMs = Date.now(); const L = hrLondon();
+  db.prepare("SELECT * FROM employees WHERE status='active'").all().forEach(e => { const last = hrLastEvent(e.id); if (!last || last.dir !== 'in') return; const t = new Date(last.at + ':00').getTime(); if (nowMs - t < 16 * 3600e3) return; const closeAt = new Date(t + 10 * 3600e3); const Lc = hrLondon(closeAt); db.prepare("INSERT INTO attendance(id,emp_id,dir,at,day,door,photo,auto,by,note,created) VALUES(?,?,'out',?,?,?,'',1,'auto','no sign-out recorded — closed automatically, please check',?)").run(uid('a'), e.id, Lc.at, Lc.day, last.door || '', now()); });
+  db.prepare("SELECT id, day FROM visitors WHERE out_at='' AND day<?").all(L.day).forEach(v => db.prepare("UPDATE visitors SET out_at=?, auto=1 WHERE id=?").run(v.day + 'T23:59', v.id));
+  try { const cutoff = new Date(nowMs - 28 * 86400e3).toISOString().slice(0, 10); db.prepare("UPDATE attendance SET photo='' WHERE photo<>'' AND day<?").run(cutoff); db.prepare("UPDATE employees SET setup_photo='' WHERE setup_photo<>'' AND pin_set_at<>'' AND substr(pin_set_at,1,10)<?").run(cutoff); } catch (e) {}
+}
+setTimeout(() => { try { hrAutoClose(); } catch (e) { console.log('attendance auto-close failed: ' + e.message); } }, 40 * 1000);
+setInterval(() => { try { hrAutoClose(); } catch (e) { console.log('attendance auto-close failed: ' + e.message); } }, 15 * 60 * 1000);
+function hrDoorState(user) {
+  const L = hrLondon(); const active = db.prepare("SELECT * FROM employees WHERE status='active' ORDER BY name").all();
+  const open = db.prepare("SELECT * FROM rollcalls WHERE closed='' ORDER BY started DESC LIMIT 1").get(); let rc = null; if (open) { try { rc = { id: open.id, started_hm: open.started.slice(11, 16), people: JSON.parse(open.people || '[]') }; } catch (e) { rc = null; } }
+  const hosts = db.prepare("SELECT username FROM users WHERE role='admin' OR perms LIKE '%\"hr\"%' ORDER BY username").all().map(u => u.username);
+  return { door: user.username, today: new Date().toLocaleDateString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short' }), now: L.hm, onsite: hrOnsite(), staff: active.map(e => ({ id: e.id, name: e.name, shift: e.shift, pin_set: !!e.pin_set })), hosts: hosts.length ? hosts : ['Kamil'], rules: SITE_RULES, rollcall: rc };
+}
+async function hrRoutes(ctx) {
+  const { url, m, req, res, user } = ctx;
+  if (!(url.startsWith('/api/door') || url.startsWith('/api/hr'))) return false;
+  const qs = new URLSearchParams(req.url.split('?')[1] || '');
+  /* ---- the tablet ---- */
+  if (url.startsWith('/api/door')) {
+    if (!hrDoorCan(user)) { json(res, 403, { error: 'This login is not a door account.' }); return true; }
+    const door = user.username; const L = hrLondon();
+    if (url === '/api/door/state' && m === 'GET') { json(res, 200, hrDoorState(user)); return true; }
+    if (url === '/api/door/pin' && m === 'POST') { const b = await readBody(req); const pin = String((b && b.pin) || ''); if (!/^\d{4}$/.test(pin)) { json(res, 400, { error: 'PIN not recognised' }); return true; } const e = db.prepare("SELECT * FROM employees WHERE status='active' AND pin_set=1 AND pin_hash=?").get(hrPinHash(pin)); if (!e) { json(res, 404, { error: 'PIN not recognised' }); return true; } json(res, 200, { emp: hrEmpView(e) }); return true; }
+    if (url === '/api/door/setup' && m === 'POST') {
+      const b = await readBody(req); const e = db.prepare("SELECT * FROM employees WHERE id=? AND status='active'").get(String((b && b.emp_id) || '')); const pin = String((b && b.pin) || '');
+      if (!e) { json(res, 404, { error: 'Name not found — ask a manager' }); return true; } if (e.pin_set) { json(res, 409, { error: 'This name is already set up — see a manager' }); return true; } if (!/^\d{4}$/.test(pin)) { json(res, 400, { error: 'PIN must be 4 digits' }); return true; }
+      if (/^(\d)\1{3}$|^(0123|1234|2345|3456|4567|5678|6789|9876|8765|7654|6543|5432|4321|3210|0000)$/.test(pin)) { json(res, 400, { error: 'Too easy to guess — choose another PIN' }); return true; }
+      if (db.prepare("SELECT id FROM employees WHERE pin_set=1 AND pin_hash=? AND id<>?").get(hrPinHash(pin), e.id)) { json(res, 409, { error: 'That PIN is taken — choose another' }); return true; }
+      const photo = String((b && b.photo) || '').slice(0, 60000);
+      db.prepare("UPDATE employees SET pin_hash=?, pin_set=1, pin_set_at=?, setup_photo=?, updated=? WHERE id=?").run(hrPinHash(pin), now(), photo, now(), e.id);
+      const last = hrLastEvent(e.id); if (!last || last.dir !== 'in') db.prepare("INSERT INTO attendance(id,emp_id,dir,at,day,door,photo,auto,by,note,created) VALUES(?,?,'in',?,?,?,?,0,'tablet','first-time setup',?)").run(uid('a'), e.id, L.at, L.day, door, photo, now());
+      json(res, 200, { emp: hrEmpView(db.prepare('SELECT * FROM employees WHERE id=?').get(e.id)) }); return true;
+    }
+    if (url === '/api/door/punch' && m === 'POST') {
+      const b = await readBody(req); const e = db.prepare("SELECT * FROM employees WHERE id=? AND status='active'").get(String((b && b.emp_id) || '')); if (!e) { json(res, 404, { error: 'Not found' }); return true; }
+      const dir = b.dir === 'out' ? 'out' : 'in'; const last = hrLastEvent(e.id); if (last && last.dir === dir && (Date.now() - new Date(last.at + ':00').getTime()) < 60e3) { json(res, 200, { ok: true, at: last.at.slice(11), dup: true }); return true; }
+      db.prepare("INSERT INTO attendance(id,emp_id,dir,at,day,door,photo,auto,by,note,created) VALUES(?,?,?,?,?,?,?,0,'tablet','',?)").run(uid('a'), e.id, dir, L.at, L.day, door, String((b && b.photo) || '').slice(0, 60000), now());
+      json(res, 200, { ok: true, at: L.hm }); return true;
+    }
+    if (url === '/api/door/visitor' && m === 'POST') { const b = await readBody(req); if (!b || !String(b.name || '').trim()) { json(res, 400, { error: 'Name required' }); return true; } const permit = b.kind === 'contractor' ? JSON.stringify({ work: b.work || '', where: b.where || '', permit: b.permit || '', hot: b.hot || 'No' }) : ''; db.prepare("INSERT INTO visitors(id,kind,name,company,host,vehicle,badge,rules_ok,permit,in_at,out_at,day,door,auto,created) VALUES(?,?,?,?,?,?,?,1,?,?,'',?,?,0,?)").run(uid('v'), b.kind === 'contractor' ? 'contractor' : 'visitor', String(b.name).trim(), String(b.company || '').trim(), String(b.host || ''), String(b.vehicle || '').toUpperCase(), String(b.badge || ''), permit, L.at, L.day, door, now()); json(res, 200, { ok: true }); return true; }
+    let mm = url.match(/^\/api\/door\/visitor\/([^/]+)\/out$/); if (mm && m === 'POST') { db.prepare("UPDATE visitors SET out_at=? WHERE id=? AND out_at=''").run(L.at, decodeURIComponent(mm[1])); json(res, 200, { ok: true }); return true; }
+    if (url === '/api/door/rollcall/start' && m === 'POST') { const open = db.prepare("SELECT * FROM rollcalls WHERE closed='' ORDER BY started DESC LIMIT 1").get(); if (open) { json(res, 200, { id: open.id, started_hm: open.started.slice(11, 16), people: JSON.parse(open.people || '[]') }); return true; } const people = hrOnsite().map(o => ({ key: o.kind + ':' + o.id, kind: o.kind, name: o.name, since: o.since, ticked: false })); const id = uid('rc'); db.prepare("INSERT INTO rollcalls(id,started,started_by,door,people,closed,kind,note) VALUES(?,?,?,?,?,'','','')").run(id, L.at, user.username, door, JSON.stringify(people)); json(res, 200, { id, started_hm: L.hm, people }); return true; }
+    mm = url.match(/^\/api\/door\/rollcall\/([^/]+)\/(tick|close)$/);
+    if (mm && m === 'POST') { const rc = db.prepare('SELECT * FROM rollcalls WHERE id=?').get(decodeURIComponent(mm[1])); if (!rc) { json(res, 404, { error: 'not found' }); return true; } const b = await readBody(req); const people = JSON.parse(rc.people || '[]');
+      if (mm[2] === 'tick') { if (people[+b.i]) { people[+b.i].ticked = !!b.ticked; people[+b.i].at = L.hm; } db.prepare('UPDATE rollcalls SET people=? WHERE id=?').run(JSON.stringify(people), rc.id); json(res, 200, { ok: true }); return true; }
+      db.prepare("UPDATE rollcalls SET closed=?, kind=?, note=? WHERE id=?").run(L.at, String(b.kind || 'drill'), String(b.note || ''), rc.id); json(res, 200, { ok: true }); return true; }
+    json(res, 404, { error: 'unknown door call' }); return true;
+  }
+  /* ---- HQ: People & Attendance ---- */
+  if (!hrCan(user)) { json(res, 403, { error: 'You don’t have HR access.' }); return true; }
+  if (url === '/api/hr/employees' && m === 'GET') { json(res, 200, db.prepare('SELECT * FROM employees ORDER BY status, name').all().map(e => { const v = hrEmpView(e); return Object.assign({}, e, { pin_hash: undefined, setup_photo: e.setup_photo ? 1 : 0, in: v.in, since: v.since, last: v.last, week: v.week }); })); return true; }
+  if (url === '/api/hr/employees' && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const name = String((b && b.name) || '').trim(); if (!name) { json(res, 400, { error: 'Name required' }); return true; } const parts = name.split(' ');
+    if (b.id) { const ex = db.prepare('SELECT id FROM employees WHERE id=?').get(b.id); if (!ex) { json(res, 404, { error: 'not found' }); return true; } db.prepare('UPDATE employees SET name=?,first=?,last=?,site=?,shift=?,dept=?,role=?,hours_week=?,status=?,started=?,notes=?,updated=? WHERE id=?').run(name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', now(), b.id); json(res, 200, { ok: true, id: b.id }); return true; }
+    if (db.prepare('SELECT id FROM employees WHERE name=? AND status<>\'leaver\'').get(name)) { json(res, 409, { error: 'There is already someone with that name.' }); return true; }
+    const id = uid('e'); db.prepare("INSERT INTO employees(id,name,first,last,site,shift,dept,role,hours_week,status,started,notes,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, name, parts[0], parts.slice(1).join(' '), b.site || 'ayr', b.shift || 'day', b.dept || '', b.role || '', +b.hours_week || 40, b.status || 'active', b.started || '', b.notes || '', now(), now()); json(res, 200, { ok: true, id }); return true; }
+  let mm = url.match(/^\/api\/hr\/employees\/([^/]+)\/(reset-pin|delete)$/);
+  if (mm && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const id = decodeURIComponent(mm[1]); if (mm[2] === 'reset-pin') { db.prepare("UPDATE employees SET pin_hash='', pin_set=0, pin_set_at='', setup_photo='', updated=? WHERE id=?").run(now(), id); json(res, 200, { ok: true }); return true; } const n = db.prepare('SELECT count(*) c FROM attendance WHERE emp_id=?').get(id).c; if (n) { json(res, 400, { error: 'This person has sign-ins on record — mark them as a leaver instead of deleting.' }); return true; } db.prepare('DELETE FROM employees WHERE id=?').run(id); json(res, 200, { ok: true }); return true; }
+  if (url === '/api/hr/attendance' && m === 'GET') {
+    const day = qs.get('day') || hrLondon().day; const names = {}; db.prepare('SELECT id,name,shift FROM employees').all().forEach(e => names[e.id] = e);
+    const events = db.prepare('SELECT * FROM attendance WHERE day=? ORDER BY at, created').all(day).map(a => Object.assign(a, { name: (names[a.emp_id] || {}).name || '?', has_photo: !!a.photo }));
+    const visitors = db.prepare('SELECT * FROM visitors WHERE day=? ORDER BY in_at').all(day).map(v => { try { v.permit = v.permit ? JSON.parse(v.permit) : null; } catch (e) { v.permit = null; } return v; });
+    const setups = db.prepare("SELECT id, name, pin_set_at, (setup_photo<>'') has_photo FROM employees WHERE substr(pin_set_at,1,10)=?").all(day);
+    const rollcalls = db.prepare('SELECT * FROM rollcalls WHERE substr(started,1,10)=? ORDER BY started').all(day).map(r => { try { r.people = JSON.parse(r.people || '[]'); } catch (e) { r.people = []; } return r; });
+    json(res, 200, { day, today: hrLondon().day, events, visitors, setups, rollcalls, onsite: hrOnsite() }); return true;
+  }
+  mm = url.match(/^\/api\/hr\/photo\/(att|setup)\/([^/]+)$/);
+  if (mm && m === 'GET') { const id = decodeURIComponent(mm[2]); const row = mm[1] === 'att' ? db.prepare('SELECT photo p FROM attendance WHERE id=?').get(id) : db.prepare('SELECT setup_photo p FROM employees WHERE id=?').get(id); json(res, 200, { photo: (row && row.p) || '' }); return true; }
+  if (url === '/api/hr/attendance/fix' && m === 'POST') {   // manager correction: change a time, or add a missing in/out; every change is logged
+    if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const at = String((b && b.at) || ''); if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)) { json(res, 400, { error: 'Time must be YYYY-MM-DDTHH:MM' }); return true; }
+    if (b.id) { const ex = db.prepare('SELECT * FROM attendance WHERE id=?').get(b.id); if (!ex) { json(res, 404, { error: 'not found' }); return true; } db.prepare("UPDATE attendance SET at=?, day=?, auto=0, by=?, note=? WHERE id=?").run(at, at.slice(0, 10), user.username, String(b.note || 'corrected'), b.id); db.prepare('INSERT INTO attendance_log(att_id,what,before,after,by,at) VALUES(?,?,?,?,?,?)').run(b.id, 'time changed', ex.at, at, user.username, now()); json(res, 200, { ok: true }); return true; }
+    const id = uid('a'); db.prepare("INSERT INTO attendance(id,emp_id,dir,at,day,door,photo,auto,by,note,created) VALUES(?,?,?,?,?,'HQ','',0,?,?,?)").run(id, String(b.emp_id || ''), b.dir === 'out' ? 'out' : 'in', at, at.slice(0, 10), user.username, String(b.note || 'added by manager'), now()); db.prepare('INSERT INTO attendance_log(att_id,what,before,after,by,at) VALUES(?,?,?,?,?,?)').run(id, 'added', '', (b.dir === 'out' ? 'out ' : 'in ') + at, user.username, now()); json(res, 200, { ok: true, id }); return true;
+  }
+  if (url === '/api/hr/attendance/delete' && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const ex = db.prepare('SELECT * FROM attendance WHERE id=?').get(String(b.id || '')); if (!ex) { json(res, 404, { error: 'not found' }); return true; } db.prepare('DELETE FROM attendance WHERE id=?').run(ex.id); db.prepare('INSERT INTO attendance_log(att_id,what,before,after,by,at) VALUES(?,?,?,?,?,?)').run(ex.id, 'deleted', ex.dir + ' ' + ex.at, '', user.username, now()); json(res, 200, { ok: true }); return true; }
+  mm = url.match(/^\/api\/hr\/visitors\/([^/]+)\/out$/); if (mm && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(b.at || '')) ? b.at : hrLondon().at; db.prepare("UPDATE visitors SET out_at=?, auto=0 WHERE id=?").run(at, decodeURIComponent(mm[1])); json(res, 200, { ok: true }); return true; }
+  json(res, 404, { error: 'unknown HR call' }); return true;
+}
+
+
+/* ============================================================================
+ * v53 — HR phase 2a: the employee record and the pack.
+ * employees.hr = ordinary details (JSON); employees.hr_private = sealed (AES-256-GCM) JSON for the
+ * sensitive fields (date of birth, NI number, bank, pay). A pack is a private link with a chosen set
+ * of sections; the person fills it in on their phone and it writes straight into their record.
+ * ==========================================================================*/
+try { db.exec("ALTER TABLE employees ADD COLUMN hr_private TEXT DEFAULT ''"); } catch (e) {}
+db.exec("CREATE TABLE IF NOT EXISTS packs(id TEXT PRIMARY KEY, emp_id TEXT, token TEXT, sections TEXT, created TEXT, created_by TEXT, expires TEXT, opened TEXT DEFAULT '', submitted TEXT DEFAULT '', status TEXT DEFAULT 'sent', note TEXT DEFAULT '')");
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_packs_tok ON packs(token)'); } catch (e) {}
+db.exec("CREATE TABLE IF NOT EXISTS hr_log(id INTEGER PRIMARY KEY, emp_id TEXT, what TEXT, by TEXT, at TEXT, detail TEXT DEFAULT '')");
+const HR_KEYS = (function () { const out = []; if (process.env.HR_SECRET) out.push(crypto.createHash('sha256').update(String(process.env.HR_SECRET)).digest()); let k = metaGet('hrKey'); if (!k) { k = crypto.randomBytes(32).toString('hex'); metaSet('hrKey', k); } out.push(Buffer.from(k, 'hex')); if (!process.env.HR_SECRET) console.log('HR: sensitive fields are sealed with a key kept in the database. Set HR_SECRET in Railway so a copy of the database alone cannot read them.'); return out; })();
+function hrSeal(obj) { const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', HR_KEYS[0], iv); const enc = Buffer.concat([c.update(JSON.stringify(obj || {}), 'utf8'), c.final()]); return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64'); }
+function hrUnseal(str) { if (!str) return {}; for (const key of HR_KEYS) { try { const b = Buffer.from(str, 'base64'); const d = crypto.createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8')); } catch (e) {} } return {}; }
+const HR_PRIVATE_GROUPS = ['identity', 'bank', 'pay'];
+/* one schema for the record screen in HQ and the pack on the phone */
+const HR_SCHEMA = [
+  { key: 'personal', title: 'Personal details', pack: true, fields: [
+    { k: 'title', label: 'Title', type: 'options', options: ['Mr', 'Mrs', 'Miss', 'Ms', 'Mx', 'Dr'] }, { k: 'surname', label: 'Surname / family name', req: true }, { k: 'forenames', label: 'Forenames', req: true }, { k: 'maiden', label: 'Maiden name (if applicable)' }, { k: 'marital', label: 'Marital status', type: 'options', options: ['Single', 'Married', 'Civil partnership', 'Divorced', 'Widowed', 'Prefer not to say'] }, { k: 'nationality', label: 'Nationality', req: true }, { k: 'languages', label: 'Languages you speak' } ] },
+  { key: 'identity', title: 'Date of birth & NI number', pack: true, private: true, intro: 'These are kept sealed in Wilsons HQ and seen only by HR.', fields: [
+    { k: 'dob', label: 'Date of birth', type: 'date', req: true }, { k: 'ni', label: 'National Insurance number', req: true, ph: 'QQ 12 34 56 C', max: 13 } ] },
+  { key: 'contact', title: 'Contact details', pack: true, fields: [
+    { k: 'address', label: 'Home address', type: 'textarea', req: true }, { k: 'postcode', label: 'Post code', req: true, max: 10 }, { k: 'phone', label: 'Mobile number', type: 'tel', req: true }, { k: 'email', label: 'Personal email address', type: 'email' } ] },
+  { key: 'emergency', title: 'Next of kin / emergency contact', pack: true, fields: [
+    { k: 'name', label: 'Name', req: true }, { k: 'relationship', label: 'Relationship to you', req: true }, { k: 'day', label: 'Daytime contact number', type: 'tel', req: true }, { k: 'evening', label: 'Evening contact number', type: 'tel' }, { k: 'address', label: 'Their address (if different from yours)', type: 'textarea' }, { k: 'name2', label: 'Second contact — name' }, { k: 'phone2', label: 'Second contact — number', type: 'tel' } ] },
+  { key: 'legal', title: 'Right to work & declarations', pack: true, fields: [
+    { k: 'rtw_type', label: 'Your right to work in the UK is shown by', type: 'options', options: ['British / Irish passport', 'Settled status', 'Pre-settled status', 'Visa / BRP', 'Other'], other: true, req: true }, { k: 'rtw_ref', label: 'Share code or document number (if you have one)' }, { k: 'rtw_expiry', label: 'Expiry date (if it has one)', type: 'date' }, { k: 'qualification', label: 'Your highest or most recent qualification (type of award, date, school/college)', type: 'textarea' }, { k: 'conviction', label: 'Have you ever been convicted of a criminal offence (other than offences excluded by the Rehabilitation of Offenders Act)?', type: 'yesno', details: true, req: true } ],
+    decl: 'I confirm that the information given in this form is complete and correct to the best of my knowledge.' },
+  { key: 'health', title: 'Food handler health questionnaire', pack: true, intro: 'Food safety law asks every food handler these questions. Answer honestly; a Yes does not stop you working, it tells us what to arrange.', fields: [
+    { k: 'q1', label: 'Are you suffering from, or have you ever been a carrier of, typhoid or paratyphoid?', type: 'yesno', details: true, req: true }, { k: 'q2', label: 'In the last 7 days have you had diarrhoea or vomiting?', type: 'yesno', details: true, req: true }, { k: 'q3', label: 'Do you have any skin trouble affecting your hands, arms or face?', type: 'yesno', details: true, req: true }, { k: 'q4', label: 'Do you have boils, styes or septic fingers at the moment?', type: 'yesno', details: true, req: true }, { k: 'q5', label: 'Do you have any discharge from your eyes, ears, gums or mouth?', type: 'yesno', details: true, req: true }, { k: 'q6', label: 'Do you suffer from a recurring bowel disorder?', type: 'yesno', details: true, req: true }, { k: 'q7', label: 'In the last 21 days have you been in contact with anyone with typhoid, paratyphoid or food poisoning?', type: 'yesno', details: true, req: true }, { k: 'q8', label: 'Have you been abroad in the last 3 weeks and had a stomach upset?', type: 'yesno', details: true, req: true }, { k: 'allergies', label: 'Any allergies we should know about (food or other)' }, { k: 'uniform', label: 'Uniform size', type: 'options', options: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'] }, { k: 'boots', label: 'Boot size (UK)', inputmode: 'numeric', max: 4 } ],
+    decl: 'I agree to tell my manager straight away if any of these answers change, and to stay away from food handling for 48 hours after any sickness or diarrhoea.' },
+  { key: 'bank', title: 'Bank details & starter statement', pack: true, private: true, intro: 'So your wages can be paid into your account. Kept sealed, seen only by HR and the accounts team.', fields: [
+    { k: 'bank', label: 'Bank / building society', req: true }, { k: 'bank_address', label: 'Branch address' }, { k: 'account', label: 'Account number (8 digits)', inputmode: 'numeric', max: 8, req: true }, { k: 'sort', label: 'Sort code (6 digits)', inputmode: 'numeric', max: 8, req: true, ph: '12-34-56' },
+    { k: 'statement', label: 'Employee statement — choose the one that applies', type: 'options', req: true, options: ['A — first job since 6 April, no taxable benefits or pension', 'B — only job now, but another job or taxable benefit since 6 April', 'C — another job or a pension as well as this one'] },
+    { k: 'loan', label: 'Do you have a Student Loan not fully repaid and not paid by direct debit to the Student Loan Company?', type: 'yesno', req: true }, { k: 'loan_plan', label: 'If yes, which plan', type: 'options', options: ['Plan 1', 'Plan 2', 'Plan 4', 'Postgraduate'] } ],
+    decl: 'I agree to have my salary / wages paid directly into the bank or building society account above from my first day of employment, and I confirm the information given is complete and correct.' },
+  { key: 'eo', title: 'Equal opportunities monitoring', pack: true, anonymous: true, intro: 'Optional. Used only as totals for monitoring; never shown against your name.', fields: [
+    { k: 'gender', label: 'Gender', type: 'options', options: ['Male', 'Female', 'Other', 'Prefer not to say'] }, { k: 'ethnic', label: 'I would describe my ethnic origin as', type: 'options', options: ['White UK', 'White European', 'White Other', 'Irish', 'Indian', 'Pakistani', 'Bangladeshi', 'Asian Other', 'Black African', 'Black Caribbean', 'Black Other', 'Other', 'Prefer not to say'], other: true }, { k: 'disability', label: 'Do you have a disability?', type: 'yesno' }, { k: 'registered', label: 'If yes, is it registered?', type: 'yesno' }, { k: 'adjust', label: 'Anything that would help us assess any special requirements you may have', type: 'textarea' } ] },
+  { key: 'handbook', title: 'Site rules & handbook', pack: true, fields: [
+    { k: 'read', label: 'I have read the Wilsons employee handbook and the site hygiene rules', type: 'yesno', req: true } ],
+    decl: 'I understand and will follow the handbook and the site rules, including reporting illness, hygiene and PPE requirements.' },
+  { key: 'contract', title: 'Contract of employment', pack: false, fields: [ { k: 'note', label: 'The contract template has not been loaded yet. When it is, this section shows the contract with the person’s details filled in, to read and sign.', type: 'info' } ] }
+];
+function hrSchemaPublic() { return HR_SCHEMA.map(g => ({ key: g.key, title: g.title, pack: g.pack !== false, private: !!g.private, anonymous: !!g.anonymous })); }
+function hrRecord(e) { let hr = {}; try { hr = e.hr ? JSON.parse(e.hr) : {}; } catch (x) { hr = {}; } const priv = hrUnseal(e.hr_private); return { hr, priv }; }
+function hrSaveRecord(empId, hr, priv, by, what) { db.prepare('UPDATE employees SET hr=?, hr_private=?, updated=? WHERE id=?').run(JSON.stringify(hr || {}), hrSeal(priv || {}), now(), empId); db.prepare('INSERT INTO hr_log(emp_id,what,by,at,detail) VALUES(?,?,?,?,?)').run(empId, what, by, now(), ''); }
+function hrApplyData(empId, data, by, what) {   // merge submitted/edited groups into the record; private groups go to the sealed blob; EO is stored but never listed by name
+  const e = db.prepare('SELECT * FROM employees WHERE id=?').get(empId); if (!e) return false; const { hr, priv } = hrRecord(e);
+  Object.keys(data || {}).forEach(g => { const grp = HR_SCHEMA.find(x => x.key === g); if (!grp) return; const vals = Object.assign({}, data[g]); const sig = vals._sig; delete vals._sig;
+    if (grp.private) priv[g] = Object.assign({}, priv[g] || {}, vals); else hr[g] = Object.assign({}, hr[g] || {}, vals);
+    if (sig) { hr.signed = hr.signed || {}; hr.signed[g] = { name: String(sig).slice(0, 120), at: now(), by }; } });
+  hrSaveRecord(empId, hr, priv, by, what); return true;
+}
+function hrPackView(p) { let sections = []; try { sections = JSON.parse(p.sections || '[]'); } catch (e) {} const exp = p.expires && p.expires < now(); return { id: p.id, emp_id: p.emp_id, sections, created: p.created, created_by: p.created_by, expires: p.expires, opened: p.opened, submitted: p.submitted, status: p.status === 'sent' && exp ? 'expired' : p.status, link: '/pack/' + p.token }; }
+async function packPublic(url, m, req, res) {
+  const token = decodeURIComponent(url.slice('/api/pack/'.length)).split('?')[0]; const p = db.prepare('SELECT * FROM packs WHERE token=?').get(token);
+  if (!p || p.status === 'revoked') return json(res, 404, { error: 'This link is not valid any more.' });
+  if (p.status === 'submitted') return json(res, 410, { error: 'This form has already been sent. Thank you.' });
+  if (p.expires && p.expires < now()) return json(res, 410, { error: 'This link has expired (links last 14 days).' });
+  const e = db.prepare('SELECT * FROM employees WHERE id=?').get(p.emp_id); if (!e) return json(res, 404, { error: 'Not found.' });
+  let keys = []; try { keys = JSON.parse(p.sections || '[]'); } catch (x) {}
+  if (m === 'GET') { if (!p.opened) db.prepare('UPDATE packs SET opened=? WHERE id=?').run(now(), p.id); const sections = HR_SCHEMA.filter(g => keys.includes(g.key) && g.pack !== false); const parts = e.name.split(' '); return json(res, 200, { name: e.name, title: 'Your details', sections, prefill: { personal: { surname: parts.slice(1).join(' '), forenames: parts[0] } } }); }
+  const b = await readBody(req); if (!b || !b.data) return json(res, 400, { error: 'Nothing received.' });
+  const data = {}; keys.forEach(k => { if (b.data[k]) data[k] = b.data[k]; });
+  hrApplyData(e.id, data, 'pack', 'details received from the pack (' + keys.join(', ') + ')');
+  db.prepare("UPDATE packs SET submitted=?, status='submitted', note=? WHERE id=?").run(now(), String((b.ua || '')).slice(0, 200), p.id);
+  return json(res, 200, { ok: true });
+}
+/* HQ side: record and packs — appended to the HR routes by wrapping them */
+const hrRoutesPhase1 = hrRoutes;
+hrRoutes = async function (ctx) {
+  const { url, m, req, res, user } = ctx;
+  if (url.startsWith('/api/hr/')) {
+    if (!hrCan(user)) { json(res, 403, { error: 'You don’t have HR access.' }); return true; }
+    if (url === '/api/hr/schema' && m === 'GET') { json(res, 200, { schema: HR_SCHEMA, private: HR_PRIVATE_GROUPS }); return true; }
+    let mm = url.match(/^\/api\/hr\/employees\/([^/]+)\/record$/);
+    if (mm && m === 'GET') { const e = db.prepare('SELECT * FROM employees WHERE id=?').get(decodeURIComponent(mm[1])); if (!e) { json(res, 404, { error: 'not found' }); return true; } const { hr, priv } = hrRecord(e); const eo = hr.eo; delete hr.eo; const packs = db.prepare('SELECT * FROM packs WHERE emp_id=? ORDER BY created DESC').all(e.id).map(hrPackView); const log = db.prepare('SELECT * FROM hr_log WHERE emp_id=? ORDER BY id DESC LIMIT 50').all(e.id); json(res, 200, { employee: Object.assign({}, e, { hr: undefined, hr_private: undefined, pin_hash: undefined, setup_photo: undefined }), hr, priv, eo_done: !!eo, packs, log }); return true; }
+    if (mm && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const id = decodeURIComponent(mm[1]); if (!hrApplyData(id, b.data || {}, user.username, 'record edited in HQ')) { json(res, 404, { error: 'not found' }); return true; } json(res, 200, { ok: true }); return true; }
+    if (url === '/api/hr/packs' && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } const b = await readBody(req); const e = db.prepare('SELECT * FROM employees WHERE id=?').get(String(b.emp_id || '')); if (!e) { json(res, 404, { error: 'not found' }); return true; } const keys = (Array.isArray(b.sections) ? b.sections : []).filter(k => HR_SCHEMA.some(g => g.key === k && g.pack !== false)); if (!keys.length) { json(res, 400, { error: 'Tick at least one section.' }); return true; }
+      db.prepare("UPDATE packs SET status='revoked' WHERE emp_id=? AND status='sent'").run(e.id);   // one open pack per person
+      const id = uid('pk'), token = crypto.randomBytes(18).toString('base64url'); const exp = new Date(Date.now() + 14 * 86400e3).toISOString();
+      db.prepare("INSERT INTO packs(id,emp_id,token,sections,created,created_by,expires,status) VALUES(?,?,?,?,?,?,?,'sent')").run(id, e.id, token, JSON.stringify(keys), now(), user.username, exp);
+      db.prepare('INSERT INTO hr_log(emp_id,what,by,at,detail) VALUES(?,?,?,?,?)').run(e.id, 'pack created (' + keys.join(', ') + ')', user.username, now(), '');
+      let emailed = false, warn = ''; const to = String(b.email || '').trim();
+      if (to) { if (!mailOn()) warn = 'Email isn’t connected yet — copy the link and send it yourself.'; else { try { const link = (process.env.APP_URL || '') + '/pack/' + token; await sendMail(to, 'Wilsons Pet Food — your details', emailShell('Your details', '<p>Hello ' + esc(e.first || e.name) + ',</p><p>Please fill in your details for Wilsons on this private link. It takes about ten minutes on a phone and works for 14 days.</p><p><a href="' + link + '">' + link + '</a></p><p>Thank you,<br>Kamil</p>', null, null)); emailed = true; } catch (x) { warn = 'Email failed (' + x.message + ') — copy the link and send it yourself.'; } } }
+      json(res, 200, { ok: true, pack: hrPackView(db.prepare('SELECT * FROM packs WHERE id=?').get(id)), token, emailed, warn }); return true; }
+    mm = url.match(/^\/api\/hr\/packs\/([^/]+)\/revoke$/); if (mm && m === 'POST') { if (!hrCanEdit(user)) { json(res, 403, { error: 'no HR edit access' }); return true; } db.prepare("UPDATE packs SET status='revoked' WHERE id=?").run(decodeURIComponent(mm[1])); json(res, 200, { ok: true }); return true; }
+    if (url === '/api/hr/packs' && m === 'GET') { json(res, 200, db.prepare('SELECT * FROM packs ORDER BY created DESC').all().map(hrPackView)); return true; }
+    if (url === '/api/hr/eo-summary' && m === 'GET') { const rows = db.prepare('SELECT hr FROM employees').all(); const tally = {}; rows.forEach(r => { let h = {}; try { h = JSON.parse(r.hr || '{}'); } catch (x) {} const eo = h.eo; if (!eo) return; ['gender', 'ethnic', 'disability'].forEach(k => { tally[k] = tally[k] || {}; const v = eo[k] || 'not answered'; tally[k][v] = (tally[k][v] || 0) + 1; }); }); json(res, 200, { answered: rows.filter(r => { try { return !!JSON.parse(r.hr || '{}').eo; } catch (x) { return false; } }).length, total: rows.length, tally }); return true; }
+  }
+  return hrRoutesPhase1(ctx);
+};

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wilsons — your details</title>
+<style>
+@font-face{font-family:"Bobby Jones";src:url(/assets/BobbyJones-Regular.otf) format("opentype");font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Rg.ttf) format("truetype");font-weight:400;font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Md.ttf) format("truetype");font-weight:500;font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Bd.ttf) format("truetype");font-weight:700;font-display:swap}
+:root{--navy:#143644;--coral:#f37d89;--coral2:#e2606c;--sea:#007985;--bg:#f4f1e8;--card:#fff;--ink:#143644;--muted:#6f7b82;--line:#e2ddcd;--ok:#1f8a4c;--fd:"Bobby Jones","Poppins","Trebuchet MS",sans-serif;--fb:"Effra",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);font-size:16px;line-height:1.45}
+.top{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:14px}
+.top img{height:36px}.top .t{font-family:var(--fd);font-size:20px;letter-spacing:.01em}.top small{display:block;font-size:12px;color:#aebcc4;font-family:var(--fb)}
+.wrap{max-width:640px;margin:0 auto;padding:18px 16px 110px}
+.steps{display:flex;gap:4px;margin:0 0 6px}.steps i{flex:1;height:6px;border-radius:3px;background:var(--line)}.steps i.d{background:var(--sea)}
+.stepn{font-size:13px;color:var(--muted);margin-bottom:10px}
+h2{font-family:var(--fd);font-weight:400;font-size:24px;margin:4px 0 4px}
+.intro{color:var(--muted);font-size:14px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+label.f{display:block;margin:0 0 12px}label.f>span{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:4px}label.f>span b{color:var(--coral2)}
+input,select,textarea{font:inherit;font-size:16px;width:100%;padding:12px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);min-height:48px}
+textarea{min-height:84px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:0;border-color:var(--sea);box-shadow:0 0 0 3px rgba(0,121,133,.15)}
+.yn{display:flex;gap:8px}.yn button{flex:1;min-height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-weight:600;color:var(--ink)}.yn button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.opts{display:flex;flex-wrap:wrap;gap:8px}.opts button{min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:#fff;font:inherit;font-weight:600;color:var(--ink)}.opts button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.q{padding:10px 0;border-top:1px solid var(--line)}.q:first-of-type{border-top:0}.q p{margin:0 0 8px;font-size:15px}
+.decl{background:#fff8f8;border:1px solid #f3c9cd;border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:12px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px max(12px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:space-between;align-items:center}
+.btn{font:inherit;font-weight:700;font-size:16px;border:0;border-radius:12px;min-height:50px;padding:0 22px;background:var(--coral2);color:#fff;cursor:pointer}.btn.g{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.msg{color:var(--coral2);font-size:13px;font-weight:600;min-height:18px}
+.done{text-align:center;padding:40px 10px}.done .big{font-family:var(--fd);font-size:30px;color:var(--ok);margin-bottom:8px}
+.muted{color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:-6px 0 12px}
+</style>
+</head>
+<body>
+<div class="top"><img src="/assets/logo-grapefruit.svg" alt="Wilsons"><div><div class="t" id="hdT">Your details</div><small id="hdS">Wilsons Pet Food</small></div></div>
+<div class="wrap" id="main"><p class="muted">Loading…</p></div>
+<div class="bar" id="bar" style="display:none"><button class="btn g" id="bBack">Back</button><span class="msg" id="msg"></span><button class="btn" id="bNext">Next</button></div>
+<script>
+'use strict';
+const TOKEN=location.pathname.split('/').pop();
+const $=id=>document.getElementById(id); const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let P=null, step=0, data={}, saving=false;
+async function api(method,body){ const r=await fetch('/api/pack/'+encodeURIComponent(TOKEN),{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j; }
+function get(g,k){ return (data[g]||{})[k]; } function set(g,k,v){ data[g]=data[g]||{}; data[g][k]=v; try{ localStorage.setItem('pack_'+TOKEN,JSON.stringify(data)); }catch(e){} }
+function field(g,f){ const v=get(g,f.k); const req=f.req?' <b>*</b>':'';
+  if(f.type==='yesno') return `<div class="q"><p>${esc(f.label)}${req}</p><div class="yn"><button type="button" class="${v==='Yes'?'on':''}" onclick="set('${g}','${f.k}','Yes');draw()">Yes</button><button type="button" class="${v==='No'?'on':''}" onclick="set('${g}','${f.k}','No');draw()">No</button></div>${v==='Yes'&&f.details?`<label class="f" style="margin-top:8px"><span>Please give details</span><textarea oninput="set('${g}','${f.k}_details',this.value)">${esc(get(g,f.k+'_details')||'')}</textarea></label>`:''}</div>`;
+  if(f.type==='options') return `<label class="f"><span>${esc(f.label)}${req}</span><div class="opts">${f.options.map(o=>`<button type="button" class="${v===o?'on':''}" onclick="set('${g}','${f.k}','${esc(o).replace(/'/g,"\\'")}');draw()">${esc(o)}</button>`).join('')}</div>${f.other&&v==='Other'?`<input style="margin-top:8px" placeholder="please specify" value="${esc(get(g,f.k+'_other')||'')}" oninput="set('${g}','${f.k}_other',this.value)">`:''}</label>`;
+  if(f.type==='select') return `<label class="f"><span>${esc(f.label)}${req}</span><select onchange="set('${g}','${f.k}',this.value)"><option value="">— choose —</option>${f.options.map(o=>`<option${v===o?' selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+  if(f.type==='textarea') return `<label class="f"><span>${esc(f.label)}${req}</span><textarea oninput="set('${g}','${f.k}',this.value)">${esc(v||'')}</textarea></label>`;
+  if(f.type==='info') return `<p class="hint" style="margin:0 0 10px">${esc(f.label)}</p>`;
+  return `<label class="f"><span>${esc(f.label)}${req}</span><input type="${f.type==='date'?'date':(f.type==='email'?'email':(f.type==='tel'?'tel':'text'))}" ${f.inputmode?'inputmode="'+f.inputmode+'"':''} ${f.max?'maxlength="'+f.max+'"':''} value="${esc(v||'')}" placeholder="${esc(f.ph||'')}" oninput="set('${g}','${f.k}',this.value)"></label>`;
+}
+function pages(){ return P.sections; }
+function draw(){
+  const secs=pages(); const m=$('main'); if(step>=secs.length){ m.innerHTML='<div class="done"><div class="big">Thank you</div><p>Your details have been sent to Wilsons and saved. You can close this page.</p><p class="muted" style="font-size:13px">If something changes later, ask Kamil for a new link.</p></div>'; $('bar').style.display='none'; return; }
+  const s=secs[step];
+  m.innerHTML=`<div class="steps">${secs.map((x,i)=>`<i class="${i<=step?'d':''}"></i>`).join('')}</div><div class="stepn">${step+1} of ${secs.length} · ${esc(s.title)}</div><h2>${esc(s.title)}</h2>${s.intro?`<p class="intro">${esc(s.intro)}</p>`:''}<div class="card">${s.fields.map(f=>field(s.key,f)).join('')}</div>${s.decl?`<div class="decl"><b>Declaration.</b> ${esc(s.decl)}<label class="f" style="margin:10px 0 0"><span>Type your full name to sign <b>*</b></span><input value="${esc(get(s.key,'_sig')||'')}" oninput="set('${s.key}','_sig',this.value)" placeholder="Your full name"></label><div class="muted" style="font-size:12px">Signed today, ${new Date().toLocaleDateString('en-GB')}, from this device.</div></div>`:''}`;
+  $('bar').style.display=''; $('bBack').style.visibility=step?'visible':'hidden'; $('bNext').textContent=step===secs.length-1?'Send to Wilsons':'Next'; $('msg').textContent='';
+  window.scrollTo(0,0);
+}
+function validate(){ const s=pages()[step]; const miss=s.fields.filter(f=>f.req&&!String(get(s.key,f.k)||'').trim()).map(f=>f.label); if(s.decl&&!String(get(s.key,'_sig')||'').trim()) miss.push('your signature (type your name)'); return miss; }
+$('bBack').onclick=()=>{ if(step>0){ step--; draw(); } };
+$('bNext').onclick=async()=>{ const miss=validate(); if(miss.length){ $('msg').textContent='Please fill in: '+miss.slice(0,3).join(', ')+(miss.length>3?'…':''); return; } if(step<pages().length-1){ step++; draw(); return; } if(saving) return; saving=true; $('bNext').textContent='Sending…'; try{ await api('POST',{data,ua:navigator.userAgent}); try{ localStorage.removeItem('pack_'+TOKEN); }catch(e){} step=pages().length; draw(); }catch(e){ $('msg').textContent=e.message; $('bNext').textContent='Send to Wilsons'; } saving=false; };
+(async function boot(){ try{ P=await api('GET'); }catch(e){ $('main').innerHTML='<div class="card"><h2>This link isn\u2019t available</h2><p class="muted">'+esc(e.message)+'</p><p>Ask Kamil for a new one.</p></div>'; return; }
+  $('hdT').textContent=P.title||'Your details'; $('hdS').textContent='Wilsons Pet Food · '+(P.name||''); try{ data=JSON.parse(localStorage.getItem('pack_'+TOKEN)||'{}')||{}; }catch(e){ data={}; } if(P.prefill){ Object.keys(P.prefill).forEach(g=>{ data[g]=Object.assign({},P.prefill[g],data[g]||{}); }); } draw(); })();
+</script>
+</body>
+</html>

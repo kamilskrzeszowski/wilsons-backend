@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Wilsons — Sign in</title>
+<style>
+@font-face{font-family:"Bobby Jones";src:url(/assets/BobbyJones-Regular.otf) format("opentype");font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Rg.ttf) format("truetype");font-weight:400;font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Md.ttf) format("truetype");font-weight:500;font-display:swap}
+@font-face{font-family:"Effra";src:url(/assets/Effra_Bd.ttf) format("truetype");font-weight:700;font-display:swap}
+:root{--navy:#143644;--navy2:#0f2a36;--coral:#f37d89;--coral2:#e2606c;--sea:#007985;--ok:#1f8a4c;--txt:#fff;--mut:#aebcc4;--line:rgba(255,255,255,.1);--fd:"Bobby Jones","Poppins","Trebuchet MS",sans-serif;--fb:"Effra",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--navy);color:var(--txt);font-family:var(--fb);font-size:18px;overflow:hidden;user-select:none}
+#app{height:100%;display:flex;flex-direction:column;padding:max(16px,env(safe-area-inset-top)) 22px max(16px,env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+header img{height:46px}
+header .door{font-size:15px;color:var(--mut)}header .door b{color:#fff;font-weight:500}
+header .clock{margin-left:auto;text-align:right;font-size:15px;color:var(--mut)}header .clock b{display:block;font-size:30px;color:#fff;font-family:var(--fd);font-weight:400;letter-spacing:.02em;line-height:1}
+main{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px}
+h1{font-family:var(--fd);font-weight:400;font-size:34px;margin:0;letter-spacing:.01em}h1 small{display:block;font-family:var(--fb);font-size:16px;color:var(--mut);margin-top:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1}
+button{font:inherit;border:0;cursor:pointer;color:#fff;background:rgba(255,255,255,.1);border-radius:22px;padding:18px;min-height:88px;font-weight:700;font-size:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;transition:transform .08s}
+button:active{transform:scale(.98)}
+button small{font-weight:400;font-size:14px;color:var(--mut)}
+button.primary{background:var(--coral);color:var(--navy)}button.primary small{color:#5a2a30}
+button.in{background:var(--ok)}button.out{background:var(--coral2)}
+button.fire{background:var(--coral2);color:var(--navy);flex-direction:row;min-height:64px;font-size:20px}
+button.ghost{background:transparent;border:2px solid var(--line);min-height:60px;font-size:18px;font-weight:500}
+button.sm{min-height:52px;font-size:17px;padding:10px 16px;border-radius:14px}
+.ico{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.row{display:flex;gap:12px;align-items:center}
+.spacer{flex:1}
+/* pin */
+.pinwrap{display:grid;grid-template-columns:1fr 1fr;gap:18px;flex:1;min-height:0}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:420px;align-self:center;width:100%}
+.pad button{min-height:78px;font-size:30px;border-radius:18px;font-weight:500}
+.dots{display:flex;gap:16px;justify-content:center;margin:10px 0 18px}.dots i{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.18)}.dots i.f{background:var(--coral)}
+.msg{min-height:28px;color:var(--coral);font-weight:500;text-align:center;font-size:17px}
+/* greeting */
+.hello{display:flex;gap:18px;align-items:center}
+.hello .ph{width:92px;height:92px;border-radius:50%;background:var(--navy2);overflow:hidden;flex:none;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:12px;text-align:center}
+.hello .ph video,.hello .ph img{width:100%;height:100%;object-fit:cover}
+.hello .t{font-family:var(--fd);font-size:34px;line-height:1.1}.hello .s{color:var(--mut);font-size:16px;margin-top:4px}
+/* forms */
+.frm{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label.f{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--mut)}
+input,select{font:inherit;font-size:20px;color:#fff;background:rgba(255,255,255,.1);border:2px solid transparent;border-radius:14px;padding:14px 16px;min-height:60px;width:100%}
+input:focus,select:focus{outline:0;border-color:var(--coral)}
+select option{color:#143644}
+.rules{display:flex;flex-direction:column;gap:8px}
+.rule{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,.06);border-radius:14px;padding:12px 14px;font-size:18px;min-height:60px}
+.rule i{width:28px;height:28px;border:2px solid var(--mut);border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center}
+.rule.on i{background:var(--ok);border-color:var(--ok)}
+/* lists */
+.list{overflow:auto;flex:1;min-height:0;border-radius:16px;background:rgba(255,255,255,.05);padding:6px}
+.li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;font-size:19px;min-height:60px}
+.li+.li{border-top:1px solid var(--line)}
+.li small{color:var(--mut);font-size:14px;margin-left:auto;white-space:nowrap}
+.li .tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.12);color:var(--mut)}
+.li.tap{cursor:pointer}.li.tap:active{background:rgba(255,255,255,.08)}
+.li .ck{width:30px;height:30px;border:2px solid var(--mut);border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center}
+.li.on .ck{background:var(--ok);border-color:var(--ok)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}
+.cols>div{display:flex;flex-direction:column;gap:8px;min-height:0}
+.h{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:700}
+.rollcall{background:#8a2a33}
+.big{font-family:var(--fd);font-size:42px;line-height:1}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#fff;color:var(--navy);padding:14px 22px;border-radius:16px;font-weight:700;font-size:18px;box-shadow:0 14px 34px -14px rgba(0,0,0,.6);opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+.err{background:#fff;color:var(--navy);padding:26px;border-radius:18px;max-width:560px;margin:auto;text-align:center;font-size:18px;line-height:1.5}
+.hide{display:none!important}
+@media (orientation:portrait){.grid{grid-template-columns:1fr}.pinwrap{grid-template-columns:1fr}.cols{grid-template-columns:1fr}.frm{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><img src="/assets/logo-grapefruit.svg" alt="Wilsons"><div class="door" id="doorName"></div><div class="clock"><b id="clock">--:--</b><span id="onsiteN"></span></div></header>
+  <main id="main"></main>
+</div>
+<div class="toast" id="toast"></div>
+<video id="cam" autoplay playsinline muted class="hide"></video>
+<canvas id="snap" class="hide" width="240" height="180"></canvas>
+<script>
+'use strict';
+const TOKEN=localStorage.getItem('wpm_token')||'';
+const $=id=>document.getElementById(id); const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let STATE=null, view='home', idleT=null, pin='', cur=null, visitor=null, roll=null, camStream=null, camOk=false, pinMode='sign';
+async function api(p,method,body){ const r=await fetch(p,{method:method||'GET',headers:Object.assign({'Authorization':'Bearer '+TOKEN},body?{'Content-Type':'application/json'}:{}),body:body?JSON.stringify(body):undefined}); if(r.status===401||r.status===403){ fatal('This tablet is not signed in as a door account. Sign in to Wilsons HQ with the tablet login first.'); throw new Error('auth'); } const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j; }
+function fatal(t){ $('main').innerHTML='<div class="err">'+esc(t)+'<br><br><button class="sm primary" onclick="location.href=\'/\'">Open Wilsons HQ</button></div>'; }
+function toast(t,ms){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove('on'),ms||2200); }
+function tick(){ const d=new Date(); $('clock').textContent=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+setInterval(tick,5000); tick();
+function idle(ms){ clearTimeout(idleT); idleT=setTimeout(()=>{ if(view!=='rollcall') go('home'); },ms||25000); }
+document.addEventListener('touchstart',()=>idle(),{passive:true}); document.addEventListener('click',()=>idle());
+async function refresh(){ try{ STATE=await api('/api/door/state'); $('doorName').innerHTML='<b>'+esc(STATE.door)+'</b><br>'+esc(STATE.today); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(view==='home') draw(); if(view==='onsite') draw(); }catch(e){} }
+setInterval(refresh,20000);
+/* camera: asked for once; if refused we carry on without photos */
+async function cam(){ if(camStream) return true; try{ camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false}); $('cam').srcObject=camStream; camOk=true; }catch(e){ camOk=false; } return camOk; }
+function photo(){ if(!camOk) return ''; try{ const v=$('cam'),c=$('snap'),x=c.getContext('2d'); const vw=v.videoWidth||640,vh=v.videoHeight||480; const s=Math.min(vw/240,vh/180); const sw=240*s,sh=180*s; x.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,240,180); return c.toDataURL('image/jpeg',.6); }catch(e){ return ''; } }
+const ICON={flame:'<svg class="ico" viewBox="0 0 24 24"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-1.5.5-2.5 1-3.5.5 1 1.2 1.5 2 1.5 0-2.5-.5-4.5 1-6.5z"/><path d="M5 20h14"/></svg>',user:'<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',users:'<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 4.5"/></svg>',tool:'<svg class="ico" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3l9.4-9.4z"/><path d="M15 4l5 5"/></svg>',back:'<svg class="ico" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>'};
+function go(v,arg){ view=v; pin=''; if(v!=='greet') cur=cur&&v==='pin'?cur:null; draw(arg); idle(); }
+function draw(arg){
+  const m=$('main'); const S=STATE||{onsite:[],staff:[],hosts:[],rules:[]};
+  if(view==='home'){
+    m.innerHTML='<div class="grid"><button class="primary" onclick="pinMode=\'sign\';go(\'pin\')">'+ICON.user+'I\'m staff<small>type your PIN</small></button><button onclick="go(\'first\')">First time here?<small>pick your name and choose a PIN</small></button><button onclick="go(\'visitor\',\'visitor\')">'+ICON.users+'Visitor</button><button onclick="go(\'visitor\',\'contractor\')">'+ICON.tool+'Contractor</button></div>'+
+      '<div class="row"><button class="ghost sm" onclick="go(\'onsite\')">Who\'s on site · '+S.onsite.length+'</button><span class="spacer"></span><button class="fire sm" onclick="startRoll()">'+ICON.flame+'Fire · roll call</button></div>';
+    return;
+  }
+  if(view==='pin'){
+    m.innerHTML='<div class="row"><button class="ghost sm" onclick="go(\'home\')">'+ICON.back+'Back</button><h1 style="margin-left:8px">'+(pinMode==='setup'?'Choose a 4-digit PIN':(pinMode==='setup2'?'Type it again':'Your PIN'))+(pinMode!=='sign'&&cur?'<small>'+esc(cur.name)+'</small>':'')+'</h1></div>'+
+      '<div class="pinwrap"><div><div class="dots" id="dots"></div><div class="msg" id="pinMsg"></div><div class="pad">'+[1,2,3,4,5,6,7,8,9].map(n=>'<button onclick="key('+n+')">'+n+'</button>').join('')+'<button onclick="go(\'home\')" style="font-size:16px;font-weight:400;color:var(--mut)">Cancel</button><button onclick="key(0)">0</button><button onclick="key(-1)">⌫</button></div></div><div class="hello" style="align-self:center;justify-self:center"><div class="ph" id="phBox">'+(camOk?'':'')+'</div><div><div class="s">'+(pinMode==='sign'?'Forgotten your PIN? Ask a manager to reset it in HQ.':'Nobody else must know it. It identifies you at this door.')+'</div></div></div></div>';
+    dots(); cam().then(()=>{ if(camOk&&$('phBox')){ $('phBox').innerHTML=''; $('phBox').appendChild($('cam')); $('cam').classList.remove('hide'); } });
+    return;
+  }
+  if(view==='greet'){
+    const e=cur; const inNow=e.in;
+    m.innerHTML='<div class="hello"><div class="ph">'+(e.photo?'<img src="'+e.photo+'">':'')+'</div><div><div class="t">'+esc(greeting())+', '+esc(e.first||e.name)+'</div><div class="s">'+(inNow?'On site since '+esc(e.since||''):'Last: '+esc(e.last||'—'))+' · this week so far '+esc(e.week||'0 h')+'</div></div></div>'+
+      '<div class="grid" style="flex:1">'+(inNow?'<button class="out" onclick="punch(\'out\')">Sign OUT<small style="color:#fde">leaving site: break, lunch or end of day</small></button>':'<button class="in" onclick="punch(\'in\')">Sign IN</button>')+'<button class="ghost" onclick="go(\'home\')">Cancel</button></div>';
+    return;
+  }
+  if(view==='first'){
+    const list=S.staff.filter(s=>!s.pin_set);
+    m.innerHTML='<div class="row"><button class="ghost sm" onclick="go(\'home\')">'+ICON.back+'Back</button><h1 style="margin-left:8px">First time here<small>tap your name, then choose a PIN. Once set up, use I\'m staff.</small></h1></div>'+
+      '<div class="list">'+(list.length?list.map(s=>'<div class="li tap" onclick="firstPick(\''+s.id+'\')">'+esc(s.name)+'<small>'+esc(s.shift||'')+'</small></div>').join(''):'<div class="li">Everyone on the list is already set up. Not on the list? Ask a manager to add you in HQ · People.</div>')+'</div>';
+    return;
+  }
+  if(view==='visitor'){
+    const kind=arg||(visitor&&visitor.kind)||'visitor'; visitor=visitor&&visitor.kind===kind?visitor:{kind,step:1};
+    if(visitor.step===1){
+      m.innerHTML='<div class="row"><button class="ghost sm" onclick="visitor=null;go(\'home\')">'+ICON.back+'Back</button><h1 style="margin-left:8px">'+(kind==='contractor'?'Contractor':'Visitor')+' sign in<small>step 1 of 2 · your details</small></h1></div>'+
+        '<div class="frm"><label class="f">Your name<input id="vName" autocomplete="off" value="'+esc(visitor.name||'')+'"></label><label class="f">Company<input id="vCo" autocomplete="off" value="'+esc(visitor.company||'')+'"></label><label class="f">Who are you here to see?<select id="vHost"><option value="">— choose —</option>'+(S.hosts||[]).map(h=>'<option'+(visitor.host===h?' selected':'')+'>'+esc(h)+'</option>').join('')+'<option>Other</option></select></label><label class="f">Vehicle reg (if parked on site)<input id="vReg" autocomplete="off" style="text-transform:uppercase" value="'+esc(visitor.vehicle||'')+'"></label>'+
+        (kind==='contractor'?'<label class="f">What work<input id="vWork" value="'+esc(visitor.work||'')+'"></label><label class="f">Where on site<input id="vWhere" value="'+esc(visitor.where||'')+'"></label><label class="f">Permit to work no. / issued by<input id="vPermit" value="'+esc(visitor.permit||'')+'" placeholder="e.g. PTW-031 · Kamil"></label><label class="f">Hot work?<select id="vHot"><option>No</option><option'+(visitor.hot==='Yes'?' selected':'')+'>Yes</option></select></label>':'')+'</div>'+
+        '<div class="row" style="margin-top:auto"><span class="spacer"></span><button class="primary sm" onclick="visitorNext()">Next: site rules</button></div>';
+      setTimeout(()=>{ const n=$('vName'); if(n&&!n.value) n.focus(); },50);
+    } else {
+      const rules=S.rules||[]; visitor.ok=visitor.ok||rules.map(()=>false);
+      m.innerHTML='<div class="row"><button class="ghost sm" onclick="visitor.step=1;draw()">'+ICON.back+'Back</button><h1 style="margin-left:8px">Site rules<small>step 2 of 2 · tap each one to confirm</small></h1></div>'+
+        '<div class="rules">'+rules.map((r,i)=>'<div class="rule'+(visitor.ok[i]?' on':'')+'" onclick="visitor.ok['+i+']=!visitor.ok['+i+'];draw()"><i>'+(visitor.ok[i]?'✓':'')+'</i>'+esc(r)+'</div>').join('')+'</div>'+
+        '<div class="row" style="margin-top:auto"><label class="f" style="width:220px">Badge no. (if issued)<input id="vBadge" value="'+esc(visitor.badge||'')+'"></label><span class="spacer"></span><button class="in sm" onclick="visitorSave()" '+(visitor.ok.every(Boolean)?'':'style="opacity:.4"')+'>Sign in</button></div>';
+    }
+    return;
+  }
+  if(view==='onsite'){
+    const staff=S.onsite.filter(o=>o.kind==='staff'), vis=S.onsite.filter(o=>o.kind!=='staff');
+    m.innerHTML='<div class="row"><button class="ghost sm" onclick="go(\'home\')">'+ICON.back+'Back</button><h1 style="margin-left:8px">On site now<small>'+S.onsite.length+' people · visitors and contractors sign out by tapping their name</small></h1></div>'+
+      '<div class="cols"><div><div class="h">Staff · '+staff.length+'</div><div class="list">'+(staff.map(o=>'<div class="li">'+esc(o.name)+'<small>in '+esc(o.since)+'</small></div>').join('')||'<div class="li">Nobody yet.</div>')+'</div></div><div><div class="h">Visitors &amp; contractors · '+vis.length+'</div><div class="list">'+(vis.map(o=>'<div class="li tap" onclick="visitorOut(\''+o.id+'\',\''+esc(o.name).replace(/\'/g,"\\'")+'\')"><span class="tag">'+esc(o.kind)+'</span>'+esc(o.name)+(o.company?' <span style="color:var(--mut);font-size:15px">'+esc(o.company)+'</span>':'')+'<small>in '+esc(o.since)+' · tap to sign out</small></div>').join('')||'<div class="li">None on site.</div>')+'</div></div></div>';
+    return;
+  }
+  if(view==='rollcall'){
+    const r=roll; const left=r.people.filter(p=>!p.ticked);
+    document.body.classList.add('rollcall');
+    m.innerHTML='<div class="row"><h1>'+ICON.flame+' Roll call<small>started '+esc(r.started_hm)+' · tick everyone as they reach the assembly point</small></h1><span class="spacer"></span><div style="text-align:right"><div class="big">'+left.length+'</div><div style="color:#f3c9cd;font-size:14px">unaccounted for</div></div></div>'+
+      '<div class="list">'+r.people.map((p,i)=>'<div class="li tap'+(p.ticked?' on':'')+'" onclick="rollTick('+i+')"><div class="ck">'+(p.ticked?'✓':'')+'</div>'+esc(p.name)+(p.kind!=='staff'?' <span class="tag">'+esc(p.kind)+'</span>':'')+'<small>'+(p.ticked?'safe':'in '+esc(p.since))+'</small></div>').join('')+'</div>'+
+      '<div class="row"><button class="ghost sm" onclick="rollClose(\'drill\')">All clear · this was a drill</button><button class="ghost sm" onclick="rollClose(\'real\')">All clear · real alarm</button><span class="spacer"></span><button class="ghost sm" onclick="rollAbandon()">Cancel roll call</button></div>';
+    return;
+  }
+}
+function greeting(){ const h=new Date().getHours(); return h<12?'Morning':(h<17?'Afternoon':'Evening'); }
+function dots(){ const d=$('dots'); if(d) d.innerHTML=[0,1,2,3].map(i=>'<i class="'+(i<pin.length?'f':'')+'"></i>').join(''); }
+let setupPin='';
+async function key(n){ if(n===-1){ pin=pin.slice(0,-1); dots(); return; } if(pin.length>=4) return; pin+=String(n); dots(); if(pin.length<4) return;
+  if(pinMode==='sign'){ try{ const r=await api('/api/door/pin','POST',{pin}); cur=r.emp; cur.photo=''; view='greet'; draw(); }catch(e){ $('pinMsg').textContent=e.message||'PIN not recognised'; pin=''; setTimeout(dots,350); } return; }
+  if(pinMode==='setup'){ setupPin=pin; pin=''; pinMode='setup2'; draw(); return; }
+  if(pinMode==='setup2'){ if(pin!==setupPin){ $('pinMsg').textContent='They didn\'t match — start again'; pin=''; setupPin=''; pinMode='setup'; setTimeout(draw,900); return; }
+    try{ const r=await api('/api/door/setup','POST',{emp_id:cur.id,pin,photo:photo()}); cur=r.emp; toast('PIN set. Welcome, '+(cur.first||cur.name)+' — you\'re signed in.',3200); await refresh(); go('home'); }catch(e){ $('pinMsg').textContent=e.message; pin=''; setupPin=''; pinMode='setup'; setTimeout(draw,1400); } }
+}
+function firstPick(id){ const s=(STATE.staff||[]).find(x=>x.id===id); if(!s) return; cur=s; pinMode='setup'; setupPin=''; go('pin'); }
+async function punch(dir){ try{ const r=await api('/api/door/punch','POST',{emp_id:cur.id,dir,photo:photo()}); toast(dir==='in'?('Signed in '+r.at+'. Have a good shift, '+(cur.first||cur.name)+'.'):('Signed out '+r.at+'. See you later.'),3000); await refresh(); go('home'); }catch(e){ toast(e.message,3000); } }
+function visitorNext(){ const g=id=>($(id)||{}).value||''; visitor.name=g('vName').trim(); visitor.company=g('vCo').trim(); visitor.host=g('vHost'); visitor.vehicle=g('vReg').trim().toUpperCase(); if(visitor.kind==='contractor'){ visitor.work=g('vWork').trim(); visitor.where=g('vWhere').trim(); visitor.permit=g('vPermit').trim(); visitor.hot=g('vHot'); } if(!visitor.name){ toast('Please type your name'); return; } visitor.step=2; draw(); }
+async function visitorSave(){ if(!visitor.ok.every(Boolean)){ toast('Please confirm each rule'); return; } visitor.badge=($('vBadge')||{}).value||''; try{ await api('/api/door/visitor','POST',visitor); toast('Signed in. Welcome to Wilsons, '+visitor.name+'.',3200); visitor=null; await refresh(); go('home'); }catch(e){ toast(e.message,3000); } }
+async function visitorOut(id,name){ try{ await api('/api/door/visitor/'+encodeURIComponent(id)+'/out','POST',{}); toast('Signed out. Thanks, '+name+'.',2600); await refresh(); draw(); }catch(e){ toast(e.message); } }
+async function startRoll(){ try{ roll=await api('/api/door/rollcall/start','POST',{}); view='rollcall'; draw(); }catch(e){ toast(e.message); } }
+async function rollTick(i){ roll.people[i].ticked=!roll.people[i].ticked; draw(); try{ await api('/api/door/rollcall/'+roll.id+'/tick','POST',{i,ticked:roll.people[i].ticked}); }catch(e){} }
+async function rollClose(kind){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind}); document.body.classList.remove('rollcall'); roll=null; toast(kind==='drill'?'Drill recorded.':'Roll call saved.',3000); go('home'); }catch(e){ toast(e.message); } }
+async function rollAbandon(){ try{ await api('/api/door/rollcall/'+roll.id+'/close','POST',{kind:'cancelled'}); }catch(e){} document.body.classList.remove('rollcall'); roll=null; go('home'); }
+(async function boot(){ if(!TOKEN){ fatal('This tablet is not signed in. Open Wilsons HQ, sign in with the tablet login, and it will come back here.'); return; } try{ STATE=await api('/api/door/state'); }catch(e){ return; } $('doorName').innerHTML='<b>'+esc(STATE.door)+'</b><br>'+esc(STATE.today); $('onsiteN').textContent=STATE.onsite.length+' on site'; if(STATE.rollcall){ roll=STATE.rollcall; view='rollcall'; } draw(); cam(); document.addEventListener('click',function once(){ try{ if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{}); }catch(e){} document.removeEventListener('click',once); }); })();
+</script>
+</body>
+</html>
