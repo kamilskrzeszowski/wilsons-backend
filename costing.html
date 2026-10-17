@@ -1346,7 +1346,7 @@ function folderTileHTML(color,title,subline,count,onclick,names){
       <div class="big">${count}<span> recipe${count===1?'':'s'}</span></div>
       ${subline?`<div class="kv folderkv"><span>${esc(subline)}</span></div>`:''}
       <div class="foldergo">Open ›</div>
-    </div></button>${names&&names.length?`<div class="tilestage no-print">${stageSelectHTML(names)}</div>`:''}</div>`;
+    </div></button></div>`;
 }
 const LIB_RANGE_ORDER=['Initial recipes'];   // these ranges sort first; the rest follow alphabetically
 function recipesView(){
