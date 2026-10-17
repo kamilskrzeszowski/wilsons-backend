@@ -22,7 +22,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { buildXlsx, zip } = require('./xlsx.js');
 
-const APP_VERSION = 'v50';   // bump this each release so the app can confirm the newest code is live
+const APP_VERSION = 'v51';   // bump this each release so the app can confirm the newest code is live
 // v20 — added Planning module (tasks, projects, delegation) at /planning
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || (process.env.HOME ? path.join(process.env.HOME, 'data') : __dirname);
@@ -246,6 +246,9 @@ try { db.exec("ALTER TABLE recipes ADD COLUMN color TEXT DEFAULT ''"); } catch (
 db.exec("CREATE TABLE IF NOT EXISTS mixes(id TEXT PRIMARY KEY, date TEXT, recipe_id TEXT, batch TEXT, kg REAL, by TEXT, created TEXT)");
 db.exec("CREATE TABLE IF NOT EXISTS mix_items(mix_id TEXT, ing_id TEXT, batch_code TEXT, qty REAL)");
 try { db.exec("ALTER TABLE recipes ADD COLUMN shelf_months INTEGER"); } catch (e) {}
+try { db.exec("ALTER TABLE recipes ADD COLUMN stage TEXT DEFAULT 'production'"); } catch (e) {}   // v51: production | pipeline | retired (set in Recipe Costing)
+try { db.exec("ALTER TABLE recipes ADD COLUMN vlabel TEXT DEFAULT ''"); } catch (e) {}              // v51: the live Costing version, e.g. v2
+try { db.exec("ALTER TABLE production ADD COLUMN recipe_vlabel TEXT DEFAULT ''"); } catch (e) {}   // v51: which recipe version the batch was made with
 try { db.exec("ALTER TABLE production ADD COLUMN seq REAL DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN operators INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE production ADD COLUMN stack_id TEXT DEFAULT ''"); } catch (e) {}
@@ -1514,17 +1517,17 @@ const server = http.createServer(async (req, res) => {
             const ex = byKey[keyOfRec(name, rc.brand)];
             if (ex && ex.source !== 'costing' && !adopt) { skipped.push(name); return; }   // never clobber a hand-made app recipe unless adopting
             if (ex) {
-              const before = db.prepare('SELECT packs, ingredients, brand, color FROM recipes WHERE id=?').get(ex.id);
-              db.prepare("UPDATE recipes SET brand=?, packs=?, ingredients=?, updated=?, color=?, source='costing' WHERE id=?")
-                .run(rc.brand || '', JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''), ex.id);
-              const changed = !before || before.packs !== JSON.stringify(packs) || before.ingredients !== JSON.stringify(ings) || (before.brand || '') !== (rc.brand || '');
-              if (changed) snapshotRecipe(ex.id, user.username, 'Recipe Costing sync');
+              const before = db.prepare('SELECT packs, ingredients, brand, color, vlabel FROM recipes WHERE id=?').get(ex.id);
+              db.prepare("UPDATE recipes SET brand=?, packs=?, ingredients=?, updated=?, color=?, source='costing', stage=?, vlabel=? WHERE id=?")
+                .run(rc.brand || '', JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''), String(rc.stage || 'production'), String(rc.vlabel || ''), ex.id);
+              const changed = !before || before.packs !== JSON.stringify(packs) || before.ingredients !== JSON.stringify(ings) || (before.brand || '') !== (rc.brand || '') || (before.vlabel || '') !== String(rc.vlabel || '');
+              if (changed) snapshotRecipe(ex.id, user.username, 'Recipe Costing sync' + (rc.vlabel ? ' · ' + rc.vlabel : ''));
               if (ex.source !== 'costing') adopted++; else updated++;
             } else {
               const nid = uid('r');
-              db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color) VALUES(?,?,?,?,?,?,'costing',?)")
-                .run(nid, rc.brand || '', name, JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''));
-              snapshotRecipe(nid, user.username, 'created in Recipe Costing');
+              db.prepare("INSERT INTO recipes(id,brand,name,packs,ingredients,updated,source,color,stage,vlabel) VALUES(?,?,?,?,?,?,'costing',?,?,?)")
+                .run(nid, rc.brand || '', name, JSON.stringify(packs), JSON.stringify(ings), now(), String(rc.color || ''), String(rc.stage || 'production'), String(rc.vlabel || ''));
+              snapshotRecipe(nid, user.username, 'created in Recipe Costing' + (rc.vlabel ? ' · ' + rc.vlabel : ''));
               byKey[keyOfRec(name, rc.brand)] = { id: nid, name, brand: rc.brand || '', source: 'costing' };
               created++;
             }
@@ -1540,6 +1543,8 @@ const server = http.createServer(async (req, res) => {
             db.prepare('DELETE FROM recipes WHERE id=?').run(ex.id);
             delete byKey[k]; removed++;
           });
+          // 4) stages for every recipe Costing knows (its own and the app-made ones)
+          (Array.isArray(b.stages) ? b.stages : []).forEach(st => { const ex = byKey[keyOfRec(st.name, st.brand)]; if (ex) db.prepare('UPDATE recipes SET stage=? WHERE id=?').run(String(st.stage || 'production'), ex.id); });
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); return json(res, 500, { error: 'sync failed: ' + e.message }); }
         bumpDataRev();   // after COMMIT, never before — a rolled-back sync must not tell everyone to re-read
@@ -1778,7 +1783,7 @@ const server = http.createServer(async (req, res) => {
             db.prepare('DELETE FROM production_items WHERE prod_id=?').run(id);
             const insItem = db.prepare('INSERT INTO production_items(prod_id,ing_id,kg) VALUES(?,?,?)');
             b.deductions.forEach(d => insItem.run(id, d.ing_id, +d.kg));
-            if (b.recipe_id) db.prepare('UPDATE production SET recipe_version=? WHERE id=?').run(currentRecipeVersion(b.recipe_id), id);
+            if (b.recipe_id) { const rv = db.prepare('SELECT vlabel FROM recipes WHERE id=?').get(b.recipe_id); db.prepare('UPDATE production SET recipe_version=?, recipe_vlabel=? WHERE id=?').run(currentRecipeVersion(b.recipe_id), (rv && rv.vlabel) || '', id); }
           } else {
             const oldQty = +ex.qty || 0, newQty = +b.qty || 0;
             if (oldQty > 0 && newQty > 0 && Math.abs(newQty - oldQty) > 1e-9)
@@ -1970,6 +1975,7 @@ const server = http.createServer(async (req, res) => {
 
       if (await poRoutes({ url, m, req, res, user })) return;
       if (await giRoutes({ url, m, req, res, user })) return;
+      if (await rvRoutes({ url, m, req, res, user })) return;
       // ---- Microsoft 365 email: status, test-send, pause switch (admins only) ----
       if (url === '/api/mail/status' && m === 'GET') {
         if (user.role !== 'admin') return json(res, 403, { error: 'admins only' });
@@ -2390,5 +2396,83 @@ async function giRoutes(ctx) {
   }
   mm = url.match(/^\/api\/cdoc\/([^/]+)$/);
   if (mm && m === 'GET') { const grp = decodeURIComponent(mm[1]); let data = null; try { data = cdocBuild(grp); } catch (e) { json(res, 500, { error: e.message }); return true; } if (!data) { json(res, 404, { error: 'No ABP document for this delivery (no meat lines, or refused).' }); return true; } json(res, 200, data); return true; }
+  return false;
+}
+
+
+/* ============================================================================
+ * v51 — Recipe versions & stages (server side).
+ * Recipe Costing keeps every version in costing_kv 'wpf_recversions' and the stage per recipe in
+ * 'wpf_recstage'. The HQ recipes table carries the LIVE version only (plus its label and stage).
+ * Here: (1) scheduled versions go live at midnight even if nobody opens Costing that day,
+ * (2) batch rows get the version label they were made with, (3) a per-version batch count.
+ * ==========================================================================*/
+function rvCostingBrandOf(name) { if (/^working dog/i.test(name)) return 'Working Dog Cold Pressed'; if (/^wilsons/i.test(name)) return 'Premium Cold Pressed'; const m = /^(Naked|Run|WILD)\b/i.exec(name); if (m) return m[1] + ' (Cold Pressed)'; return 'Cold Pressed'; }
+function rvLocalToday() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function rvStampBatches() {   // any batch without a label gets the recipe's current label (recent rows only — history stays as it was)
+  try { db.prepare("UPDATE production SET recipe_vlabel=(SELECT COALESCE(r.vlabel,'') FROM recipes r WHERE r.id=production.recipe_id) WHERE (recipe_vlabel IS NULL OR recipe_vlabel='') AND recipe_id<>'' AND date>=date('now','-2 day')").run(); } catch (e) {}
+}
+function rvApplySchedules() {
+  const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+  const ckvSet = (k, v) => db.prepare('INSERT INTO costing_kv(key,value,updated) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(k, v, now());
+  let all; try { all = JSON.parse(ckvGet('wpf_recversions') || '{}'); } catch (e) { return 0; } if (!all || typeof all !== 'object') return 0;
+  const today = rvLocalToday(); let applied = 0;
+  rvStampBatches();   // yesterday's batches keep yesterday's label before anything switches
+  for (const name of Object.keys(all)) {
+    const f = all[name]; if (!f || !Array.isArray(f.versions)) continue;
+    const due = f.versions.filter(x => x.status === 'scheduled' && x.liveFrom && x.liveFrom <= today).sort((a, b) => String(a.liveFrom).localeCompare(String(b.liveFrom)) || a.v - b.v);
+    if (!due.length) continue;
+    for (const ver of due) {
+      const prev = f.versions.find(x => x.v === f.liveV); if (prev && prev.v !== ver.v) { prev.status = 'retired'; prev.liveUntil = ver.liveFrom; }
+      ver.status = 'live'; ver.liveUntil = ''; ver.madeLiveBy = ver.madeLiveBy || ver.scheduledBy || 'scheduled'; f.liveV = ver.v;
+      const d = ver.data || {}; const ings = (d.ingredients || []).map(i => ({ name: i.name, kg: +i.kg || 0, perKg: +i.perKg || 0 }));
+      const sub = ings.reduce((a, i) => a + i.kg * (i.perKg || 0), 0);
+      const rec = { name, custom: { perKg: sub / (d.batchSize || 1000) }, brand: d.brand || '', appName: d.appName, range: d.range, batchSize: d.batchSize || 1000, wastePct: d.wastePct == null ? 0.05 : d.wastePct, ingredients: ings };
+      // the ordinary costing record = the live version
+      let custom = []; try { custom = JSON.parse(ckvGet('wpf_custom') || '[]'); } catch (e) { custom = []; } if (!Array.isArray(custom)) custom = [];
+      if (d.builtin && !custom.some(x => x.name === name)) { let edits = {}; try { edits = JSON.parse(ckvGet('wpf_recedits') || '{}'); } catch (e) { edits = {}; } edits[name] = rec; ckvSet('wpf_recedits', JSON.stringify(edits)); }
+      else { const prevRec = custom.find(x => x.name === name) || {}; custom = custom.filter(x => x.name !== name); custom.push(Object.assign({}, prevRec, rec, { appName: rec.appName !== undefined ? rec.appName : prevRec.appName, range: rec.range !== undefined ? rec.range : prevRec.range })); ckvSet('wpf_custom', JSON.stringify(custom)); }
+      // and the HQ recipe row (what the factory uses)
+      try {
+        const appName = d.appName || name, brand = d.brand || rvCostingBrandOf(name);
+        const key = (n, b) => String(n || '').trim().toLowerCase() + '|' + String(b || '').trim().toLowerCase();
+        const row = db.prepare('SELECT id, name, brand FROM recipes').all().find(r => key(r.name, r.brand) === key(appName, brand));
+        if (row) {
+          const ingByName = {}; db.prepare('SELECT id,name FROM ingredients').all().forEach(i => ingByName[i.name.trim().toLowerCase()] = i.id);
+          const hqIngs = ings.filter(i => i.name && i.kg > 0).map(i => { let iid = ingByName[String(i.name).trim().toLowerCase()]; if (!iid) { iid = uid('i'); db.prepare('INSERT INTO ingredients(id,name,category,supplier,notes) VALUES(?,?,?,?,?)').run(iid, String(i.name).trim(), '', '', 'added by Recipe Costing (scheduled version)'); ingByName[String(i.name).trim().toLowerCase()] = iid; } return { ingId: iid, kg: +i.kg }; });
+          db.prepare("UPDATE recipes SET ingredients=?, vlabel=?, updated=? WHERE id=?").run(JSON.stringify(hqIngs), 'v' + ver.v, now(), row.id);
+          snapshotRecipe(row.id, 'system', 'v' + ver.v + ' live from ' + ver.liveFrom + ' (scheduled in Recipe Costing)');
+        }
+      } catch (e) { console.log('version schedule: HQ update failed for ' + name + ': ' + e.message); }
+      applied++;
+    }
+  }
+  if (applied) { ckvSet('wpf_recversions', JSON.stringify(all)); try { bumpDataRev(); } catch (e) {} console.log('Recipe versions: ' + applied + ' scheduled version(s) made live.'); rvStampBatches(); }
+  return applied;
+}
+// one-time (Kamil, 17 Oct 2026): the PAH brand is still being developed — Pipeline, so it stays out of the factory screens
+(function pahToPipeline() {
+  if ((db.prepare("SELECT value FROM meta WHERE key='pahStageV'").get() || {}).value === '1') return;
+  try {
+    db.prepare("UPDATE recipes SET stage='pipeline' WHERE brand='PAH' AND (stage IS NULL OR stage='' OR stage='production')").run();
+    const ckvGet = k => { const r = db.prepare('SELECT value FROM costing_kv WHERE key=?').get(k); return r ? r.value : null; };
+    let custom = []; try { custom = JSON.parse(ckvGet('wpf_custom') || '[]'); } catch (e) { custom = []; }
+    let st = {}; try { st = JSON.parse(ckvGet('wpf_recstage') || '{}'); } catch (e) { st = {}; } if (!st || typeof st !== 'object') st = {};
+    let n = 0; (Array.isArray(custom) ? custom : []).forEach(r => { if (String(r.brand || '').toUpperCase() === 'PAH' && !st[r.name]) { st[r.name] = 'pipeline'; n++; } });
+    db.prepare("INSERT INTO costing_kv(key,value,updated) VALUES('wpf_recstage',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated").run(JSON.stringify(st), now());
+    db.prepare("INSERT INTO meta(key,value) VALUES('pahStageV','1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
+    console.log('PAH recipes set to Pipeline: ' + n + ' in Costing.');
+  } catch (e) { console.log('pah stage migration failed: ' + e.message); }
+})();
+setTimeout(() => { try { rvApplySchedules(); } catch (e) { console.log('version schedules failed: ' + e.message); } }, 20 * 1000);
+setInterval(() => { try { rvApplySchedules(); } catch (e) { console.log('version schedules failed: ' + e.message); } }, 60 * 60 * 1000);
+async function rvRoutes(ctx) {
+  const { url, m, req, res, user } = ctx;
+  if (url === '/api/recipe-batches' && m === 'GET') {
+    const q = new URLSearchParams(req.url.split('?')[1] || ''); const name = String(q.get('name') || '').trim().toLowerCase(), brand = String(q.get('brand') || '').trim().toLowerCase();
+    const row = db.prepare('SELECT id FROM recipes').all().map(r => Object.assign(r, db.prepare('SELECT name, brand FROM recipes WHERE id=?').get(r.id))).find(r => String(r.name || '').trim().toLowerCase() === name && String(r.brand || '').trim().toLowerCase() === brand);
+    const out = {}; if (row) { rvStampBatches(); db.prepare("SELECT COALESCE(NULLIF(recipe_vlabel,''),'v1') v, count(*) n, min(date) first, max(date) last FROM production WHERE recipe_id=? AND (hist IS NULL OR hist=0) GROUP BY v").all(row.id).forEach(r => out[r.v] = { n: r.n, first: r.first, last: r.last }); }
+    json(res, 200, out); return true;
+  }
   return false;
 }

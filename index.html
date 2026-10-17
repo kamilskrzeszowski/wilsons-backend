@@ -349,7 +349,7 @@ tr.prDrag:hover{background:#faf3ee}
     <div class="sb-tabs" id="sbToggle"></div>
     <nav class="sb-nav" id="sbNav"></nav>
   </div>
-  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v50</div>
+  <div class="sb-ver" id="sbVer" onclick="showVersionHistory()" title="Click to see what changed in each version. If this number doesn't match after an upload, the new files haven't gone live yet.">Wilsons HQ v51</div>
   <div class="sb-pup"><img src="/assets/wilson-pup.png" alt=""></div>
 </aside>
 <style>
@@ -1139,6 +1139,7 @@ document.getElementById('tabs').addEventListener('click',e=>{
 /* ---------------- Library ---------------- */
 function renderLibrary(){
   const host=document.getElementById('libraryBody'); host.innerHTML='';
+  if(isAdmin()){ const t=document.createElement('label'); t.className='hint'; t.style.cssText='display:flex;gap:6px;align-items:center;margin:0 0 10px'; t.innerHTML='<input type="checkbox" id="libAllStages"'+(SHOW_ALL_STAGES?' checked':'')+'> Show pipeline &amp; retired recipes (admins only — staff never see them)'; host.appendChild(t); t.querySelector('input').onchange=e=>{ SHOW_ALL_STAGES=e.target.checked; try{ localStorage.setItem('wpm_allstages',SHOW_ALL_STAGES?'1':'0'); }catch(x){} renderLibrary(); }; }
   const brands=[...new Set(VREC().map(r=>r.brand))];
   brands.forEach(br=>{
     const list=VREC().filter(r=>r.brand===br).sort((a,b)=>a.name.localeCompare(b.name));
@@ -1152,7 +1153,7 @@ function renderLibrary(){
       const c=document.createElement('div'); c.className='recipe-card';
       c.style.borderLeftColor=recipeColorOf(r);
       const past = (PROCESS[br]==='Pasteurised');
-      c.innerHTML=`<h4>${r.name}</h4>
+      c.innerHTML=`<h4>${r.name}${r.vlabel?' <span class="chip" title="Recipe version (from Recipe Costing)">'+escapeHtml(r.vlabel)+'</span>':''}${r.stage&&r.stage!=='production'?' <span class="chip" style="background:#fff4d6;color:#8a6600">'+escapeHtml(r.stage)+'</span>':''}</h4>
         <div class="meta">${r.ingredients.length} ingredients · base ${fmt(baseKg(r))} kg</div>
         <div><span class="chip proc ${past?'past':''}">${PROCESS[br]}</span>${r.packs.map(p=>`<span class="chip">${p}</span>`).join('')}</div>`;
       c.onclick=()=>showRecipe(r.id);
@@ -2306,6 +2307,12 @@ async function startApp(){
 }
 /* ===== version history (newest first) — shown when you click the version in the sidebar ===== */
 const VERSION_HISTORY=[
+  {v:'v51', date:'17 Oct 2026', notes:[
+    'Recipe versions (Recipe Costing). A recipe is now a family of numbered versions with exactly one LIVE version. Next to the recipe name a small control reads “v2 · live since …”; open it to see every version with its dates and cost, start a new version (a copy of the one you are looking at), compare two versions ingredient by ingredient, or open the History page. Editing a version that has ever been live always saves as a NEW version — nothing used in production is overwritten. Drafts are invisible to the factory.',
+    'Live from: when saving or from the version page, set the date a version goes live. Today or earlier = live now. A later date = scheduled; HQ switches at midnight that day even if nobody opens Costing (the previous version gets its live-until date). Every version keeps live-from / live-until, who made it live, and how many batches were made with it. Mixing sheets, Pick & Mix, filling and stock follow the live version automatically; each batch records its version.',
+    'Stages: every recipe is In production, Pipeline or Retired — set on the recipe page or for a whole brand/category tile in one click. Only In production recipes appear in the Filling Sheet, Mixing Sheets, Pick & Mix, Planner and Recipe Library; Pipeline and Retired live in Recipe Costing (Products list has a stage filter). Admins can tick “show pipeline & retired” in the Library to peek. PAH set to Pipeline.',
+    'Rename moved to its own button on the recipe page (a version keeps the recipe’s name).'
+  ]},
   {v:'v50', date:'8 Oct 2026', notes:[
     'Five workspaces in the sidebar — Production, Warehouse (new), Technical, Office, HR (new) — switched with icon tabs that grow into their name (hover on a computer; the chosen one on a tablet). Each account can be given a home workspace on the Users screen, so the warehouse tablet opens on Warehouse.',
     'Goods in (was “Deliveries”) is one tablet-friendly sheet for every delivery, with or without an order. Ingredient and kilos are enough to save; anything left blank (batch, temperature, type, checks, delivery note, approval numbers, haulier, order) is saved as INCOMPLETE and highlighted in the list — a count shows on the sidebar — so it can be finished later. Deliveries without an order are flagged “No order”; opening one offers “Raise order from this delivery”, which creates the order from the recorded lines and marks it received. Refusals (temperature above −15 °C, supplier not approved, transport or quality unsatisfactory) still refuse on the spot as before. Book in on a purchase order opens the same sheet.',
@@ -2535,7 +2542,7 @@ window.showVersionHistory=showVersionHistory;
      2. has someone changed a recipe/ingredient since we last looked?
    Before v41 this ran exactly once, at load, and only ever changed a line of text in the sidebar
    that nobody reads — so a stale tab stayed stale and silently wrong all day. */
-const APP_VERSION='v50';
+const APP_VERSION='v51';
 let _lastDataRev=null, _verTimer=null, _verBannerUp=false, _verSnoozeUntil=0, _wasHidden=false;
 // v42: the force-reload counter as it stood when THIS page loaded. If the server's value ever differs
 // from it, an admin has pressed "Reload everyone" since we started, and we're due a fresh copy.
@@ -2898,7 +2905,9 @@ function currentFactory(){
 function setFactory(f){ try{ localStorage.setItem('wpm_factory',f); }catch(e){} renderSidebar(); refreshAll(); renderForTab(SB_ACTIVE||'home'); }
 window.setFactory=setFactory;
 function inFactory(r){ const f=currentFactory(); return f==='all' || factoryOf(r.brand)===f; }
-function VREC(){ return state.recipes.filter(inFactory); }
+let SHOW_ALL_STAGES=false; try{ SHOW_ALL_STAGES=localStorage.getItem('wpm_allstages')==='1'; }catch(e){}
+function stageOk(r){ return SHOW_ALL_STAGES || !r.stage || r.stage==='production'; }
+function VREC(){ return state.recipes.filter(r=>inFactory(r)&&stageOk(r)); }
 function canView(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.view&&p.view[a]); }
 function canEdit(a){ if(a==='girecords') a='deliveries'; if(isAdmin())return true; const p=CURRENT_USER&&CURRENT_USER.perms; return !!(p&&p.edit&&p.edit[a]); }
 
@@ -3942,7 +3951,7 @@ async function pmPrintRun(r){
   const ingRows=(rr.ingredients||[]).map(li=>{ const need=li.kg*kg/base; tot+=need; const c=(codes[li.ingId]||[]); return '<tr><td class="checkbox-cell">☐</td><td><b>'+escapeHtml(ingName(li.ingId))+'</b></td><td class="num">'+fmt(need)+'</td><td>'+(c.length?'<b>'+c.map(escapeHtml).join(' + ')+'</b>':'')+'</td></tr>'; }).join('');
   const split=Object.keys(r.packs).sort((a,b)=>packGrams(a)-packGrams(b)).map(p=>escapeHtml(p)+': '+fmt(r.packs[p])+' bags').join('<br>');
   const cooks=Object.keys(r.cooks); const bk=Object.keys(r.baskets).sort((a,b)=>(+a||0)-(+b||0));
-  const html='<div class="mixsheet"><div class="hd"><div><div class="t">'+escapeHtml(rr.brand+' — '+rr.name)+' · Mix '+escapeHtml(r.jul)+'</div><div class="b"><b>Wilsons Pet Food</b> · minced '+escapeHtml(r.mince)+' · batch '+fmt(kg)+' kg'+(mix?(' · filled '+fmt(r.kg)+' kg'+((kg-r.kg)>0.05?(' · waste '+fmt(kg-r.kg)+' kg ('+((kg-r.kg)/kg*100).toFixed(1)+'%)'):'')):'')+(r.ops?(' · '+r.ops+' ops'):'')+(bk.length?(' · basket'+(bk.length>1?'s':'')+' '+escapeHtml(bk.join(', '))):'')+(cooks.length?(' · cooked '+escapeHtml(cooks.join(', '))):'')+'</div></div>'+
+  const html='<div class="mixsheet"><div class="hd"><div><div class="t">'+escapeHtml(rr.brand+' — '+rr.name)+(rr.vlabel?' · '+escapeHtml(rr.vlabel):'')+' · Mix '+escapeHtml(r.jul)+'</div><div class="b"><b>Wilsons Pet Food</b> · minced '+escapeHtml(r.mince)+' · batch '+fmt(kg)+' kg'+(mix?(' · filled '+fmt(r.kg)+' kg'+((kg-r.kg)>0.05?(' · waste '+fmt(kg-r.kg)+' kg ('+((kg-r.kg)/kg*100).toFixed(1)+'%)'):'')):'')+(r.ops?(' · '+r.ops+' ops'):'')+(bk.length?(' · basket'+(bk.length>1?'s':'')+' '+escapeHtml(bk.join(', '))):'')+(cooks.length?(' · cooked '+escapeHtml(cooks.join(', '))):'')+'</div></div>'+
     '<div style="text-align:right"><div class="b"><b>Printed:</b> '+new Date().toLocaleDateString('en-GB')+'</div><div class="b">'+(mix?((missN?('Batch codes: '+((rr.ingredients||[]).length-missN)+' of '+(rr.ingredients||[]).length+' recorded'):'Batch codes recorded')+' by '+escapeHtml(mix.by||'')+(mix.updated?' (edited)':'')):'Batch codes: not yet recorded')+'</div></div></div>'+
     '<table class="ms-table"><thead><tr><th>Recipe</th><th>Pack split</th><th class="num">Batch minced (kg)</th><th class="num">Filled (kg)</th><th class="num">Waste (kg)</th><th class="num">bags</th></tr></thead><tbody><tr><td><b>'+escapeHtml(rr.brand+' — '+rr.name)+'</b></td><td>'+(split||'<span class="muted">—</span>')+'</td><td class="num"><b>'+fmt(kg)+'</b></td><td class="num">'+fmt(r.kg)+'</td><td class="num">'+((kg-r.kg)>0.05?fmt(kg-r.kg):(mix?'0':'—'))+'</td><td class="num">'+fmt(r.bags)+'</td></tr></tbody></table>'+
     '<table class="ms-table" style="margin-top:10px"><thead><tr><th style="width:34px" class="checkbox-cell">✓</th><th>Ingredient</th><th class="num">Total (kg)</th><th style="width:160px">Batch code(s)</th></tr></thead><tbody>'+ingRows+'</tbody><tfoot><tr><th></th><th>TOTAL</th><th class="num">'+fmt(tot)+'</th><th></th></tr></tfoot></table>'+

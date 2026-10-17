@@ -164,6 +164,20 @@ dialog .btn{margin-top:8px;margin-right:8px}
   #custDoc .cx-card,#custDoc table,#custDoc tr{break-inside:avoid;page-break-inside:avoid}
   #custDoc .cx-groupband{break-after:avoid;page-break-after:avoid}
 }
+
+/* v51 — recipe versions & stages */
+.verwrap{position:relative;display:inline-block}
+.verbadge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff;font:inherit;font-size:13px;cursor:pointer;color:var(--ink,#143644)}
+.verbadge:hover{border-color:var(--sea)}
+.verpop{position:absolute;left:0;top:calc(100% + 6px);z-index:60;min-width:420px;max-width:92vw;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px -14px rgba(0,0,0,.45);overflow:hidden;text-transform:none;font-size:13px}
+.verrow{display:flex;justify-content:space-between;gap:12px;padding:9px 12px;border-top:1px solid #eee;cursor:pointer}.verrow:first-child{border-top:0}.verrow:hover{background:#f3f7fa}.verrow.on{background:#eef6ff}
+.verpop-foot{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--line);background:#fafaf7}
+.verbanner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#eef6ff;border:1px solid #c9dcf4;border-radius:10px;padding:9px 13px;margin:0 0 12px;font-size:13px}
+.stagesel{font:inherit;font-size:12px;font-weight:600;padding:4px 22px 4px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink,#143644)}
+.stagesel.st-pipeline{background:#e6eeff;color:#2f5fa8;border-color:#c9dcf4}.stagesel.st-retired{background:#eceae3;color:#5f6f7a}.stagesel.st-mixed{background:#fff4d6;color:#8a6600}
+.tilewrap{position:relative}.tilewrap .tile{width:100%}.tilestage{position:absolute;right:12px;bottom:12px}
+.stagechips{display:inline-flex;gap:0;border:2px solid var(--sea);border-radius:20px;overflow:hidden}
+.stagechips button{border-radius:0}
 </style>
 </head>
 <body>
@@ -407,7 +421,12 @@ const store = {
   /* renames waiting to be told to the app, so the app renames its recipe row IN PLACE
      (same id — production history and plans stay linked). Cleared after a successful sync. */
   get pendingRenames(){ const v=J('wpf_pendrenames',()=>[]); return Array.isArray(v)?v:[]; },
-  set pendingRenames(v){ kvSet('wpf_pendrenames', JSON.stringify(v)) }
+  set pendingRenames(v){ kvSet('wpf_pendrenames', JSON.stringify(v)) },
+  /* v51: recipe versions (name -> {liveV, versions:[...]}) and stage per recipe (name -> production|pipeline|retired) */
+  get recVersions(){ const v=J('wpf_recversions',()=>({})); return v&&typeof v==='object'?v:{}; },
+  set recVersions(v){ kvSet('wpf_recversions', JSON.stringify(v)) },
+  get recStage(){ const v=J('wpf_recstage',()=>({})); return v&&typeof v==='object'?v:{}; },
+  set recStage(v){ kvSet('wpf_recstage', JSON.stringify(v)) }
 };
 const DEFAULT_COST_PROFILES = [
   {id:'freshamb', name:'Fresh Frozen / Ambient', items:[
@@ -606,7 +625,7 @@ function show(v, arg){
   builderDirty=false;
   view = v; if(arg!==undefined) lastArg = arg;
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
-  const nb = document.getElementById('nav-'+(v==='recipeDetail'?'recipes':(v==='builder'?'builder':v)));
+  const nb = document.getElementById('nav-'+((v==='recipeDetail'||v==='versions'||v==='compare')?'recipes':(v==='builder'?'builder':v)));
   if(nb) nb.classList.add('active');
   const m = document.getElementById('main');
   if(v==='products') m.innerHTML = productsView();
@@ -617,17 +636,20 @@ function show(v, arg){
   else if(v==='recipes') m.innerHTML = recipesView();
   else if(v==='recipeDetail') m.innerHTML = recipeDetailView(arg!==undefined?arg:lastArg);
   else if(v==='builder') m.innerHTML = builderView();
+  else if(v==='versions') m.innerHTML = versionsView(arg!==undefined?arg:lastArg);
+  else if(v==='compare') m.innerHTML = compareView(arg!==undefined?arg:lastArg);
   window.scrollTo(0,0);
 }
 
 /* ================= PRODUCTS (driven by recipe pack sizes) ================= */
-let prodFilter='', prodCatFilter='', prodBrandFilter='';
+let prodFilter='', prodCatFilter='', prodBrandFilter='', prodStageFilter='production';
 function prodBrandOf(name){ const r=findRecipe(name); return (r&&r.brand)||costingBrandOf(name); }
 function productRows(){
   const out=[];
   allRecipes().slice().sort((a,b)=>a.name.localeCompare(b.name))
     .filter(r=>!prodCatFilter || catOf(r.name)===prodCatFilter)
     .filter(r=>!prodBrandFilter || ((r.brand||costingBrandOf(r.name))===prodBrandFilter))
+    .filter(r=>prodStageFilter==='all' || stageOf(r.name)===prodStageFilter)
     .forEach(r=>{
     const st = rcState(r.name);
     const per = recipeCost(r, recMode);
@@ -672,13 +694,13 @@ function productsView(){
     const g = p.name!==lastName ? ' class="group-start"' : '';
     lastName = p.name;
     const open = `show('recipeDetail','${esc(p.name).replace(/'/g,"\\'")}')`;
-    if(p.none) return `<tr${g}>${selCol?'<td class="no-print"><input type="checkbox" disabled title="No pack sizes yet — set sizes before this recipe can be exported"></td>':''}<td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}</td>
+    if(p.none) return `<tr${g}>${selCol?'<td class="no-print"><input type="checkbox" disabled title="No pack sizes yet — set sizes before this recipe can be exported"></td>':''}<td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${verTag(p.name)}</td>
       <td colspan="${dataCols-2}" class="muted">no pack sizes set yet</td>
       <td class="no-print"><button class="btn small accent" onclick="${open}">Set up sizes</button></td></tr>`;
     const key = p.name+'||'+p.pid;
     const selTd = selCol?`<td class="no-print"><input type="checkbox" ${prodSel.has(key)?'checked':''} onchange="toggleProdSel('${esc(key).replace(/'/g,"\\'")}')"></td>`:'';
     if(CH==='both') return `<tr${g}>${selTd}
-      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
+      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${verTag(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
       <td class="num">${NUM(p.kg)}</td>
       <td class="num"><b>${GBP2(p.d2c.tot)}</b></td>
       <td class="num">${sellInput(p,'sell',p.sell)}</td>
@@ -690,7 +712,7 @@ function productsView(){
     const sellField = CH==='d2c'?'sell':'sellTrade';
     const sellVal = CH==='d2c'?p.sell:p.sellTrade;
     return `<tr${g}>${selTd}
-      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
+      <td class="pname" style="cursor:pointer" onclick="${open}">${esc(p.name)}${verTag(p.name)}${(p.unp&&p.unp.length)?` <span title="Provisional — ${p.unp.length} unpriced ingredient(s) counted at £0.00: ${esc(p.unp.join(', '))}" style="color:#c0554f;font-weight:700;cursor:help">⚠</span>`:''}</td>
       <td class="num">${NUM(p.kg)}</td><td class="num">${GBP2(p.mat)}</td><td class="num">${GBP2(p.waste)}</td>
       <td class="num">${GBP2(p.lab)}</td><td class="num">${GBP2(p.ovh)}</td><td class="num">${GBP2(p.ele)}</td>
       <td class="num">${GBP2((p.other - p.d2c.extras) + c.extras)}</td><td class="num"><b>${GBP2(c.tot)}</b></td>
@@ -707,6 +729,7 @@ function productsView(){
   <div class="toolbar">
     <input type="text" id="prodSearch" placeholder="Search products…" value="${esc(prodFilter)}" oninput="prodFilter=this.value;searchDebounce()">
     ${catToggle()}
+    <span class="no-print stagechips" title="Stage">${[['production','In production'],['pipeline','Pipeline'],['retired','Retired'],['all','All']].map(x=>`<button class="btn small" style="${prodStageFilter===x[0]?'':'background:#fff;color:var(--sea)'}" onclick="prodStageFilter='${x[0]}';refresh()">${x[1]}</button>`).join('')}</span>
     <select onchange="prodBrandFilter=this.value;refresh()" title="Filter by brand" class="no-print"
       style="padding:8px 14px;border:2px solid var(--sea);border-radius:20px;background:${prodBrandFilter?'var(--sea)':'#fff'};color:${prodBrandFilter?'#fff':'var(--sea)'};font-weight:600;font-size:13px;min-width:0;cursor:pointer">
       <option value="">All brands</option>
@@ -1212,7 +1235,7 @@ async function syncRecipesToApp(adopt){
       /* migrated app recipes carry their real app name + brand (e.g. appName "Chicken", brand "TUGGS")
          so they update the SAME recipe rows the app already had — plans and history stay linked */
       name:r.appName||r.name, brand:r.brand||costingBrandOf(r.name), batchSize:r.batchSize||1000,
-      color:recipeColor(r),
+      color:recipeColor(r), stage:stageOf(r.name), vlabel:verLabel(r.name),
       packs:(rcState(r.name).packs||[]).map(p=>+p.kg).filter(Boolean),
       ingredients:(r.ingredients||[]).map(i=>({name:dispName(i.name), kg:+i.kg||0})).filter(i=>i.name&&i.kg>0)
     }));
@@ -1224,7 +1247,7 @@ async function syncRecipesToApp(adopt){
     }));
     const renames=store.pendingRenames;
     const r=await fetch('/api/costing-recipe-sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+API_TOKEN},
-      body:JSON.stringify(Object.assign({recipes,deleted,renames},adopt?{adopt:true}:{}))});
+      body:JSON.stringify(Object.assign({recipes,deleted,renames,stages:verStagesPayload()},adopt?{adopt:true}:{}))});
     if(!r.ok) throw new Error('HTTP '+r.status);
     if(renames.length) store.pendingRenames=[];   // applied in place on the server — done
     /* tell the main app to refresh its Recipe Library / Mixing Sheets straight away (no browser reload) */
@@ -1316,14 +1339,14 @@ function recipeTileHTML(r){
       <div class="kv"><span>Batch size</span><b>${NUM(r.batchSize)} kg</b></div>
     </div></button>`;
 }
-function folderTileHTML(color,title,subline,count,onclick){
-  return `<button class="tile folder" onclick="${onclick}">
+function folderTileHTML(color,title,subline,count,onclick,names){
+  return `<div class="tilewrap"><button class="tile folder" onclick="${onclick}">
     <div class="band" style="background:${color}"><h3>${esc(title)}</h3></div>
     <div class="body">
       <div class="big">${count}<span> recipe${count===1?'':'s'}</span></div>
       ${subline?`<div class="kv folderkv"><span>${esc(subline)}</span></div>`:''}
       <div class="foldergo">Open ›</div>
-    </div></button>`;
+    </div></button>${names&&names.length?`<div class="tilestage no-print">${stageSelectHTML(names)}</div>`:''}</div>`;
 }
 const LIB_RANGE_ORDER=['Initial recipes'];   // these ranges sort first; the rest follow alphabetically
 function recipesView(){
@@ -1373,16 +1396,16 @@ function recipesView(){
     body = matchR.length ? `<div class="grid">${matchR.map(recipeTileHTML).join('')}</div>`
                          : `<p class="muted" style="padding:20px">No recipes match “${esc(recFilter)}”.</p>`;
   } else if(mode==='top'){
-    const tiles=LIB_GROUPS.map(gg=>folderTileHTML(gg.color,gg.name,gg.subs.map(x=>x.name).join(' · '),libCount(gg.id),`libGo('${gg.id}')`));
-    const otherN=libCount('other'); if(otherN) tiles.push(folderTileHTML('#8a8175','Other',null,otherN,`libGo('other')`));
+    const tiles=LIB_GROUPS.map(gg=>folderTileHTML(gg.color,gg.name,gg.subs.map(x=>x.name).join(' · '),libCount(gg.id),`libGo('${gg.id}')`,libNames(gg.id)));
+    const otherN=libCount('other'); if(otherN) tiles.push(folderTileHTML('#8a8175','Other',null,otherN,`libGo('other')`,libNames('other')));
     body=`<div class="grid">${tiles.join('')}</div>`;
   } else if(mode==='subs'){
-    body=`<div class="grid">${g.subs.map(x=>folderTileHTML(x.color||g.color,x.name,null,libCount(g.id,x.id),`libGo('${g.id}','${x.id}')`)).join('')}</div>`;
+    body=`<div class="grid">${g.subs.map(x=>folderTileHTML(x.color||g.color,x.name,null,libCount(g.id,x.id),`libGo('${g.id}','${x.id}')`,libNames(g.id,x.id))).join('')}</div>`;
   } else if(mode==='ranges'){
     const color=(s&&s.color)||(g&&g.color)||'#143644';
-    const tiles=ranges.map(rn=>folderTileHTML(color,rn,null,inGroup.filter(r=>r.range===rn).length,`libGo('${top}','${sub}','${String(rn).replace(/'/g,"\\'")}')`));
+    const tiles=ranges.map(rn=>folderTileHTML(color,rn,null,inGroup.filter(r=>r.range===rn).length,`libGo('${top}','${sub}','${String(rn).replace(/'/g,"\\'")}')`,inGroup.filter(r=>r.range===rn).map(r=>r.name)));
     const un=inGroup.filter(r=>!r.range).length;   // recipes that lost their range (e.g. edited on an older version) still appear here, never hidden
-    if(un) tiles.push(folderTileHTML('#8a8175','Other',null,un,`libGo('${top}','${sub}','__none__')`));
+    if(un) tiles.push(folderTileHTML('#8a8175','Other',null,un,`libGo('${top}','${sub}','__none__')`,inGroup.filter(r=>!r.range).map(r=>r.name)));
     body=`<div class="grid">${tiles.join('')}</div>`;
   } else {
     const sortedLeaf=leafList.slice().sort((a,b)=>custLabel(a).localeCompare(custLabel(b)));   // tiles always alphabetical
@@ -1455,8 +1478,9 @@ function deletedRecipesView(){
 function findRecipe(name){ return allRecipes().find(r=>r.name===name); }
 let recMode = 'std';
 function recipeDetailView(name){
-  const r = findRecipe(name);
-  if(!r) return '<p>Recipe not found.</p>';
+  const r0 = findRecipe(name);
+  if(!r0) return '<p>Recipe not found.</p>';
+  const r = verViewRecipe(name, r0);
   const c = recipeColor(r);
   const isCustom = !!r.custom;
   const priced = r.ingredients.map(i=>{
@@ -1484,7 +1508,7 @@ function recipeDetailView(name){
   return `
   <div class="detail-head">
     <button class="btn ghost no-print" onclick="show('recipes')">&larr; All recipes</button>
-    <h2 style="color:${c}">${esc(r.name)}</h2>
+    <h2 style="color:${c}">${esc(r.name)}</h2>${verBadgeHTML(name)}
     ${r.edited?'<span class="tag-custom" style="font-size:12px" title="This is one of the original recipes and has been changed from its first figures. Use “Revert to original” to undo those changes.">changed from original</span>':''}
     <span class="no-print" style="display:inline-flex;gap:0;border:2px solid var(--sea);border-radius:20px;overflow:hidden">
       <button class="btn small" style="border-radius:0;${recMode==='std'?'':'background:#fff;color:var(--sea)'}" onclick="recMode='std';refresh()">Standard costs</button>
@@ -1494,18 +1518,21 @@ function recipeDetailView(name){
       <select onchange="setRecipeCategory('${esc(r.name).replace(/'/g,"\\'")}',this.value)" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px">
         ${catList().map(x=>`<option value="${esc(x.id)}"${catOf(r.name)===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}
       </select></label>
+    <label class="no-print muted" style="margin-left:4px;display:inline-flex;align-items:center;gap:6px">Stage ${stageSelectHTML([name])}</label>
     <span class="no-print" title="Tile colour" style="display:inline-flex;gap:5px;align-items:center;margin-left:4px">
       ${BRAND_PALETTE.map(x=>`<button title="${x.n}" onclick="setTileColor('${esc(r.name).replace(/'/g,"\\'")}','${x.c}')" style="width:20px;height:20px;border-radius:50%;background:${x.c};cursor:pointer;border:${c===x.c?'3px solid var(--sea)':'1px solid rgba(20,54,68,.3)'};padding:0"></button>`).join('')}
     </span>
     <span style="margin-left:auto" class="no-print">
-      <button class="btn" onclick="openBuilder('${esc(r.name).replace(/'/g,"\\'")}')">Edit</button>
-      <button class="btn ghost" onclick="openBuilder('${esc(r.name).replace(/'/g,"\\'")}',true)">Duplicate</button>
+      <button class="btn" onclick="openBuilder('${jsq(name)}',false,verViewing('${jsq(name)}'))" title="${verViewing(name)?'Edit this version':'Saving creates a new version — the live one is never overwritten'}">Edit</button>
+      <button class="btn ghost" onclick="verRenamePrompt('${jsq(name)}')">Rename</button>
+      <button class="btn ghost" onclick="openBuilder('${jsq(name)}',true)">Duplicate</button>
       ${r.edited?`<button class="btn ghost" onclick="revertRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Revert to original</button>`:''}
       <button class="btn danger" onclick="deleteRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Delete</button>
       <button class="btn ghost" onclick="exportRecipe('${esc(r.name).replace(/'/g,"\\'")}')">Export CSV</button>
       <button class="btn ghost" onclick="window.print()">Print</button>
     </span>
   </div>
+  ${verBannerHTML(name)}
   ${unpricedBanner(recipeUnpriced(r, recMode))}
   ${Math.abs(totKg-(r.batchSize||0))>0.01?`<div style="background:#fdf3df;border:1px solid #e5d3a1;color:#7a5c10;border-radius:10px;padding:9px 13px;margin:0 0 12px;font-size:13px">⚠ Ingredient weights total <b>${NUM(totKg)} kg</b> but the batch size is <b>${NUM(r.batchSize)} kg</b> — the £/kg figure is spread over the batch size, so it's ${totKg<r.batchSize?'understated':'overstated'} until the weights and batch size agree. Edit the recipe to fix.</div>`:''}
   <div class="two-col">
@@ -2178,6 +2205,7 @@ function deleteRecipe(name){
     packs: store.recipeCosting[name]||null,
     color: store.tileColors[name]||null });
   store.deletedRecipes = bin;
+  verForget(name);
   if(!isBuiltin) store.customRecipes = store.customRecipes.filter(x=>x.name!==name);
   const e=store.recipeEdits; if(e[name]!==undefined){ delete e[name]; store.recipeEdits=e; }
   const rc=store.recipeCosting; if(rc[name]!==undefined){ delete rc[name]; store.recipeCosting=rc; }
@@ -2195,8 +2223,8 @@ function restoreRecipe(name){
   bin.splice(ix,1); store.deletedRecipes = bin;
   show('recipeDetail', name);
  scheduleRecipeSync(); }
-function exportRecipe(name){
-  const r = findRecipe(name);
+function exportRecipe(name, v){
+  const r = v ? verViewRecipe(name, findRecipe(name), v) : findRecipe(name);
   const priced = r.ingredients.map(i=>{
     const fb = r.custom ? i.perKg : (i.howPerKg ?? i.djlPerKg ?? 0);
     return {name:i.name, kg:i.kg, std:linePrice(i.name,fb,'std').p, act:linePrice(i.name,fb,'act').p};
@@ -2214,12 +2242,13 @@ function exportRecipe(name){
 let draft = null, builderDirty = false;
 /* ask before leaving a half-edited recipe */
 function confirmLeaveBuilder(){ if(view==='builder' && builderDirty){ return confirm('You have unsaved changes to this recipe.\n\nLeave without saving? Your changes will be lost.'); } return true; }
-function openBuilder(fromName, dup){
+function openBuilder(fromName, dup, v, forceNew){
   if(!confirmLeaveBuilder()) return;
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('nav-builder').classList.add('active');
   if(fromName){
-    const src = findRecipe(fromName);
+    const src0 = findRecipe(fromName);
+    const src = (!dup && (v||verViewing(fromName))) ? verViewRecipe(fromName, src0, v||verViewing(fromName)) : src0;
     draft = {
       name: dup ? src.name + ' (copy)' : src.name,
       editing: dup ? null : src.name,
@@ -2231,6 +2260,7 @@ function openBuilder(fromName, dup){
   } else {
     draft = {name:'', editing:null, brand:'', appName:null, categoryId:(catList()[0]&&catList()[0].id)||'', batchSize:1000, wastePct:0.05, ingredients:[{name:'',kg:0,perKg:0}]};
   }
+  verInitDraft(fromName, dup, v, forceNew);
   builderDirty=false;   // fresh draft — no unsaved changes yet
   view='builder';
   document.getElementById('main').innerHTML = builderView();
@@ -2259,19 +2289,19 @@ function builderView(){
   return `
   <datalist id="inglist">${opts}</datalist>
   <div class="detail-head">
-    <h2>${draft.editing?'Edit recipe':'New recipe'}</h2>
-    <span style="margin-left:auto">
-      <button class="btn ghost" onclick="show('recipes')">Cancel</button>
-      <button class="btn accent" onclick="saveDraft()">Save recipe</button>
+    <h2>${verBuilderTitle()}</h2>
+    <span style="margin-left:auto;display:flex;gap:8px">
+      ${verBuilderButtons()}
     </span>
   </div>
   <div class="toolbar">
-    <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value;builderDirty=true">
+    <input type="text" placeholder="Recipe name…" value="${esc(draft.name)}" style="min-width:300px;font-weight:600" onchange="draft.name=this.value;builderDirty=true"${draft.ver?' readonly title="Use Rename on the recipe page — a version keeps the recipe\u2019s name"':''}>
     <label class="muted">Brand <input type="text" list="brandList" placeholder="e.g. TUGGS" value="${esc(draft.brand||'')}" style="width:180px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.brand=this.value.trim();builderDirty=true" title="Which brand (and so which factory) this recipe belongs to — cold-pressed brands go to Blair, everything else to Ayr"></label>
     <datalist id="brandList">${[...new Set([...Object.keys(BRANDHEX),...allRecipes().map(r=>r.brand||costingBrandOf(r.name))])].filter(Boolean).map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
     <label class="muted">Category <select onchange="draft.categoryId=this.value;builderDirty=true" style="padding:8px;border:1px solid var(--line);border-radius:8px" title="Which product category this recipe is">
       ${catList().map(c=>`<option value="${esc(c.id)}"${draft.categoryId===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}
     </select></label>
+    ${verBuilderFields()}
     <label class="muted">Batch size (kg) <input type="number" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px" value="${draft.batchSize}" oninput="draft.batchSize=parseFloat(this.value)||1000;builderDirty=true;recalcBuilder()"></label>
     <select onchange="if(this.value){openBuilder(this.value)}" class="no-print">
       <option value="">Start from existing recipe…</option>
@@ -2347,6 +2377,7 @@ function saveDraft(){
     brand:(draft.brand||'').trim(), appName:draft.appName||undefined, range:draft.range||undefined,
     batchSize:draft.batchSize||1000, wastePct:draft.wastePct??0.05,
     ingredients:ings.map(i=>({name:keyOf(i.name),kg:i.kg,perKg:i.perKg}))};
+  if(verSaveHook(rec)) return;
   /* if this edit changes the recipe's app-side identity (name or brand), queue an IN-PLACE rename —
      the app keeps the same recipe row and id, so production history and plans stay linked */
   if(draft.editing && (wasCustom || (wasStock && newName===draft.editing))){
@@ -2369,6 +2400,7 @@ function saveDraft(){
       /* carry pack costing + tile colour over to the new name */
       const rc = store.recipeCosting; if(rc[draft.editing]){rc[newName]=rc[draft.editing]; delete rc[draft.editing]; store.recipeCosting=rc;}
       const tc = store.tileColors; if(tc[draft.editing]){tc[newName]=tc[draft.editing]; delete tc[draft.editing]; store.tileColors=tc;}
+      verRenameKeys(draft.editing,newName);
     }
   }
   // remember the category against this recipe (and carry it if the recipe was renamed)
@@ -2379,6 +2411,7 @@ function saveDraft(){
   { const po=store.priceOverrides; let changed=false;
     ings.forEach(i=>{ if(!i._priceEdited) return; const p=+i.perKg; if(p>0){ const k=keyOf(i.name); if(po[k]!==p){ po[k]=p; changed=true; } } });
     if(changed) store.priceOverrides=po; }
+  if(!draft.editing || !store.recVersions[newName]) verAfterNewRecipe(newName); else { const vf=verFamily(newName); const lv=vf&&vf.versions.find(x=>x.v===vf.liveV); if(lv){ lv.data=verDataOf(findRecipe(newName)||rec); verSave(newName,vf); } }
   draft=null; builderDirty=false;
   scheduleRecipeSync();
   show('recipeDetail', newName);
@@ -2421,8 +2454,119 @@ function refresh(){
       try{ parent.postMessage({openedRecipe:d.openRecipe},'*'); }catch(err){}
     }
   });
+  try{ if(SHARED){ const me=await fetch('/api/me',{headers:{Authorization:'Bearer '+API_TOKEN}}); if(me.ok){ const j=await me.json(); window.USER_NAME=(j.user&&j.user.username)||''; } } }catch(e){}
+  try{ if(verApplyDue()) console.log('scheduled recipe versions applied'); }catch(e){ console.warn('version schedule check failed', e); }
   show('products');
 })();
+
+/* ===== Recipe versions & stages (v51) =====
+   A recipe is a family of numbered versions with exactly one LIVE version. The ordinary recipe
+   record (DATA edits / custom list) always holds the live version's content, so costing, the
+   Products list and the HQ sync keep working unchanged. Every version — draft, scheduled, live,
+   retired — is kept in wpf_recversions with its live-from / live-until dates. A stage per recipe
+   (production / pipeline / retired) says where it appears in HQ. */
+const STAGES=[['production','In production'],['pipeline','Pipeline'],['retired','Retired']];
+let verViewingMap={}, verPopOpen=false, _verBatches={}, _stageSets=[];
+function jsq(s){ return esc(s).replace(/'/g,"\\'"); }
+function vToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function vDMY(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+'/'+m[2]+'/'+m[1]:(iso||''); }
+function vUser(){ return window.USER_NAME||''; }
+function verDataOf(r){ const isCustom=!!r.custom; return {brand:r.brand||'', appName:r.appName, range:r.range, batchSize:r.batchSize||1000, wastePct:r.wastePct??0.05, builtin:DATA.recipes.some(x=>x.name===r.name), ingredients:(r.ingredients||[]).map(i=>({name:i.name,kg:+i.kg||0,perKg:isCustom?(+i.perKg||0):(i.howPerKg??i.djlPerKg??ingPrice(i.name)??0)}))}; }
+function verFamily(name){ const all=store.recVersions; let f=all[name]; if(!f){ const r=findRecipe(name); if(!r) return null; f={liveV:1,versions:[{v:1,status:'live',liveFrom:'',liveUntil:'',by:'',created:new Date().toISOString(),note:'',data:verDataOf(r)}]}; all[name]=f; store.recVersions=all; } return f; }
+function verSave(name,f){ const all=store.recVersions; all[name]=f; store.recVersions=all; }
+function verGet(name,v){ const f=verFamily(name); return f?f.versions.find(x=>x.v===v):null; }
+function verLiveV(name){ const f=verFamily(name); return f?f.liveV:1; }
+function verLabel(name){ return 'v'+verLiveV(name); }
+function verViewing(name){ const v=verViewingMap[name]; return v&&v!==verLiveV(name)?v:0; }
+function verViewRecipe(name,r,v){ v=v||verViewing(name); if(!v||!r) return r; const ver=verGet(name,v); if(!ver) return r; const d=ver.data; return Object.assign({},r,{custom:{perKg:0},brand:d.brand||r.brand,batchSize:d.batchSize,wastePct:d.wastePct,ingredients:d.ingredients.map(i=>({name:i.name,kg:i.kg,perKg:i.perKg}))}); }
+function verCost(name,ver){ const r=findRecipe(name); if(!r) return null; return recipeCost(verViewRecipe(name,r,ver.v),recMode); }
+function verStatusPill(ver){ const m={live:['live','#e4f4ea','#1f8a4c'],draft:['draft','#fff4d6','#8a6600'],scheduled:['live from '+vDMY(ver.liveFrom),'#e6eeff','#2f5fa8'],retired:['retired','#eceae3','#5f6f7a']}; const s=m[ver.status]||m.draft; return `<span style="display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;background:${s[1]};color:${s[2]};white-space:nowrap;vertical-align:middle">${s[0]}</span>`; }
+function verDates(ver){ if(ver.status==='live') return ver.liveFrom?'since '+vDMY(ver.liveFrom):'since before versioning'; if(ver.status==='retired') return (ver.liveFrom?vDMY(ver.liveFrom):'?')+' – '+(ver.liveUntil?vDMY(ver.liveUntil):'?'); if(ver.status==='scheduled') return 'from '+vDMY(ver.liveFrom); return ver.created?'started '+vDMY(ver.created.slice(0,10)):''; }
+/* the small control next to the recipe name: "v2 · live since 3 Jun ▾" */
+function verBadgeHTML(name){ const f=verFamily(name); if(!f) return ''; const live=verGet(name,f.liveV); const v=verViewing(name); const cur=(v?verGet(name,v):null)||live;
+  const other=f.versions.filter(x=>x.v!==f.liveV).sort((a,b)=>b.v-a.v)[0];
+  const rows=f.versions.slice().sort((a,b)=>b.v-a.v).map(ver=>`<div class="verrow${ver.v===cur.v?' on':''}" onclick="verView('${jsq(name)}',${ver.v})"><span><b>v${ver.v}</b> ${verStatusPill(ver)}${ver.note?` <span class="muted">${esc(ver.note)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(verDates(ver))} · ${GBP(verCost(name,ver))}</span></div>`).join('');
+  return `<span class="no-print verwrap"><button type="button" class="verbadge" onclick="verPopOpen=!verPopOpen;refresh()"><b>v${cur.v}</b> ${verStatusPill(cur)} <span class="muted">${esc(verDates(cur))}</span> <span class="muted">▾</span></button>${verPopOpen?`<div class="verpop">${rows}<div class="verpop-foot"><button class="btn small ghost" onclick="verNew('${jsq(name)}',${cur.v})">＋ New version</button>${other?`<button class="btn small ghost" onclick="verPopOpen=false;show('compare',{name:'${jsq(name)}',a:${f.liveV},b:${cur.v!==f.liveV?cur.v:other.v}})">Compare</button>`:''}<button class="btn small ghost" onclick="verPopOpen=false;show('versions','${jsq(name)}')">History</button></div></div>`:''}</span>`; }
+function verView(name,v){ verPopOpen=false; if(v===verLiveV(name)) delete verViewingMap[name]; else verViewingMap[name]=v; show('recipeDetail',name); }
+function verBannerHTML(name){ const v=verViewing(name); if(!v) return ''; const ver=verGet(name,v); if(!ver) return ''; const f=verFamily(name); const acts=[];
+  if(ver.status==='draft'||ver.status==='scheduled'){ acts.push(`<button class="btn small" onclick="openBuilder('${jsq(name)}',false,${v})">Edit this version</button>`,`<button class="btn small accent" onclick="verAskLive('${jsq(name)}',${v})">${ver.status==='scheduled'?'Change the date':'Set live from…'}</button>`); if(ver.status==='scheduled') acts.push(`<button class="btn small ghost" onclick="verUnschedule('${jsq(name)}',${v})">Cancel the date</button>`); acts.push(`<button class="btn small danger" onclick="verDelete('${jsq(name)}',${v})">Delete</button>`); }
+  else acts.push(`<button class="btn small accent" onclick="verAskLive('${jsq(name)}',${v})">Make live again from…</button>`);
+  acts.push(`<button class="btn small ghost" onclick="exportRecipe('${jsq(name)}',${v})">Export CSV</button>`,`<button class="btn small ghost" onclick="verView('${jsq(name)}',${f.liveV})">Back to live v${f.liveV}</button>`);
+  return `<div class="no-print verbanner">Viewing <b>v${v}</b> ${verStatusPill(ver)} <span class="muted">${esc(verDates(ver))}${ver.note?' · '+esc(ver.note):''}${ver.by?' · '+esc(ver.by):''}</span><span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">${acts.join('')}</span></div>`; }
+/* live-from: today or earlier = live now (previous live gets its until-date); a future date = scheduled, applied at midnight */
+function verAskLive(name,v){ const ver=verGet(name,v); if(!ver) return; const old=document.getElementById('verModal'); if(old) old.remove(); const d=document.createElement('div'); d.id='verModal'; d.style.cssText='position:fixed;inset:0;background:rgba(20,28,36,.45);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px';
+  d.innerHTML=`<div style="background:#fff;border-radius:12px;padding:18px 20px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)"><h3 style="margin:0 0 6px">Live from</h3><p class="muted" style="margin:0 0 12px;font-size:13px;line-height:1.5">From this day the factory makes <b>v${v}</b> of ${esc(name)}: mixing sheets, Pick &amp; Mix, filling and stock all switch that morning. Today or earlier = live now. v${verLiveV(name)} gets its live-until date automatically.</p><input type="date" id="verDate" value="${esc(ver.liveFrom&&ver.liveFrom>vToday()?ver.liveFrom:vToday())}" style="padding:9px;border:1px solid var(--line);border-radius:8px;font-size:15px"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="document.getElementById('verModal').remove()">Cancel</button><button class="btn accent" onclick="verLiveConfirm('${jsq(name)}',${v})">Set live from</button></div></div>`;
+  d.onclick=e=>{ if(e.target===d) d.remove(); }; document.body.appendChild(d); }
+function verLiveConfirm(name,v){ const d=(document.getElementById('verDate')||{}).value; if(!d){ alert('Pick a date.'); return; } document.getElementById('verModal').remove(); verSetLiveFrom(name,v,d); }
+function verSetLiveFrom(name,v,date){ const f=verFamily(name); const ver=f&&f.versions.find(x=>x.v===v); if(!ver) return;
+  if(date<=vToday()) verMakeLive(name,v,date); else { ver.status='scheduled'; ver.liveFrom=date; ver.by=ver.by||vUser(); ver.scheduledBy=vUser(); verSave(name,f); verViewingMap[name]=v; }
+  show('recipeDetail',name); }
+function verUnschedule(name,v){ const f=verFamily(name); const ver=f.versions.find(x=>x.v===v); if(ver&&ver.status==='scheduled'){ ver.status='draft'; ver.liveFrom=''; verSave(name,f); refresh(); } }
+function verMakeLive(name,v,date){ const f=verFamily(name); const ver=f&&f.versions.find(x=>x.v===v); if(!ver) return;
+  const prev=f.versions.find(x=>x.v===f.liveV); if(prev&&prev.v!==v){ prev.status='retired'; prev.liveUntil=date; }
+  f.versions.forEach(x=>{ if(x.status==='scheduled'&&x.v!==v&&x.liveFrom<=date){ x.status='draft'; x.liveFrom=''; } });   // an older scheduled change overtaken by this one goes back to draft
+  ver.status='live'; ver.liveFrom=date; ver.liveUntil=''; ver.madeLiveBy=vUser(); ver.by=ver.by||vUser(); f.liveV=v; verSave(name,f);
+  verWriteMain(name,ver.data); delete verViewingMap[name]; scheduleRecipeSync(); }
+/* the ordinary recipe record = the live version */
+function verWriteMain(name,d){ const r=findRecipe(name); const sub=d.ingredients.reduce((a,i)=>a+i.kg*(i.perKg||0),0);
+  const rec={name, custom:{perKg:sub/(d.batchSize||1000)}, brand:d.brand||(r&&r.brand)||'', appName:d.appName!==undefined?d.appName:(r?r.appName:undefined), range:d.range!==undefined?d.range:(r?r.range:undefined), batchSize:d.batchSize||1000, wastePct:d.wastePct??0.05, ingredients:d.ingredients.map(i=>({name:i.name,kg:i.kg,perKg:i.perKg||0}))};
+  if(DATA.recipes.some(x=>x.name===name)){ const e=store.recipeEdits; e[name]=rec; store.recipeEdits=e; }
+  else { const list=store.customRecipes.filter(x=>x.name!==name); list.push(rec); store.customRecipes=list; } }
+function verNew(name,fromV){ verPopOpen=false; openBuilder(name,false,fromV||verViewing(name)||verLiveV(name),true); }
+/* builder hooks */
+function verInitDraft(fromName,dup,v,forceNew){ if(!draft) return; if(dup||!fromName){ draft.ver=null; return; } const vv=v||verViewing(fromName)||verLiveV(fromName); const ver=verGet(fromName,vv); const st=ver?ver.status:'live'; const newOnSave=!!forceNew||!(st==='draft'||st==='scheduled'); draft.ver={name:fromName,v:vv,status:st,newOnSave}; draft.liveFrom=(!newOnSave&&st==='scheduled')?ver.liveFrom:''; draft.vnote=newOnSave?'':((ver&&ver.note)||''); }
+function verBuilderTitle(){ if(!draft||!draft.ver) return draft&&draft.editing?'Edit recipe':'New recipe'; const d=draft.ver; return d.newOnSave?`New version of ${esc(d.name)} <span class="muted" style="font-size:14px;text-transform:none">copy of v${d.v}</span>`:`Edit v${d.v} <span class="muted" style="font-size:14px;text-transform:none">${esc(d.name)} · ${d.status}</span>`; }
+function verBuilderButtons(){ if(!draft||!draft.ver) return `<button class="btn ghost" onclick="show('recipes')">Cancel</button>\n      <button class="btn accent" onclick="saveDraft()">Save recipe</button>`; const d=draft.ver; return `<button class="btn ghost" onclick="show('recipeDetail','${jsq(d.name)}')">Cancel</button><button class="btn accent" onclick="saveDraft()">${d.newOnSave?'Save as new version':'Save v'+d.v}</button>`; }
+function verBuilderFields(){ if(!draft||!draft.ver) return ''; return `<label class="muted" title="Leave blank to keep it as a draft the factory never sees. Today or earlier = live now; a later date = live from that morning.">Live from <input type="date" value="${esc(draft.liveFrom||'')}" style="padding:7px;border:1px solid var(--line);border-radius:8px" onchange="draft.liveFrom=this.value;builderDirty=true"></label><label class="muted">Note <input type="text" value="${esc(draft.vnote||'')}" placeholder="what changed" style="width:200px;padding:8px;border:1px solid var(--line);border-radius:8px" onchange="draft.vnote=this.value;builderDirty=true"></label>`; }
+function verSaveHook(rec){ if(!draft||!draft.ver) return false; const {name,v,newOnSave}=draft.ver; const f=verFamily(name); if(!f) return false;
+  const data={brand:rec.brand||'',appName:rec.appName,range:rec.range,batchSize:rec.batchSize,wastePct:rec.wastePct,builtin:DATA.recipes.some(x=>x.name===name),ingredients:rec.ingredients.map(i=>({name:i.name,kg:i.kg,perKg:i.perKg||0}))};
+  let ver; if(newOnSave){ const nv=Math.max(...f.versions.map(x=>x.v))+1; ver={v:nv,status:'draft',liveFrom:'',liveUntil:'',by:vUser(),created:new Date().toISOString(),note:draft.vnote||'',data,from:v}; f.versions.push(ver); }
+  else { ver=f.versions.find(x=>x.v===v); ver.data=data; ver.note=draft.vnote||''; }
+  verSave(name,f);
+  { const po=store.priceOverrides; let ch=false; draft.ingredients.forEach(i=>{ if(!i._priceEdited) return; const p=+i.perKg; if(p>0){ const k=keyOf(i.name); if(po[k]!==p){ po[k]=p; ch=true; } } }); if(ch) store.priceOverrides=po; }
+  const lf=draft.liveFrom||''; draft=null; builderDirty=false;
+  if(lf) verSetLiveFrom(name,ver.v,lf); else { verViewingMap[name]=ver.v; show('recipeDetail',name); }
+  return true; }
+function verAfterNewRecipe(newName){ if(store.recVersions[newName]) return; const f=verFamily(newName); if(!f) return; f.versions[0].liveFrom=vToday(); f.versions[0].by=vUser(); f.versions[0].madeLiveBy=vUser(); verSave(newName,f); }
+function verRenamePrompt(name){ const r=findRecipe(name); if(!r) return; const n=prompt('New name for this recipe (all versions keep their history):', name); if(!n||n.trim()===name) return; if(!confirmLeaveBuilder()) return;
+  draft={name:n.trim(), editing:name, brand:r.brand||'', appName:r.appName, range:r.range, categoryId:catOf(name), batchSize:r.batchSize||1000, wastePct:r.wastePct??0.05, ingredients:verDataOf(r).ingredients.map(i=>({name:i.name,kg:i.kg,perKg:i.perKg})), ver:null}; view='builder'; saveDraft(); }
+function verRenameKeys(oldN,newN){ const all=store.recVersions; if(all[oldN]){ all[newN]=all[oldN]; delete all[oldN]; store.recVersions=all; } const m=store.recStage; if(m[oldN]){ m[newN]=m[oldN]; delete m[oldN]; store.recStage=m; } if(verViewingMap[oldN]){ verViewingMap[newN]=verViewingMap[oldN]; delete verViewingMap[oldN]; } }
+function verForget(name){ const all=store.recVersions; delete all[name]; store.recVersions=all; const m=store.recStage; delete m[name]; store.recStage=m; }
+function verDelete(name,v){ const f=verFamily(name); const ver=f.versions.find(x=>x.v===v); if(!ver||ver.status==='live'||ver.status==='retired') return; if(!confirm('Delete v'+v+' of '+name+'? It was never used in production.')) return; f.versions=f.versions.filter(x=>x.v!==v); verSave(name,f); delete verViewingMap[name]; if(view==='versions') refresh(); else show('recipeDetail',name); }
+function verApplyDue(){ const all=store.recVersions; const today=vToday(); let n=0; Object.keys(all).forEach(name=>{ const f=all[name]; if(!findRecipe(name)) return; const due=f.versions.filter(x=>x.status==='scheduled'&&x.liveFrom&&x.liveFrom<=today).sort((a,b)=>a.liveFrom.localeCompare(b.liveFrom)||a.v-b.v); due.forEach(x=>{ verMakeLive(name,x.v,x.liveFrom); n++; }); }); return n; }
+/* stages */
+function stageOf(name){ return store.recStage[name]||'production'; }
+function stageName(st){ return (STAGES.find(s=>s[0]===st)||[])[1]||(st==='mixed'?'Mixed':st); }
+function setStageMany(names,st){ if(!st||st==='mixed') return; const m=store.recStage; names.forEach(n=>{ if(st==='production') delete m[n]; else m[n]=st; }); store.recStage=m; scheduleRecipeSync(); refresh(); }
+function setStage(name,st){ setStageMany([name],st); }
+function verFolderStage(names){ const s=new Set(names.map(stageOf)); return s.size===1?[...s][0]:(s.size?'mixed':'production'); }
+function stageSelectHTML(names,small){ const cur=verFolderStage(names); const idx=_stageSets.push(names)-1; return `<select class="stagesel${cur!=='production'?' st-'+cur:''}" title="Where these recipes appear in HQ: In production = everywhere; Pipeline = Recipe Costing only; Retired = kept for records" onclick="event.stopPropagation()" onchange="event.stopPropagation();setStageMany(_stageSets[${idx}],this.value)">${cur==='mixed'?'<option value="mixed" selected>Mixed</option>':''}${STAGES.map(s=>`<option value="${s[0]}"${cur===s[0]?' selected':''}>${s[1]}</option>`).join('')}</select>`; }
+function libNames(topId,subId){ return allRecipes().filter(r=>{ const l=libLocate(r); return l.top===topId && (subId==null||l.sub===subId); }).map(r=>r.name); }
+function verStagesPayload(){ return allRecipes().map(r=>({name:r.appName||r.name,brand:r.brand||costingBrandOf(r.name),stage:stageOf(r.name)})); }
+function verTag(name){ const f=store.recVersions[name]; if(!f||f.versions.length<2) return ''; return ` <span class="muted" style="font-size:11px;font-weight:600" title="Costed at the live version">v${f.liveV}</span>`; }
+/* the Versions page (full history) */
+async function verLoadBatches(name){ const r=findRecipe(name); if(!r) return; _verBatches[name]={}; try{ const res=await fetch('/api/recipe-batches?name='+encodeURIComponent(r.appName||r.name)+'&brand='+encodeURIComponent(r.brand||costingBrandOf(r.name)),{headers:{Authorization:'Bearer '+API_TOKEN}}); if(res.ok){ _verBatches[name]=await res.json(); if(view==='versions') refresh(); } }catch(e){} }
+function versionsView(name){ const f=verFamily(name); if(!f) return '<p>Recipe not found.</p>'; if(!_verBatches[name]) verLoadBatches(name); const b=_verBatches[name]||{};
+  const rows=f.versions.slice().sort((a,b)=>b.v-a.v).map(ver=>{ const bt=b['v'+ver.v]||{}; const acts=[`<button class="btn small ghost" onclick="verView('${jsq(name)}',${ver.v})">Open</button>`];
+    if(ver.status==='draft'||ver.status==='scheduled') acts.push(`<button class="btn small ghost" onclick="openBuilder('${jsq(name)}',false,${ver.v})">Edit</button>`,`<button class="btn small accent" onclick="verAskLive('${jsq(name)}',${ver.v})">${ver.status==='scheduled'?'Change date':'Set live from…'}</button>`,`<button class="btn small danger" onclick="verDelete('${jsq(name)}',${ver.v})">Delete</button>`);
+    else if(ver.status==='retired') acts.push(`<button class="btn small accent" onclick="verAskLive('${jsq(name)}',${ver.v})">Make live again…</button>`);
+    acts.push(`<button class="btn small ghost" onclick="verNew('${jsq(name)}',${ver.v})">New version from this</button>`,`<button class="btn small ghost" onclick="exportRecipe('${jsq(name)}',${ver.v})">Export CSV</button>`);
+    return `<tr><td><b>v${ver.v}</b></td><td>${verStatusPill(ver)}</td><td>${ver.liveFrom?vDMY(ver.liveFrom):(ver.status==='live'?'<span class="muted">before versioning</span>':'—')}</td><td>${ver.liveUntil?vDMY(ver.liveUntil):'—'}</td><td>${esc(ver.madeLiveBy||ver.scheduledBy||ver.by||'')}</td><td class="num">${bt.n||0}${bt.first?`<div class="muted" style="font-size:11px">${esc(vDMY(bt.first))}${bt.last&&bt.last!==bt.first?' – '+esc(vDMY(bt.last)):''}</div>`:''}</td><td class="num">${GBP(verCost(name,ver))}</td><td>${esc(ver.note||'')}</td><td class="no-print" style="white-space:nowrap">${acts.join(' ')}</td></tr>`; }).join('');
+  const other=f.versions.filter(x=>x.v!==f.liveV).sort((a,b)=>b.v-a.v)[0];
+  return `<div class="detail-head"><button class="btn ghost no-print" onclick="show('recipeDetail','${jsq(name)}')">&larr; ${esc(name)}</button><h2>Versions</h2><span class="muted">${esc(name)}</span><span style="margin-left:auto;display:flex;gap:8px" class="no-print">${other?`<button class="btn ghost" onclick="show('compare',{name:'${jsq(name)}',a:${f.liveV},b:${other.v}})">Compare</button>`:''}<button class="btn accent" onclick="verNew('${jsq(name)}',${f.liveV})">＋ New version</button></span></div>
+  <div class="card"><table><thead><tr><th>Version</th><th>Status</th><th>Live from</th><th>Live until</th><th>Made live by</th><th class="num">Batches</th><th class="num">Materials £/kg</th><th>Note</th><th class="no-print"></th></tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="muted" style="margin-top:8px">Batch counts come from HQ's production records; every batch filled from v51 on stores the version it was made with.</p>`; }
+function compareView(arg){ if(!arg||!arg.name) return ''; const name=arg.name; const f=verFamily(name); if(!f) return '<p>Recipe not found.</p>'; const A=verGet(name,+arg.a)||verGet(name,f.liveV), B=verGet(name,+arg.b)||A; const r=findRecipe(name); const ra=verViewRecipe(name,r,A.v), rb=verViewRecipe(name,r,B.v);
+  const names=[...new Set([...ra.ingredients.map(i=>i.name),...rb.ingredients.map(i=>i.name)])]; const pa={},pb={}; ra.ingredients.forEach(i=>pa[i.name]=i); rb.ingredients.forEach(i=>pb[i.name]=i);
+  const price=i=>linePrice(i.name,i.perKg,recMode).p||0;
+  const rows=names.map(n=>{ const a=pa[n],b=pb[n]; const ka=a?a.kg:0,kb=b?b.kg:0; const ca=a?ka*price(a):0, cb=b?kb*price(b):0; const d=kb-ka; return `<tr><td class="pname">${esc(dispName(n))}</td><td class="num">${a?NUM(ka):'—'}</td><td class="num">${b?NUM(kb):'—'}</td><td class="num" style="color:${d>0?'var(--ok)':(d<0?'var(--warn)':'inherit')}">${Math.abs(d)>0.0001?((d>0?'+':'')+NUM(d)):''}</td><td class="num">${GBP2(ca)}</td><td class="num">${GBP2(cb)}</td></tr>`; }).join('');
+  const ca=recipeCost(ra,recMode), cb=recipeCost(rb,recMode); const kga=ra.ingredients.reduce((s,i)=>s+i.kg,0), kgb=rb.ingredients.reduce((s,i)=>s+i.kg,0);
+  const sel=(id,cur)=>`<select onchange="show('compare',{name:'${jsq(name)}',a:${id==='a'?'+this.value':A.v},b:${id==='b'?'+this.value':B.v}})">${f.versions.map(v=>`<option value="${v.v}"${v.v===cur?' selected':''}>v${v.v} · ${v.status}</option>`).join('')}</select>`;
+  return `<div class="detail-head"><button class="btn ghost no-print" onclick="show('recipeDetail','${jsq(name)}')">&larr; ${esc(name)}</button><h2>Compare</h2><span class="muted">${esc(name)}</span></div>
+  <div class="toolbar no-print"><label class="muted">A ${sel('a',A.v)}</label><label class="muted">B ${sel('b',B.v)}</label><span class="muted" style="margin-left:auto">${recMode==='std'?'Standard':'Actual'} prices</span></div>
+  <div class="card"><table><thead><tr><th>Ingredient</th><th class="num">A · v${A.v} kg</th><th class="num">B · v${B.v} kg</th><th class="num">Change kg</th><th class="num">A £/batch</th><th class="num">B £/batch</th></tr></thead><tbody>${rows}</tbody>
+  <tfoot><tr class="totrow"><td><b>Total · materials / kg</b></td><td class="num"><b>${NUM(kga)}</b></td><td class="num"><b>${NUM(kgb)}</b></td><td></td><td class="num"><b>${GBP(ca)}</b></td><td class="num"><b>${GBP(cb)}</b> <span style="color:${cb-ca>0.00005?'var(--warn)':'var(--ok)'}">(${cb-ca>=0?'+':''}${GBP(cb-ca)})</span></td></tr></tfoot></table></div>`; }
+
 </script>
 </body>
 </html>
